@@ -130,6 +130,7 @@ let quittingForUpdate = false; // 更新のために終了するところ（実�
 const localHandlers = new Map();
 
 function createWindow() {
+  setupPreviewSession();
   win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -142,8 +143,11 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // 詳細の「ブラウザ」タブ（タスクの開発サーバーのプレビュー）に <webview> を使う。中身は下の will-attach-webview で縛る
+      webviewTag: true,
     },
   });
+  guardPreviewWebviews(win.webContents);
   // アプリの画面以外へは移動させない。新しいウインドウも開かせない（リンクは open:external で http(s) の URL だけをデフォルトブラウザで開く）
   const appUrl = require('url').pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
   win.webContents.on('will-navigate', (e, url) => {
@@ -161,6 +165,46 @@ function createWindow() {
     e.preventDefault();
     app.quit();
   });
+}
+
+// 内蔵ブラウザの <webview>。決まったセッション（アプリの画面とは別）で、Node もプリロードも使わせず、http(s) のページだけを開く。
+// ポップアップ（target="_blank" など）は開かず、http(s) ならデフォルトブラウザで開く。カメラ・位置情報などの許可は出さない
+const PREVIEW_PARTITION = 'persist:worktree-kanban-preview';
+function previewUrlAllowed(url) {
+  return url === 'about:blank' || !!require('./src/external-url').externalUrl(url);
+}
+function guardPreviewWebviews(contents) {
+  contents.on('will-attach-webview', (e, prefs, params) => {
+    delete prefs.preload;
+    delete prefs.preloadURL;
+    prefs.nodeIntegration = false;
+    prefs.nodeIntegrationInSubFrames = false;
+    prefs.contextIsolation = true;
+    prefs.sandbox = true;
+    prefs.webSecurity = true;
+    prefs.allowRunningInsecureContent = false;
+    if (params.partition !== PREVIEW_PARTITION || !previewUrlAllowed(params.src || 'about:blank')) e.preventDefault();
+  });
+  contents.on('did-attach-webview', (_e, guest) => {
+    guest.setWindowOpenHandler(({ url }) => {
+      if (require('./src/external-url').externalUrl(url)) shell.openExternal(url).catch(() => {});
+      return { action: 'deny' };
+    });
+    guest.on('will-navigate', (e, url) => {
+      if (!previewUrlAllowed(url)) e.preventDefault();
+    });
+    guest.on('will-redirect', (e, url) => {
+      if (!previewUrlAllowed(url)) e.preventDefault();
+    });
+  });
+}
+let previewSessionReady = false;
+function setupPreviewSession() {
+  if (previewSessionReady) return;
+  previewSessionReady = true;
+  const ses = require('electron').session.fromPartition(PREVIEW_PARTITION);
+  ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'clipboard-sanitized-write' || permission === 'fullscreen'));
+  ses.setPermissionCheckHandler((_wc, permission) => permission === 'clipboard-sanitized-write' || permission === 'fullscreen');
 }
 
 function send(channel, payload) {
