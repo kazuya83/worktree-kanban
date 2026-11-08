@@ -683,11 +683,22 @@ function enabledAgents(settings) {
 function isEnabled(settings, a) {
   return enabledAgents(settings).includes(a);
 }
-// 新しいタスク・会話で最初から選んでおくエージェント（使わない設定のものなら、使うものの先頭）
-function defaultAgentOf(settings) {
+// 新しいタスク・会話で最初から選んでおくエージェント（プロジェクトごとの設定）。
+// 「custom:<ID>」ならこのプロジェクトのカスタムエージェント。消えた・元の CLI を使わない設定なら、使うエージェントの先頭
+function defaultAgentRefOf(settings) {
   const list = enabledAgents(settings);
   const d = settings && settings.defaultAgent;
+  if (isCustomRef(d)) {
+    const ca = findCustomAgent(cleanCustomAgents(settings.customAgents), d);
+    return ca && list.includes(ca.agent) ? d : list[0];
+  }
   return list.includes(d) ? d : list[0];
+}
+// 最初から選んでおくエージェントの CLI（カスタムエージェントなら、その元にするエージェント）。比較・Pipelineの組み立てなど、アプリが頼む作業に使う
+function defaultAgentOf(settings) {
+  const ref = defaultAgentRefOf(settings);
+  if (!isCustomRef(ref)) return ref;
+  return findCustomAgent(cleanCustomAgents(settings.customAgents), ref).agent;
 }
 
 module.exports = {
@@ -725,6 +736,7 @@ module.exports = {
   enabledAgents,
   isEnabled,
   defaultAgentOf,
+  defaultAgentRefOf,
   MAX_CUSTOM_AGENTS,
   CUSTOM_PREFIX,
   DEFAULT_CUSTOM_COLOR,

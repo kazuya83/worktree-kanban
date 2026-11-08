@@ -1,7 +1,7 @@
 // ボードの状態を JSON ファイルに保存する
 const fs = require('fs');
 const path = require('path');
-const { DEFAULT_RELAY_STEPS, defaultRelaySteps, DEFAULT_COMPETE_AGENTS, DEFAULT_ENABLED_AGENTS, isAgent, cleanEnabledAgents, cleanOrchestration, cleanRelaySteps, cleanCustomAgents } = require('./providers');
+const { DEFAULT_RELAY_STEPS, defaultRelaySteps, DEFAULT_COMPETE_AGENTS, DEFAULT_ENABLED_AGENTS, isAgent, isCustomRef, cleanEnabledAgents, cleanOrchestration, cleanRelaySteps, cleanCustomAgents, defaultAgentOf, defaultAgentRefOf } = require('./providers');
 const FlowModel = require('../renderer/flow-model');
 const { cleanSchedules } = require('../renderer/schedule-model');
 const I18n = require('../renderer/i18n');
@@ -264,7 +264,7 @@ const DEFAULT_SETTINGS = {
   updatePending: null, // 更新のために終了したときの { from, to, at }（次の起動で、更新できたかを知らせる）
   // ---- エージェント ----
   enabledAgents: DEFAULT_ENABLED_AGENTS, // 使うエージェント（チェックを付けたものだけ、コマンド・モデルを設定してタスクや会話で選べる）
-  defaultAgent: 'claude', // 新しいタスク・会話で最初から選んでおくエージェント（claude / codex / antigravity / gemini / cursor。Pipeline・競争はタスクを作るときに選ぶ）
+  defaultAgent: 'claude', // 新しいタスク・会話で最初から選んでおくエージェント（プロジェクトごと。claude / codex / antigravity / gemini / cursor か、このプロジェクトのカスタムエージェント「custom:<ID>」。Pipeline・競争はタスクを作るときに選ぶ）
   codexPath: 'codex',
   codexModel: '',
   antigravityPath: 'agy',
@@ -324,7 +324,7 @@ const MAX_NOTIFICATIONS = 200;
 
 // ---------- プロジェクト（リポジトリ）ごとの設定 ----------
 // リポジトリに関わる設定だけをプロジェクトごとに持つ。コマンドのパス・モデル・同時に動かす数・自動更新などはアプリ全体で1つ
-const REPO_SETTING_KEYS = ['baseBranch', 'integration', 'branchNamingRule', 'issueProvider', 'issueComments', 'codeHost', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'permissionMode', 'allowedTools', 'defaultSkill', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'pushAfterMerge', 'relayFlow', 'relayFlows', 'relayFlowId', 'customAgents', 'competeCustomAgents', 'setupScript', 'teardownScript', 'runScript'];
+const REPO_SETTING_KEYS = ['baseBranch', 'integration', 'branchNamingRule', 'issueProvider', 'issueComments', 'codeHost', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'permissionMode', 'allowedTools', 'defaultSkill', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'pushAfterMerge', 'relayFlow', 'relayFlows', 'relayFlowId', 'customAgents', 'competeCustomAgents', 'defaultAgent', 'setupScript', 'teardownScript', 'runScript'];
 const MAX_REPO_SETTINGS = 200;
 
 // 初めて開いたプロジェクトの設定（初期値。取り込み方は PR を作成。GitHub でないリポジトリは開いたときに直接マージにする）
@@ -337,7 +337,8 @@ function defaultRepoSettings() {
 // 保存してある、そのリポジトリの設定。初めて開くリポジトリは初期値にし、Pipeline は今使えるエージェントで組む
 function savedRepoSettings(settings, dir) {
   const saved = (settings.repoSettings || {})[dir];
-  return pickRepoSettings(saved || { relayFlow: defaultRelayFlow(settings.enabledAgents) });
+  // 最初から選んでおくエージェントは、今の値を引き継ぐ（カスタムエージェントはプロジェクトごとなので、その元にするエージェント）
+  return pickRepoSettings(saved || { relayFlow: defaultRelayFlow(settings.enabledAgents), defaultAgent: defaultAgentOf(settings) });
 }
 
 // 設定から、プロジェクトごとの項目だけを取り出す（足りない項目は初期値）
@@ -352,6 +353,7 @@ function pickRepoSettings(src) {
   Object.assign(out, cleanRelayFlows(out.relayFlows, out.relayFlowId, src.relayFlow !== undefined ? src.relayFlow : undefined));
   out.customAgents = cleanCustomAgents(out.customAgents);
   out.competeCustomAgents = cleanCompeteCustomAgents(out.competeCustomAgents, out.customAgents);
+  if (!isAgent(out.defaultAgent) && !isCustomRef(out.defaultAgent)) out.defaultAgent = DEFAULT_SETTINGS.defaultAgent;
   return out;
 }
 
@@ -437,12 +439,15 @@ function migrateRepoSettings(settings, raw, cards) {
     }
   }
   if (raw.repoSettings && typeof raw.repoSettings === 'object' && !Array.isArray(raw.repoSettings)) {
-    settings.repoSettings = cleanRepoSettingsMap(raw.repoSettings);
+    // 最初から選んでおくエージェントがアプリ全体の設定だったころの分: どのプロジェクトにも今までの値を入れておく
+    const map = {};
+    for (const [p, v] of Object.entries(raw.repoSettings)) map[p] = v && typeof v === 'object' && v.defaultAgent === undefined ? { ...v, defaultAgent: settings.defaultAgent } : v;
+    settings.repoSettings = cleanRepoSettingsMap(map);
     if (settings.repoPath && !settings.repoSettings[settings.repoPath]) settings.repoSettings[settings.repoPath] = pickRepoSettings(settings);
     delete settings.repoBaseBranches;
     return;
   }
-  const old = { ...raw, integration: raw.integration === 'pr' ? 'pr' : 'merge' };
+  const old = { ...raw, integration: raw.integration === 'pr' ? 'pr' : 'merge', defaultAgent: settings.defaultAgent };
   const bases = raw.repoBaseBranches && typeof raw.repoBaseBranches === 'object' && !Array.isArray(raw.repoBaseBranches) ? raw.repoBaseBranches : {};
   const paths = new Set();
   const add = (p) => {
@@ -480,7 +485,8 @@ function migrateSettings(settings, raw, cards) {
   // Pipelineと競争は排他（どちらか1つ、またはなし）。知らない値ならPipeline
   settings.orchestration = cleanOrchestration(settings.orchestration);
   // 「最初から選んでおくエージェント」にはPipeline・競争を選べなくなったので、1つのエージェントにする
-  if (!isAgent(settings.defaultAgent) || !settings.enabledAgents.includes(settings.defaultAgent)) settings.defaultAgent = settings.enabledAgents[0];
+  // （カスタムエージェントも選べる。消えた・元の CLI を使わない設定なら、使うものの先頭）
+  settings.defaultAgent = defaultAgentRefOf(settings);
   // 最近開いたリポジトリ: なければ今のリポジトリとカードから起こす
   settings.recentRepoPaths = cleanRecentRepoPaths(settings.recentRepoPaths);
   if (!settings.recentRepoPaths.length) settings.recentRepoPaths = seedRecentRepoPaths(settings, cards);

@@ -1134,7 +1134,7 @@ app.whenReady().then(async () => {
       patch = { ...patch, enabledAgents: providers.cleanEnabledAgents(patch.enabledAgents) };
       delete store.settings.agentsUnset; // ユーザーが決めたので、起動したときに選び直さない
     }
-    if (patch && 'defaultAgent' in patch && !providers.isAgent(patch.defaultAgent)) patch = { ...patch, defaultAgent: 'claude' };
+    if (patch && 'defaultAgent' in patch && !providers.isAgent(patch.defaultAgent) && !providers.isCustomRef(patch.defaultAgent)) patch = { ...patch, defaultAgent: 'claude' };
     for (const k of ['codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel']) if (patch && k in patch) patch = { ...patch, [k]: String(patch[k] || '').trim() };
     if (patch && 'relaySteps' in patch) patch = { ...patch, relaySteps: providers.cleanRelaySteps(patch.relaySteps) };
     // Pipeline（複数）: 一覧・既定の Pipeline・既定のフローを、そろえて保存する
@@ -1154,8 +1154,8 @@ app.whenReady().then(async () => {
       patch = { ...patch, statusMapping: { inProgress: str(m.inProgress), inReview: str(m.inReview), done: str(m.done) } };
     }
     for (const k of allowed) if (patch && k in patch) store.settings[k] = patch[k];
-    // 最初から選んでおくエージェントは、使うエージェントの中から（使わない設定にしたら、使うものの先頭にする）
-    store.settings.defaultAgent = providers.defaultAgentOf(store.settings);
+    // 最初から選んでおくエージェントは、使うエージェントとこのプロジェクトのカスタムエージェントの中から（消えた・使わない設定にしたら、使うものの先頭にする）
+    store.settings.defaultAgent = providers.defaultAgentRefOf(store.settings);
     store.settings.maxParallel = Math.min(10, Math.max(1, parseInt(store.settings.maxParallel, 10) || 1));
     store.save();
     agents.pump();

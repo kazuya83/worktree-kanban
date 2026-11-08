@@ -51,11 +51,6 @@ function enabledAgents(s = state.board.settings || {}) {
   const list = AGENTS.map((x) => x[0]).filter((a) => on.includes(a));
   return list.length ? list : ['claude'];
 }
-// 新しいタスク・会話で最初から選んでおくエージェント
-function defaultAgent(s = state.board.settings || {}) {
-  const list = enabledAgents(s);
-  return list.includes(s.defaultAgent) ? s.defaultAgent : list[0];
-}
 const agentLabel = (a) => (AGENTS.find((x) => x[0] === a) || AGENTS[0])[1];
 const agentShort = (a) => (AGENTS.find((x) => x[0] === a) || AGENTS[0])[2];
 const agentOf = (c) => (c && AGENTS.some((x) => x[0] === c.agent) ? c.agent : 'claude');
@@ -70,6 +65,21 @@ function customAgents(s = state.board.settings || {}) {
 function findCustomAgent(ref, list = customAgents()) {
   const id = isCustomRef(ref) ? ref.slice(CUSTOM_PREFIX.length) : String(ref || '');
   return list.find((x) => x && x.id === id) || null;
+}
+// 新しいタスク・会話で最初から選んでおくエージェント（プロジェクトごと。「custom:<ID>」ならカスタムエージェント）。
+// 消えた・元の CLI を使わない設定なら、使うエージェントの先頭
+function defaultAgentRef(s = state.board.settings || {}) {
+  const list = enabledAgents(s);
+  if (isCustomRef(s.defaultAgent)) {
+    const ca = findCustomAgent(s.defaultAgent, customAgents(s));
+    return ca && list.includes(ca.agent) ? s.defaultAgent : list[0];
+  }
+  return list.includes(s.defaultAgent) ? s.defaultAgent : list[0];
+}
+// その CLI（カスタムエージェントなら元にするエージェント）。競争の比較など、アプリが頼む作業に使う
+function defaultAgent(s = state.board.settings || {}) {
+  const ref = defaultAgentRef(s);
+  return isCustomRef(ref) ? findCustomAgent(ref, customAgents(s)).agent : ref;
 }
 // プロフィールのアイコン（絵文字がなければ、元の CLI のアイコン）。色の丸の中に出す
 function personaIcon(p, agent) {
@@ -3294,7 +3304,7 @@ function agentFieldHtml(idp, value, { orchestration = true } = {}) {
   const def = defaultPipeline(s);
   const defPipe = pipes.find((x) => def && x.p.id === def.id);
   const orchUsable = (orch === 'relay' && defPipe && !defPipe.off) || (orch === 'compete' && comp.length >= 2);
-  const v = (value === 'relay' && def ? RELAY_PREFIX + def.id : value) || (orchUsable ? (orch === 'relay' ? RELAY_PREFIX + def.id : orch) : defaultAgent(s));
+  const v = (value === 'relay' && def ? RELAY_PREFIX + def.id : value) || (orchUsable ? (orch === 'relay' ? RELAY_PREFIX + def.id : orch) : defaultAgentRef(s));
   const opt = (val, label, disabled, title) => `<option value="${val}" ${val === v && !disabled ? 'selected' : ''} ${disabled ? 'disabled' : ''}${title ? ` title="${esc(title)}"` : ''}>${esc(label)}</option>`;
   const plain = AGENTS.filter(([a]) => on.includes(a)).map(([a, l]) => opt(a, l)).join('');
   const cas = customAgents(s);
@@ -4531,7 +4541,7 @@ function renderSettingsView() {
       <small class="muted s-note">${tr('Claude Code・Codex・Cursor は、自動で許可されない操作をカードで承認できます（「毎回確認する」でも、Cursor のファイル編集は承認なしで書かれます。Codex の「ファイル編集は自動」は、worktree の sandbox の中のコマンドも承認なしで動きます）。Antigravity / Gemini はカードでの承認に対応していないため、権限モードに合わせて CLI 側で許可します（計画だけ → 読み取りのみ、すべて自動で許可 → 確認なし、それ以外 → ファイル編集だけ自動で許可）。')}</small>
       <label class="field">${tr('<span>新しいタスク・会話で最初から選んでおくエージェント</span>')}
         <select id="sDefaultAgent"></select>
-        <small>${tr('オーケストレーションで Pipeline・競争を選んでいれば、タスクを作るときの「エージェント」の欄では、そちらを最初から選んでおきます（使えない状態のときや会話では、このエージェント）。競争の比較も、このエージェントに頼みます（スキルの提案は、元のタスクのエージェントが使えればそちらに頼みます）。')}</small></label>`,
+        <small>${tr('オーケストレーションで Pipeline・競争を選んでいれば、タスクを作るときの「エージェント」の欄では、そちらを最初から選んでおきます（使えない状態のときや会話では、このエージェント）。競争の比較も、このエージェントに頼みます（スキルの提案は、元のタスクのエージェントが使えればそちらに頼みます）。')}<br />${tr('このプロジェクトの設定です。このプロジェクトのカスタムエージェントも選べます（競争の比較は、元にするエージェントに頼みます）。選んだカスタムエージェントを消したり、元にするエージェントを使わない設定にしたりしたときは、使うエージェントの先頭に戻ります。')}</small></label>`,
     custom: `<small class="muted s-note">${tr('カスタムエージェントは、このプロジェクトの設定です。')}</small>
          <div class="field">
         <div id="sCustomList" class="ca-list"></div>
@@ -4585,10 +4595,16 @@ function renderSettingsView() {
     // Claude Code だけの設定は、使うときだけ出す
     for (const id of ['sAllowed', 'sDeleteSessions']) $(id)?.closest('label')?.classList.toggle('hidden', !on.includes('claude'));
     // 最初から選んでおくエージェント
+    // （このプロジェクトのカスタムエージェントも選べる。元の CLI を使わない設定のものは選べない）
     const dsel = $('sDefaultAgent');
-    const cur = dsel.value || defaultAgent(s);
-    dsel.innerHTML = list.map((a) => `<option value="${a}" ${a === cur ? 'selected' : ''}>${esc(agentLabel(a))}</option>`).join('');
-    if (!list.includes(cur)) dsel.value = list[0];
+    const cur = dsel.value || defaultAgentRef(s);
+    const usable = cas.filter((ca) => list.includes(ca.agent));
+    const dOpt = (v, label) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label)}</option>`;
+    const plainOpts = list.map((a) => dOpt(a, agentLabel(a))).join('');
+    dsel.innerHTML = usable.length
+      ? `<optgroup label="${esc(tr('エージェント'))}">${plainOpts}</optgroup><optgroup label="${esc(tr('カスタムエージェント'))}">${usable.map((ca) => dOpt(CUSTOM_PREFIX + ca.id, whoLabel(ca.agent, ca))).join('')}</optgroup>`
+      : plainOpts;
+    if (!list.includes(cur) && !usable.some((ca) => CUSTOM_PREFIX + ca.id === cur)) dsel.value = list[0];
     // 競争させるエージェント
     document.querySelectorAll('.sCompete').forEach((x) => (x.checked ? competeSel.add(x.value) : competeSel.delete(x.value)));
     document.querySelectorAll('.sCompeteCustom').forEach((x) => (x.checked ? competeCustomSel.add(x.value) : competeCustomSel.delete(x.value)));
@@ -4745,7 +4761,11 @@ function renderSettingsView() {
       enabled: using(),
       customAgents: cas,
       modelSuggest: MODEL_SUGGEST,
-      defaultAgent: $('sDefaultAgent').value || using()[0],
+      defaultAgent: (() => {
+        const v = $('sDefaultAgent').value;
+        const ca = isCustomRef(v) ? findCustomAgent(v, cas) : null;
+        return ca ? ca.agent : v || using()[0];
+      })(),
       generate: (request, flow, agent) => api.generateFlow({ request, flow, agent, enabled: using(), customAgents: cas }),
       onSave: async (flow) => {
         // 工程で選んだカスタムエージェントも一緒に保存する（この画面で追加したばかりのものを使えるように）
