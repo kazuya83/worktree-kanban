@@ -408,6 +408,34 @@ test('MR の状態: パイプラインを gh と同じ形にする', async (t) =
   assert.deepStrictEqual((await checks()).failed, [{ name: 'パイプライン', url: 'p8' }]);
 });
 
+test('MR のレビューコメント: ディスカッションを読み、返信して解決し、まとめてノートを書く', async (t) => {
+  const s = setup();
+  const D = `/api/v4/${P}/merge_requests/5/discussions`;
+  const discussions = [
+    { id: 'abc', notes: [{ id: 11, body: 'ここ', author: { username: 'alice' }, resolvable: true, resolved: false, position: { new_path: 'a.rb', new_line: 3 } }] },
+    { id: 'def', individual_note: true, notes: [{ id: 12, body: '全体', author: { username: 'bob' } }] },
+  ];
+  const calls = mockFetch(t, {
+    [`GET ${D}`]: () => discussions,
+    [`POST ${D}/abc/notes`]: { id: 99 },
+    [`PUT ${D}/abc`]: { id: 'abc' },
+    [`POST ${D}/zzz/notes`]: { status: 403, json: { message: '403 Forbidden' } },
+    [`POST /api/v4/${P}/merge_requests/5/notes`]: { id: 100 },
+  });
+  const { items } = await call(s, 'mergeRequestComments', { url: MR });
+  assert.deepStrictEqual(items.map((i) => [i.key, i.kind, i.url]), [['t:abc:11', 'thread', `${MR}#note_11`], ['c:def:12', 'comment', `${MR}#note_12`]]);
+  assert.strictEqual(calls[0].url.searchParams.get('per_page'), '100');
+  const r = await call(s, 'replyMergeRequestComments', { url: MR, threads: [{ id: 'abc', body: '直しました' }, { id: 'zzz', body: '直しました' }], comment: 'まとめ' });
+  assert.strictEqual(r.replied, 1);
+  assert.strictEqual(r.resolved, 1);
+  assert.strictEqual(r.commented, true);
+  assert.strictEqual(r.errors.length, 1);
+  const put = calls.find((x) => x.method === 'PUT');
+  assert.strictEqual(put.url.searchParams.get('resolved'), 'true');
+  assert.deepStrictEqual(calls.at(-1).body, { body: 'まとめ' });
+  await assert.rejects(call(s, 'mergeRequestComments', { url: 'https://evil.example/g/p/-/merge_requests/1' }), /接続先のものではありません/);
+});
+
 test('別のサーバーの MR の URL には、トークンを送らない', async (t) => {
   const s = setup();
   const calls = mockFetch(t, {});

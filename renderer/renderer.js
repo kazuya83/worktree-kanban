@@ -282,6 +282,7 @@ function badgeFor(c) {
   if (c.conflict && !c.conflict.resolving && c.status !== 'running' && c.status !== 'queued') return ['conflict', tr('コンフリクト')];
   if (isSpecPending(c)) return ['spec', tr('仕様の確認')];
   if (c.prState === 'OPEN' && c.prChecks?.state === 'FAILURE' && (c.status === 'review' || c.status === 'failed')) return ['conflict', tr('CI 失敗')];
+  if (c.prState === 'OPEN' && c.prReview?.items?.length && (c.status === 'review' || c.status === 'failed')) return ['awaiting', tr('レビューコメント')];
   if (hasSubtaskProposal(c)) return ['spec', tr('サブタスクの提案')];
   if (subtasksRunning(c) && (c.status === 'review' || c.status === 'failed')) return subNeedsYou(c) ? ['awaiting', tr('サブタスクが対応待ち')] : ['running', tr('サブタスク実行中')];
   if (c.subtaskOf && subtaskNeedsCheck(c)) return ['awaiting', tr('確認待ち')];
@@ -300,6 +301,18 @@ function ciBadgeHtml(c, s) {
   const links = ch.failed.map((x) => (x.url ? `<a class="issue-chip" data-url="${esc(x.url)}">${esc(x.name)}</a>` : esc(x.name))).join(' ');
   const canFix = c.worktreePath && !c.conflict && (s === 'review' || s === 'failed');
   return ` <span class="badge b-conflict">${tr('CI 失敗')}</span>${fixing ? ` <span class="muted small">${tr('自動で修正中')}</span>` : ''}${!fixing && canFix ? ` <button class="btn small" data-act="ciFix">${tr('直してもらう')}</button>` : ''}<div class="ci-failed">${links}</div>`;
+}
+// PR のまだ直していないレビューコメント（件数・リンク・直してもらうボタン）
+function reviewBadgeHtml(c, s) {
+  const items = c.prState === 'OPEN' ? c.prReview?.items || [] : [];
+  if (!items.length) return '';
+  const fixing = c.reviewFix && c.reviewFix.running;
+  const links = items.map((x) => {
+    const label = `${x.author}${x.path ? ` · ${x.path}${x.line ? `:${x.line}` : ''}` : ''}`;
+    return x.url ? `<a class="issue-chip" data-url="${esc(x.url)}">${esc(label)}</a>` : esc(label);
+  }).join(' ');
+  const canFix = c.worktreePath && !c.conflict && (s === 'review' || s === 'failed');
+  return ` <span class="badge b-ci-wait">${tr('レビューコメント {n} 件', { n: items.length })}</span>${fixing ? ` <span class="muted small">${tr('修正中')}</span>` : ''}${!fixing && canFix ? ` <button class="btn small" data-act="reviewFix">${tr('直してもらう')}</button>` : ''}<div class="ci-failed">${links}</div>`;
 }
 function needsYou(c) {
   if (subtasksRunning(c) && subNeedsYou(c)) return true;
@@ -2051,7 +2064,7 @@ function competeBoxHtml(c) {
 function renderDetailHead() {
   const c = card(state.selected);
   if (!c) return closeDetailOrBack();
-  const sig = JSON.stringify([c.conflict, c.conflictResolved, c.status, c.title, c.error, c.branch, c.worktreePath, c.costUsd, c.permissions, c.alwaysAllow, c.mergedInto, c.pushedTo, c.prUrl, c.prBase, c.prState, c.prMergeable, c.prChecks, c.ciFix, state.board.settings.integration, c.sessionId, c.forkNext, c.sessions, c.questions, c.awaitingReply, c.specState, c.specQuestions, c.interrupted, c.agent, c.relay, c.compete, competitors(c).map((x) => [x.id, x.status, x.branch]), relayKidsSig(c), c.subtasks, c.subtaskProposal, c.subtaskOf, subKidsSig(c), c.cycleIds, state.board.cycles]);
+  const sig = JSON.stringify([c.conflict, c.conflictResolved, c.status, c.title, c.error, c.branch, c.worktreePath, c.costUsd, c.permissions, c.alwaysAllow, c.mergedInto, c.pushedTo, c.prUrl, c.prBase, c.prState, c.prMergeable, c.prChecks, c.ciFix, c.prReview, c.reviewFix, state.board.settings.integration, c.sessionId, c.forkNext, c.sessions, c.questions, c.awaitingReply, c.specState, c.specQuestions, c.interrupted, c.agent, c.relay, c.compete, competitors(c).map((x) => [x.id, x.status, x.branch]), relayKidsSig(c), c.subtasks, c.subtaskProposal, c.subtaskOf, subKidsSig(c), c.cycleIds, state.board.cycles]);
   if (sig === state.headSig) return;
   state.headSig = sig;
   const s = c.status;
@@ -2107,7 +2120,7 @@ function renderDetailHead() {
 function detailMetaHtml(c) {
   const s = c.status;
   const chat = isChat(c);
-  return tr('<dl class="d-meta">\n      {v}\n      {v2}\n      <dt>モデル</dt><dd>{v3}</dd>\n      {v4}\n      {v5}\n      {v6}\n      {v7}\n      {v8}\n      {v9}\n      {v10}\n      {v11}\n      {v12}\n      {v13}\n    </dl>', { v: (c.issue ? `<dt>Issue</dt><dd><a class="issue-chip" data-url="${esc(c.issue.url)}">${esc(IssueRef.keyOf(c.issue))}</a> ${esc(c.issue.url)}</dd>` : ''), v2: (!chat || c.persona ? tr('<dt>エージェント</dt><dd>{v}{v2}{v3}</dd>', { v: (personaIcon(c.persona, agentOf(c))), v2: (esc(whoLabel(agentOf(c), c.persona))), v3: (c.persona && c.persona.description ? ` <span class="muted small">${esc(c.persona.description)}</span>` : '') }) : ''), v3: (c.model ? esc(c.model) : settingsModel(agentOf(c)) ? tr('{v} <span class="muted small">（設定の既定）</span>', { v: (esc(settingsModel(agentOf(c)))) }) : tr('<span class="muted small">CLI の既定</span>')), v4: (sessionRowHtml(c)), v5: (chat ? tr('<dt>場所</dt><dd class="mono">{repoPath} <span class="muted small">（worktree は作りません）</span></dd>', { repoPath: (esc(c.repoPath)) }) : ''), v6: (!chat && c.readOnly ? tr('<dt>場所</dt><dd class="mono">{repoPath} <span class="muted small">（ソースを変更しないタスク。worktree は作らず、ファイルを書き換えるツールを止めて、このフォルダで動かします。作ったものはチャットに出ます）</span></dd>', { repoPath: (esc(c.repoPath)) }) : ''), v7: (!chat && isNoGit(c) && !c.readOnly ? tr('<dt>場所</dt><dd class="mono">{repoPath} <span class="muted small">（git で管理していないフォルダ。worktree は作らず、このフォルダで直接動かします）</span></dd>', { repoPath: (esc(c.repoPath)) }) : ''), v8: (c.branch ? tr('<dt>ブランチ</dt><dd>{branch} ← {baseBranch}</dd>', { branch: (esc(c.branch)), baseBranch: (esc(c.baseBranch)) }) : ''), v9: (c.worktreePath ? `<dt>worktree</dt><dd class="mono">${esc(c.worktreePath)}</dd>` : ''), v10: (c.prUrl ? `<dt>${prTr(c, 'PR')}</dt><dd><a class="issue-chip" data-url="${esc(c.prUrl)}">${esc(c.prUrl)}</a>${c.prBase ? ` → ${esc(c.prBase)}` : ''}${c.prState === 'MERGED' ? tr('（マージ済み）') : c.prState === 'CLOSED' ? tr('（閉じられました）') : ''}${c.prState === 'OPEN' && c.prMergeable === 'CONFLICTING' ? tr(' <span class="badge b-conflict">コンフリクト</span>{v}', { v: (c.worktreePath && !c.conflict && (s === 'review' || s === 'failed') ? tr(' <button class="btn small" data-act="prConflict">解消する</button>') : '') }) : ''}${ciBadgeHtml(c, s)}</dd>` : ''), v11: ((c.mergedInto || []).length ? tr('<dt>マージ済み</dt><dd>{v}</dd>', { v: (c.mergedInto.map((b) => esc(b) + ((c.pushedTo || []).includes(b) ? tr('（origin にも push 済み）') : '')).join(', ')) }) : ''), v12: (c.costUsd ? tr('<dt>コスト</dt><dd>${v}</dd>', { v: (c.costUsd.toFixed(3)) }) : ''), v13: ((c.alwaysAllow || []).length ? tr('<dt>常に許可</dt><dd>{v}</dd>', { v: (c.alwaysAllow.map(esc).join(', ')) }) : '') });
+  return tr('<dl class="d-meta">\n      {v}\n      {v2}\n      <dt>モデル</dt><dd>{v3}</dd>\n      {v4}\n      {v5}\n      {v6}\n      {v7}\n      {v8}\n      {v9}\n      {v10}\n      {v11}\n      {v12}\n      {v13}\n    </dl>', { v: (c.issue ? `<dt>Issue</dt><dd><a class="issue-chip" data-url="${esc(c.issue.url)}">${esc(IssueRef.keyOf(c.issue))}</a> ${esc(c.issue.url)}</dd>` : ''), v2: (!chat || c.persona ? tr('<dt>エージェント</dt><dd>{v}{v2}{v3}</dd>', { v: (personaIcon(c.persona, agentOf(c))), v2: (esc(whoLabel(agentOf(c), c.persona))), v3: (c.persona && c.persona.description ? ` <span class="muted small">${esc(c.persona.description)}</span>` : '') }) : ''), v3: (c.model ? esc(c.model) : settingsModel(agentOf(c)) ? tr('{v} <span class="muted small">（設定の既定）</span>', { v: (esc(settingsModel(agentOf(c)))) }) : tr('<span class="muted small">CLI の既定</span>')), v4: (sessionRowHtml(c)), v5: (chat ? tr('<dt>場所</dt><dd class="mono">{repoPath} <span class="muted small">（worktree は作りません）</span></dd>', { repoPath: (esc(c.repoPath)) }) : ''), v6: (!chat && c.readOnly ? tr('<dt>場所</dt><dd class="mono">{repoPath} <span class="muted small">（ソースを変更しないタスク。worktree は作らず、ファイルを書き換えるツールを止めて、このフォルダで動かします。作ったものはチャットに出ます）</span></dd>', { repoPath: (esc(c.repoPath)) }) : ''), v7: (!chat && isNoGit(c) && !c.readOnly ? tr('<dt>場所</dt><dd class="mono">{repoPath} <span class="muted small">（git で管理していないフォルダ。worktree は作らず、このフォルダで直接動かします）</span></dd>', { repoPath: (esc(c.repoPath)) }) : ''), v8: (c.branch ? tr('<dt>ブランチ</dt><dd>{branch} ← {baseBranch}</dd>', { branch: (esc(c.branch)), baseBranch: (esc(c.baseBranch)) }) : ''), v9: (c.worktreePath ? `<dt>worktree</dt><dd class="mono">${esc(c.worktreePath)}</dd>` : ''), v10: (c.prUrl ? `<dt>${prTr(c, 'PR')}</dt><dd><a class="issue-chip" data-url="${esc(c.prUrl)}">${esc(c.prUrl)}</a>${c.prBase ? ` → ${esc(c.prBase)}` : ''}${c.prState === 'MERGED' ? tr('（マージ済み）') : c.prState === 'CLOSED' ? tr('（閉じられました）') : ''}${c.prState === 'OPEN' && c.prMergeable === 'CONFLICTING' ? tr(' <span class="badge b-conflict">コンフリクト</span>{v}', { v: (c.worktreePath && !c.conflict && (s === 'review' || s === 'failed') ? tr(' <button class="btn small" data-act="prConflict">解消する</button>') : '') }) : ''}${ciBadgeHtml(c, s)}${reviewBadgeHtml(c, s)}</dd>` : ''), v11: ((c.mergedInto || []).length ? tr('<dt>マージ済み</dt><dd>{v}</dd>', { v: (c.mergedInto.map((b) => esc(b) + ((c.pushedTo || []).includes(b) ? tr('（origin にも push 済み）') : '')).join(', ')) }) : ''), v12: (c.costUsd ? tr('<dt>コスト</dt><dd>${v}</dd>', { v: (c.costUsd.toFixed(3)) }) : ''), v13: ((c.alwaysAllow || []).length ? tr('<dt>常に許可</dt><dd>{v}</dd>', { v: (c.alwaysAllow.map(esc).join(', ')) }) : '') });
 }
 
 function renderInfo(c) {
@@ -2248,6 +2261,7 @@ async function detailAction(e) {
   if (act === 'pr') openPr(c);
   if (act === 'prConflict') run(() => api.reopenPrConflict(c.id));
   if (act === 'ciFix') run(() => api.fixCi(c.id));
+  if (act === 'reviewFix') run(() => api.fixReviewComments(c.id));
   if (act === 'toTask') newTask({ fromChat: c });
   if (act === 'fixTask') newTask({ fromChat: c });
   if (act === 'adopt') {
@@ -4612,6 +4626,8 @@ function renderSettingsView() {
     task: `<div class="field">${tr('<span>新しいタスクで最初から選んでおくスキル</span>')}<div id="sSkill" class="skill-slot"></div>
         <small>${tr('「＋ 新しいタスク」（自然言語・Issue のどちらでも）を開いたときに、このスキルが選ばれた状態になります（その場で外したり変えたりできます）。')}</small></div>
       <label class="check"><input type="checkbox" id="sCiAutoFix" ${s.ciAutoFix !== false ? 'checked' : ''} /> ${I18n.forHost(tr('PR の CI が失敗したら、エージェントに直してもらって push する（続けて 3 回まで）'), s.codeHost)}</label>
+      <label class="check"><input type="checkbox" id="sReviewAutoFix" ${s.reviewAutoFix === true ? 'checked' : ''} /> ${I18n.forHost(tr('PR にレビューコメントが付いたら、エージェントに直してもらって push し、コメントに返信して解決する（続けて 3 回まで）'), s.codeHost)}</label>
+      <small class="muted s-note">${I18n.forHost(tr('切っていても、カードの「直してもらう」から頼めます。取り込むのは、解決していない行コメント・レビューの本文・会話欄のコメント（bot のものも含む）です。'), s.codeHost)}</small>
       <label class="check"><input type="checkbox" id="sSpecCheck" ${s.specCheck !== false ? 'checked' : ''} /> ${tr('新しいタスクの内容が詰まっていなければ、開発を始める前にエージェントと対話して仕様を詰める')}</label>
       <small class="muted s-note">${tr('仕様を詰めるときに、分けたほうがよい大きなタスクなら、エージェントがサブタスクに分けることを提案します（「サブタスクでやる」と答えたら分けます）。開始前のタスクには、進捗タブから手動でサブタスクを足せます（足したあとは「サブタスク」タブで見られます）。')}</small>
       <label class="field">${tr('<span>サブタスクが終わったら（既定。タスクごとに開始前に変えられます）</span>')}<select id="sSubtaskMerge"><option value="auto"${s.subtaskMerge !== 'review' ? ' selected' : ''}>${tr('自動で親のブランチにマージする')}</option><option value="review"${s.subtaskMerge === 'review' ? ' selected' : ''}>${tr('確かめてからマージする')}</option></select></label>`,
@@ -5228,6 +5244,7 @@ ${tr('読めなかったファイル: {v1}', { v1: (parsed.skipped.join(tr('、'
         deleteSessionsOnMerge: $('sDeleteSessions').checked,
         specCheck: $('sSpecCheck').checked,
         ciAutoFix: $('sCiAutoFix').checked,
+        reviewAutoFix: $('sReviewAutoFix').checked,
         subtaskMerge: $('sSubtaskMerge').value,
         statusFieldName: $('sStatusField').value.trim(),
         statusMapping: { inProgress: $('sMapProgress').value.trim(), inReview: $('sMapReview').value.trim(), done: $('sMapDone').value.trim() },

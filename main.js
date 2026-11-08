@@ -1203,7 +1203,7 @@ app.whenReady().then(async () => {
     return { branches, current, hasOrigin };
   });
   handle('settings:update', (patch) => {
-    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
+    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'reviewAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
     if (patch && 'branchNamingRule' in patch) patch = { ...patch, branchNamingRule: String(patch.branchNamingRule || '').trim() };
     for (const k of ['setupScript', 'teardownScript', 'runScript']) if (patch && k in patch) patch = { ...patch, [k]: cleanScript(patch[k]) };
     if (patch && 'integration' in patch && !['merge', 'pr'].includes(patch.integration)) patch = { ...patch, integration: 'merge' };
@@ -1211,6 +1211,7 @@ app.whenReady().then(async () => {
     if (patch && 'deleteSessionsOnMerge' in patch) patch = { ...patch, deleteSessionsOnMerge: !!patch.deleteSessionsOnMerge };
     if (patch && 'specCheck' in patch) patch = { ...patch, specCheck: !!patch.specCheck };
     if (patch && 'ciAutoFix' in patch) patch = { ...patch, ciAutoFix: !!patch.ciAutoFix };
+    if (patch && 'reviewAutoFix' in patch) patch = { ...patch, reviewAutoFix: !!patch.reviewAutoFix };
     if (patch && 'sprintBranch' in patch) patch = { ...patch, sprintBranch: !!patch.sprintBranch };
     if (patch && 'weeklyResetDay' in patch) patch = { ...patch, weeklyResetDay: /^[0-6]$/.test(String(patch.weeklyResetDay)) ? String(patch.weeklyResetDay) : '' };
     if (patch && 'weeklyResetTime' in patch) patch = { ...patch, weeklyResetTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(patch.weeklyResetTime)) ? String(patch.weeklyResetTime) : '00:00' };
@@ -1438,6 +1439,7 @@ app.whenReady().then(async () => {
   handle('conflict:dismiss', (id) => agents.dismissConflict(id));
   handle('conflict:fromPr', (id) => agents.reopenPrConflict(id));
   handle('ci:fix', (id) => agents.fixCi(id));
+  handle('review:fix', (id) => agents.fixReviewComments(id));
   handle('card:permission', ({ id, reqId, decision, message }) => agents.answerPermission(id, reqId, decision, message));
   handle('card:answer', ({ id, reqId, answers }) => agents.answerQuestion(id, reqId, answers));
   handle('card:open', async (id) => {

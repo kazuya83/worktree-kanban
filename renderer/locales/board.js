@@ -515,4 +515,7 @@
   "CI 失敗": {"en":"CI failed","es":"CI fallida","fr":"CI échouée","zh":"CI 失败"},
   "自動で修正中": {"en":"Fixing automatically","es":"Corrigiendo automáticamente","fr":"Correction automatique en cours","zh":"正在自动修复"},
   "直してもらう": {"en":"Ask to fix","es":"Pedir corrección","fr":"Demander la correction","zh":"请求修复"},
+  "レビューコメント": {"en": "Review comments", "es": "Comentarios de revisión", "fr": "Commentaires de revue", "zh": "评审意见"},
+  "レビューコメント {n} 件": {"en": "{n} review comment(s)", "es": "{n} comentario(s) de revisión", "fr": "{n} commentaire(s) de revue", "zh": "{n} 条评审意见"},
+  "修正中": {"en": "Fixing", "es": "Corrigiendo", "fr": "Correction en cours", "zh": "正在修复"},
 });
