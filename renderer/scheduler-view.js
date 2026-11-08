@@ -8,7 +8,7 @@
 //   openEditor({ schedule }) そのスケジュールを編集する画面を開く
 /* global api, icon, esc, $, state, ScheduleModel, openModal, closeModal, runBusy, toast, chooseRepo, select,
    agentFieldHtml, bindAgentField, modelFieldHtml, updateModelField, readModelField, renderSkillSlot,
-   agentLabel, isRelayRef, isCustomRef, pipelineOfRef, findCustomAgent, relayFlowInfo, RELAY_PREFIX, CUSTOM_PREFIX */
+   agentLabel, isRelayRef, isCustomRef, pipelineOfRef, findCustomAgent, relayFlowInfo, RELAY_PREFIX, CUSTOM_PREFIX, COMPETE_PREFIX, isCompeteRef, competeOfRef */
 (function (root) {
   const i18n = typeof module === 'object' && module.exports ? require('./i18n.js') : root.I18n;
   function tr(key, vars) {
@@ -54,7 +54,7 @@
 
   // カードのエージェントの指定を、スケジュールに持たせる値に戻す（Pipeline・競争・カスタムエージェントは、カードの agent だけでは分からない）
   function agentRefOfCard(c) {
-    if (c.compete) return 'compete';
+    if (c.compete) return c.compete.set && c.compete.set.id ? COMPETE_PREFIX + c.compete.set.id : 'compete';
     if (c.relay) return c.relay.pipeline && c.relay.pipeline.id ? RELAY_PREFIX + c.relay.pipeline.id : 'relay';
     if (c.persona && c.persona.id) return CUSTOM_PREFIX + c.persona.id;
     return c.agent || '';
@@ -62,7 +62,7 @@
   // タスクの内容からスケジュールの下書きを作る（添付ファイルはコピーしない）
   function draftFromCard(c) {
     const agent = agentRefOfCard(c);
-    const single = agent !== 'compete' && agent !== 'relay' && !isRelayRef(agent) && !isCustomRef(agent);
+    const single = !isCompeteRef(agent) && !isRelayRef(agent) && !isCustomRef(agent);
     return {
       title: (c.compete && c.compete.title) || c.title || '',
       prompt: c.prompt || '',
@@ -147,7 +147,10 @@
   // スケジュールのエージェントの指定を、画面に出す名前にする
   function agentName(ref) {
     if (!ref) return tr('設定の既定');
-    if (ref === 'compete') return tr('競争');
+    if (isCompeteRef(ref)) {
+      const x = competeOfRef(ref);
+      return x ? tr('競争「{name}」', { name: x.name }) : tr('競争（見つかりません）');
+    }
     if (ref === 'relay' || isRelayRef(ref)) {
       const p = pipelineOfRef(ref);
       return p ? tr('Pipeline「{name}」', { name: p.name || 'Pipeline' }) : tr('Pipeline（見つかりません）');
@@ -372,7 +375,7 @@
   // ソースを変更しないタスクで使えない組み合わせは、無人で失敗する前にここで止める
   function readOnlyError(agent, readOnly) {
     if (!readOnly) return '';
-    if (agent === 'compete') return tr('ソースを変更しないタスクでは、競争は使えません。ほかのエージェントを選んでください');
+    if (isCompeteRef(agent)) return tr('ソースを変更しないタスクでは、競争は使えません。ほかのエージェントを選んでください');
     if (isRelayRef(agent) && relayFlowInfo((pipelineOfRef(agent) || {}).flow).pars) return tr('ソースを変更しないタスクでは、並列のあるPipelineは使えません。ほかのエージェントを選んでください');
     return '';
   }
@@ -407,7 +410,7 @@
       () => {
         const sel = $('schedAgent');
         // 元の Pipeline が消された・使わない設定になったなどで選べないと、別のものに黙って置き換わるので知らせる
-        const lost = draft.agent && draft.agent !== sel.value && !(draft.agent === 'relay' && isRelayRef(sel.value));
+        const lost = draft.agent && draft.agent !== sel.value && !(draft.agent === 'relay' && isRelayRef(sel.value)) && !(draft.agent === 'compete' && isCompeteRef(sel.value));
         if (lost) {
           $('schedAgentLost').textContent = tr('元の指定（{name}）は今は選べないので、別のものを選んでいます。確かめてから保存してください。', { name: agentName(draft.agent) });
           $('schedAgentLost').classList.remove('hidden');

@@ -959,6 +959,10 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .pl-head .ic { width: 14px; height: 14px; margin: 0 4px -2px 0; }
 .pl-badge { font-size: 11px; padding: 1px 6px; border-radius: 999px; background: var(--accent, #6366f1); color: #fff; }
 .pl-acts { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+/* 設定: 競争の一覧（複数）。名前はその場で書き換える */
+.cp-item .cpName { flex: 1 1 160px; min-width: 120px; max-width: 280px; }
+.cp-item .check-row { margin-bottom: 6px; }
+.cp-item .relay-sum-err { margin-bottom: 6px; }
 .pl-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
 .relay-summary { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); margin-bottom: 6px; }
 .relay-sum-list { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -1195,3 +1199,30 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .mobile-pair { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
 .mobile-qr { width: 200px; height: 200px; flex: none; background: #fff; border-radius: 8px; padding: 4px; }
 .mobile-qr svg { width: 100%; height: 100%; display: block; }
+
+/* 内蔵ブラウザ（詳細の「ブラウザ」タブ）。<webview> は読み込み直さないよう、タブの中身とは別の #browserPane に置いたままにする */
+.d-browser { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.detail.browser-wide:not(.as-modal) { width: calc(100vw - 240px); }
+.bv-bar { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.bv-bar .icon { padding: 4px 6px; display: inline-flex; }
+.bv-bar .icon:disabled { opacity: 0.35; cursor: default; background: transparent; }
+.bv-bar .icon.active { color: var(--accent); }
+.bv-bar .icon.spinning .ic { animation: bv-spin 0.9s linear infinite; }
+@keyframes bv-spin { to { transform: rotate(360deg); } }
+.bv-url { flex: 1; min-width: 80px; font-size: 12px; padding: 4px 8px; }
+.bv-design { flex: none; white-space: nowrap; }
+.bv-server { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 4px 10px; border-bottom: 1px solid var(--line); }
+.bv-server:empty { display: none; }
+.bv-ok { color: var(--ok, #3fb950); }
+.bv-stage { position: relative; flex: 1; min-height: 120px; background: #fff; }
+.bv-stage webview { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.d-browser.designing .bv-stage { outline: 2px solid var(--accent); outline-offset: -2px; }
+.bv-note { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 20px; text-align: center; background: var(--panel); color: var(--text); overflow: auto; }
+.bv-note p { margin: 0 0 4px; max-width: 520px; word-break: break-word; }
+.d-browser.bv-off .bv-bar, .d-browser.bv-off .bv-picks { display: none; }
+.bv-picks { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line); max-height: 45%; overflow-y: auto; }
+.bv-pick-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.bv-pick { max-width: 320px; }
+.bv-pick img { width: 40px; height: 28px; object-fit: contain; }
+.bv-picks textarea { resize: vertical; }
+.bv-pick-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

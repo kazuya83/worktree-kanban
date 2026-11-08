@@ -82,7 +82,7 @@ See [usage.md](usage.md#update-issue-status-automatically) and [integrations.md]
 | Agents to use | Check the ones you use out of Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI / OpenCode / Copilot CLI / Amp / Pi / Droid. Only checked agents can have the items below set, and only they can be chosen for tasks, conversations, Pipeline, and competition |
 | (per agent) Command path | Set the full path when the command is not found after launching from Finder or the like |
 | (per agent) Model | Passed to `--model` / `-m`. If empty, the default model is used |
-| Agent selected by default | The agent already selected when you open a new task or conversation (per project; one of the agents to use or one of this project's custom agents; if Pipeline or competition is chosen under orchestration, that is selected for tasks instead; if you delete the chosen custom agent or uncheck its base agent, the first of the agents to use is selected) |
+| Selected by default for new tasks and chats | What is already selected when you open a new task or conversation (per project; one of the agents to use, this project's custom agents, Pipelines, or competitions; with a Pipeline or competition, conversations and cases where it cannot be used get the first of the agents to use; if you delete the chosen item or uncheck its base agent, it goes back to the first of the agents to use) |
 
 ## Custom agents
 
@@ -90,7 +90,7 @@ Give a base agent (CLI) and model a name, icon and color, description, and behav
 
 ## Orchestration
 
-Settings for Pipeline and competition. For Pipeline, use "Edit flowchart" to build a flowchart that connects steps, branches (if), loops, parallel paths, and joins (each project can have any number of them, and you choose one when creating a task; `.json` and zip export and import are here too; see [agents.md](agents.md) for details).
+Settings for Pipeline and competition. Each project can have any number of both, and you choose one in the "Agent" field when creating a task. For Pipeline, use "Edit flowchart" to build a flowchart that connects steps, branches (if), loops, parallel paths, and joins (`.json` and zip export and import are here too). For a competition, set a name and the agents (two or more) that solve the same task. See [agents.md](agents.md) for details.
 
 ## Settings found elsewhere
 

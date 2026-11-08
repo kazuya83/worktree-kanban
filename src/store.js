@@ -1,7 +1,7 @@
 // ボードの状態を JSON ファイルに保存する
 const fs = require('fs');
 const path = require('path');
-const { DEFAULT_RELAY_STEPS, defaultRelaySteps, DEFAULT_COMPETE_AGENTS, DEFAULT_ENABLED_AGENTS, isAgent, isCustomRef, cleanEnabledAgents, cleanOrchestration, cleanRelaySteps, cleanCustomAgents, defaultAgentOf, defaultAgentRefOf } = require('./providers');
+const { DEFAULT_RELAY_STEPS, defaultRelaySteps, DEFAULT_COMPETE_AGENTS, DEFAULT_ENABLED_AGENTS, isAgent, isCustomRef, cleanEnabledAgents, cleanOrchestration, cleanRelaySteps, cleanCustomAgents, defaultAgentOf, defaultAgentRefOf, defaultTaskRefOf, cleanCompetes, legacyCompetes } = require('./providers');
 const FlowModel = require('../renderer/flow-model');
 const { cleanSchedules } = require('../renderer/schedule-model');
 const { cleanCycles, cleanCycleView } = require('../renderer/cycle-model');
@@ -247,7 +247,8 @@ const DEFAULT_SETTINGS = {
   statusFieldName: '', // Projects で変える項目（単一選択）の名前。空なら「Status」
   statusMapping: { inProgress: '', inReview: '', done: '' }, // 列ごとに使う選択肢の名前（カンマ区切りで複数可）。空なら名前から自動で探す
   customAgents: [], // カスタムエージェント（元にする CLI・モデルと、プロフィール: 名前・アイコンと色・説明・振る舞いの指示）。タスク・会話・Pipeline・競争で選べる
-  competeCustomAgents: [], // 競争に加えるカスタムエージェントの ID（competeAgents のふつうのエージェントと一緒に競争させる）
+  competeCustomAgents: [], // 前の版の設定: 競争に加えるカスタムエージェントの ID。今は competes を使う（読み込むときに competes へ移す）
+  competes: cleanCompetes(legacyCompetes(DEFAULT_COMPETE_AGENTS, []), []), // 競争の一覧 [{ id, name, agents, customAgents }]（プロジェクトごと。いくつでも作れる）。タスクを作るときに「compete:<ID>」で選ぶ
   relayFlow: DEFAULT_RELAY_FLOW, // 既定の Pipelineのフローチャート（工程・分岐・並列・合流・ループ）。relayFlows の既定の分と同じ中身
   relayFlows: [], // Pipeline の一覧 [{ id, name, flow }]（プロジェクトごと。空なら relayFlow から1つ作る）
   relayFlowId: '', // 既定の Pipeline の ID（タスクを作るときに最初から選んでおく）
@@ -266,7 +267,7 @@ const DEFAULT_SETTINGS = {
   updatePending: null, // 更新のために終了したときの { from, to, at }（次の起動で、更新できたかを知らせる）
   // ---- エージェント ----
   enabledAgents: DEFAULT_ENABLED_AGENTS, // 使うエージェント（チェックを付けたものだけ、コマンド・モデルを設定してタスクや会話で選べる）
-  defaultAgent: 'claude', // 新しいタスク・会話で最初から選んでおくエージェント（プロジェクトごと。claude / codex / antigravity / gemini / cursor / opencode / copilot / amp / pi / droid か、このプロジェクトのカスタムエージェント「custom:<ID>」。Pipeline・競争はタスクを作るときに選ぶ）
+  defaultAgent: 'claude', // 新しいタスク・会話で最初から選んでおくもの（プロジェクトごと。claude / codex / antigravity / gemini / cursor / opencode / copilot / amp / pi / droid か、このプロジェクトのカスタムエージェント「custom:<ID>」・Pipeline「relay:<ID>」・競争「compete:<ID>」。会話では Pipeline・競争のときは使うエージェントの先頭）
   codexPath: 'codex',
   codexModel: '',
   antigravityPath: 'agy',
@@ -286,9 +287,9 @@ const DEFAULT_SETTINGS = {
   droidPath: 'droid',
   droidModel: '',
   // ---- オーケストレーション ----
-  orchestration: 'relay', // Pipelineと競争は排他。使うのはどちらか1つ（'relay' / 'compete'）
+  orchestration: 'relay', // 前の版の設定（Pipelineと競争は排他で、どちらか1つだけ使えた）。今は使わない
   relaySteps: DEFAULT_RELAY_STEPS, // 前のバージョンのPipelineの工程のリスト（アプリ全体で1つ）。今はプロジェクトごとの relayFlow を使う。読み込むときに relayFlow へ移す
-  competeAgents: DEFAULT_COMPETE_AGENTS, // 競争: 同じタスクを、これらのエージェントで並列に解かせる
+  competeAgents: DEFAULT_COMPETE_AGENTS, // 前の版の設定（アプリ全体の競争のエージェント）。今はプロジェクトごとの competes を使う。新しいプロジェクトの最初の競争に使う
   // ---- 遠隔操作（SSH トンネル前提。アプリ同士） ----
   remoteHostEnabled: false, // このマシンをホスト（作業側）として 127.0.0.1 で待ち受ける
   remotePort: 17831, // ホストの待ち受けポート（クライアントは SSH -L でここにトンネルする）
@@ -338,13 +339,13 @@ const MAX_NOTIFICATIONS = 200;
 
 // ---------- プロジェクト（リポジトリ）ごとの設定 ----------
 // リポジトリに関わる設定だけをプロジェクトごとに持つ。コマンドのパス・モデル・同時に動かす数・自動更新などはアプリ全体で1つ
-const REPO_SETTING_KEYS = ['baseBranch', 'integration', 'branchNamingRule', 'issueProvider', 'issueComments', 'codeHost', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'permissionMode', 'allowedTools', 'defaultSkill', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'sprintBranch', 'pushAfterMerge', 'relayFlow', 'relayFlows', 'relayFlowId', 'customAgents', 'competeCustomAgents', 'defaultAgent', 'setupScript', 'teardownScript', 'runScript'];
+const REPO_SETTING_KEYS = ['baseBranch', 'integration', 'branchNamingRule', 'issueProvider', 'issueComments', 'codeHost', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'permissionMode', 'allowedTools', 'defaultSkill', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'sprintBranch', 'pushAfterMerge', 'relayFlow', 'relayFlows', 'relayFlowId', 'customAgents', 'competeCustomAgents', 'competes', 'defaultAgent', 'setupScript', 'teardownScript', 'runScript'];
 const MAX_REPO_SETTINGS = 200;
 
 // 初めて開いたプロジェクトの設定（初期値。取り込み方は PR を作成。GitHub でないリポジトリは開いたときに直接マージにする）
 function defaultRepoSettings() {
   const out = {};
-  for (const k of REPO_SETTING_KEYS) out[k] = k === 'statusMapping' ? { ...DEFAULT_SETTINGS.statusMapping } : k === 'relayFlow' ? cloneFlow(defaultRelayFlow()) : Array.isArray(DEFAULT_SETTINGS[k]) ? [...DEFAULT_SETTINGS[k]] : DEFAULT_SETTINGS[k];
+  for (const k of REPO_SETTING_KEYS) out[k] = k === 'statusMapping' ? { ...DEFAULT_SETTINGS.statusMapping } : k === 'relayFlow' ? cloneFlow(defaultRelayFlow()) : k === 'competes' ? JSON.parse(JSON.stringify(DEFAULT_SETTINGS.competes)) : Array.isArray(DEFAULT_SETTINGS[k]) ? [...DEFAULT_SETTINGS[k]] : DEFAULT_SETTINGS[k];
   return out;
 }
 
@@ -352,7 +353,9 @@ function defaultRepoSettings() {
 function savedRepoSettings(settings, dir) {
   const saved = (settings.repoSettings || {})[dir];
   // 最初から選んでおくエージェントは、今の値を引き継ぐ（カスタムエージェントはプロジェクトごとなので、その元にするエージェント）
-  return pickRepoSettings(saved || { relayFlow: defaultRelayFlow(settings.enabledAgents), defaultAgent: defaultAgentOf(settings) });
+  // 競争の一覧がない（初めて開く・前の版の）プロジェクトは、アプリ全体の competeAgents から1つ作る
+  if (saved) return pickRepoSettings(saved.competes === undefined ? { ...saved, competeAgents: settings.competeAgents } : saved);
+  return pickRepoSettings({ relayFlow: defaultRelayFlow(settings.enabledAgents), defaultAgent: defaultAgentOf(settings), competeAgents: settings.competeAgents });
 }
 
 // 設定から、プロジェクトごとの項目だけを取り出す（足りない項目は初期値）
@@ -368,7 +371,11 @@ function pickRepoSettings(src) {
   Object.assign(out, cleanRelayFlows(out.relayFlows, out.relayFlowId, src.relayFlow !== undefined ? src.relayFlow : undefined));
   out.customAgents = cleanCustomAgents(out.customAgents);
   out.competeCustomAgents = cleanCompeteCustomAgents(out.competeCustomAgents, out.customAgents);
-  if (!isAgent(out.defaultAgent) && !isCustomRef(out.defaultAgent)) out.defaultAgent = DEFAULT_SETTINGS.defaultAgent;
+  // 競争の一覧がなかったころの設定: competeAgents（アプリ全体）と competeCustomAgents から1つ作る
+  out.competes = cleanCompetes(Array.isArray(src.competes) ? src.competes : legacyCompetes(src.competeAgents, out.competeCustomAgents), out.customAgents);
+  const ref = out.defaultAgent;
+  const known = isAgent(ref) || isCustomRef(ref) || (typeof ref === 'string' && ref.startsWith('relay:') && out.relayFlows.some((p) => 'relay:' + p.id === ref)) || (typeof ref === 'string' && ref.startsWith('compete:') && out.competes.some((x) => 'compete:' + x.id === ref));
+  if (!known) out.defaultAgent = DEFAULT_SETTINGS.defaultAgent;
   return out;
 }
 
@@ -456,7 +463,12 @@ function migrateRepoSettings(settings, raw, cards) {
   if (raw.repoSettings && typeof raw.repoSettings === 'object' && !Array.isArray(raw.repoSettings)) {
     // 最初から選んでおくエージェントがアプリ全体の設定だったころの分: どのプロジェクトにも今までの値を入れておく
     const map = {};
-    for (const [p, v] of Object.entries(raw.repoSettings)) map[p] = v && typeof v === 'object' && v.defaultAgent === undefined ? { ...v, defaultAgent: settings.defaultAgent } : v;
+    // 競争の一覧がなかったころの分: アプリ全体の competeAgents から作る
+    for (const [p, v] of Object.entries(raw.repoSettings)) {
+      let x = v && typeof v === 'object' && v.defaultAgent === undefined ? { ...v, defaultAgent: settings.defaultAgent } : v;
+      if (x && typeof x === 'object' && x.competes === undefined) x = { ...x, competeAgents: settings.competeAgents };
+      map[p] = x;
+    }
     settings.repoSettings = cleanRepoSettingsMap(map);
     if (settings.repoPath && !settings.repoSettings[settings.repoPath]) settings.repoSettings[settings.repoPath] = pickRepoSettings(settings);
     delete settings.repoBaseBranches;
@@ -497,11 +509,12 @@ function migrateSettings(settings, raw, cards) {
     for (const c of cards) if (c && c.agent) used.add(c.agent);
     settings.enabledAgents = cleanEnabledAgents([...used]);
   } else settings.enabledAgents = cleanEnabledAgents(raw.enabledAgents);
-  // Pipelineと競争は排他（どちらか1つ、またはなし）。知らない値ならPipeline
+  // 前の版の設定（Pipelineと競争は排他だった）。今は使わないが、知らない値はそろえておく
   settings.orchestration = cleanOrchestration(settings.orchestration);
-  // 「最初から選んでおくエージェント」にはPipeline・競争を選べなくなったので、1つのエージェントにする
-  // （カスタムエージェントも選べる。消えた・元の CLI を使わない設定なら、使うものの先頭）
-  settings.defaultAgent = defaultAgentRefOf(settings);
+  // 最初から選んでおくもの（1つのエージェント・カスタムエージェント・Pipeline・競争）。
+  // 前の版の「relay」「compete」だけの値や、消えた・元の CLI を使わない設定のものなら、使うものの先頭
+  if (raw.competes === undefined) settings.competes = cleanCompetes(legacyCompetes(settings.competeAgents, settings.competeCustomAgents), cleanCustomAgents(settings.customAgents));
+  settings.defaultAgent = defaultTaskRefOf(settings);
   // 最近開いたリポジトリ: なければ今のリポジトリとカードから起こす
   settings.recentRepoPaths = cleanRecentRepoPaths(settings.recentRepoPaths);
   if (!settings.recentRepoPaths.length) settings.recentRepoPaths = seedRecentRepoPaths(settings, cards);
@@ -570,6 +583,8 @@ class Store {
     s.enabledAgents = cleanEnabledAgents(list);
     s.defaultAgent = s.enabledAgents[0];
     s.competeAgents = [...s.enabledAgents];
+    // 最初の競争も、見つかったエージェントで組む（まだ手を入れていない初期値のときだけ）
+    if (Array.isArray(s.competes) && s.competes.length === 1 && s.competes[0].id === 'default') s.competes = [{ ...s.competes[0], agents: [...s.enabledAgents] }];
     if (!s.repoPath) Object.assign(s, cleanRelayFlows([], '', defaultRelayFlow(s.enabledAgents)));
     this.save();
     return true;

@@ -81,6 +81,14 @@ API_PORT=$((WORKTREE_KANBAN_PORT + 1)) npm run api
 
 In cmd on Windows, write `%WORKTREE_KANBAN_PORT%`.
 
+### Built-in browser and Design Mode
+
+The "Browser" tab in the detail panel opens the task's development server (`http://localhost:<WORKTREE_KANBAN_PORT>/`) inside the app. If a run script is set, "Start the dev server with the run script" starts it from the tab, and the page reloads every few seconds until the server is up. The address bar also takes a bare port number (such as `3001`). Sign-ins and other state are kept across app restarts.
+
+Press "Design Mode" and click an element on the page to collect its HTML, the CSS rules that match it, its computed styles, and a screenshot (the click is not passed to the page; Esc stops). You can select up to 5 elements. Write what you want changed and send it: for a task that is waiting for review, failed, or done, it goes as a follow-up instruction with the screenshots attached. For a running task it goes as btw (screenshots cannot be sent then, only the HTML and CSS).
+
+While you are looking at a task on another machine through remote control, its development server runs on that machine, so the built-in browser cannot open it.
+
 ## Detail panel (diff and merge)
 For a card in the Review column, you can look at the diff from the base branch before merging. You can merge into any branch you choose (or create a new one).
 

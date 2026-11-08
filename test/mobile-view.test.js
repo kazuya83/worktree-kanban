@@ -132,10 +132,13 @@ test('仕様の質問の答えと、タスクを作るときのエージェン�
   };
   const c = BM.agentChoices(s);
   assert.deepStrictEqual(c.groups.map((g) => g.options.map((o) => [o.value, !!o.disabled])), [[['claude', false], ['codex', false]], [['custom:x', true]], [['relay:p1', false], ['relay:p2', true]]]);
-  assert.strictEqual(c.value, 'relay:p1', 'デスクトップと同じく、使える既定の Pipeline を最初から選ぶ');
-  assert.strictEqual(BM.agentChoices({ ...s, orchestration: 'none' }).value, 'codex');
-  const comp = BM.agentChoices({ ...s, orchestration: 'compete', competeAgents: ['claude', 'codex'] });
-  assert.strictEqual(comp.value, 'compete');
+  assert.strictEqual(c.value, 'codex', '設定で最初から選んでおくもの');
+  assert.strictEqual(BM.agentChoices({ ...s, defaultAgent: 'relay:p1' }).value, 'relay:p1', 'Pipeline も最初から選んでおける');
+  assert.strictEqual(BM.agentChoices({ ...s, defaultAgent: 'relay:p2' }).value, 'claude', '使えない Pipeline なら1つのエージェント');
+  // 競争はいくつでも作れて、Pipeline と一緒に選べる
+  const comp = BM.agentChoices({ ...s, defaultAgent: 'compete:k2', competes: [{ id: 'k1', name: '一人', agents: ['claude'], customAgents: [] }, { id: 'k2', name: '二人', agents: ['claude', 'codex'], customAgents: [] }] });
+  assert.deepStrictEqual(comp.groups.slice(2).map((g) => g.options.map((o) => [o.value, !!o.disabled])), [[['relay:p1', false], ['relay:p2', true]], [['compete:k1', true], ['compete:k2', false]]]);
+  assert.strictEqual(comp.value, 'compete:k2');
 });
 
 // 画面で読む辞書（index.html が読むもの）だけで、mobile の tr がすべて4言語に訳せること
