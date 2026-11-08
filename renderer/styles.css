@@ -239,6 +239,10 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .cy-current-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .cy-current-acts { margin-left: auto; display: flex; gap: 4px; }
 .cy-goal { margin-top: 4px; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.cy-branch { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 4px; font-size: 13px; min-width: 0; }
+.cy-branch svg { width: 14px; height: 14px; flex: none; }
+.cy-branch code { word-break: break-all; }
+.lane > .cy-branch { padding: 0 4px 8px; margin-top: 0; }
 .cy-state { font-size: 11px; border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; color: var(--muted); white-space: nowrap; }
 .cy-state.cy-active { color: var(--ok); }
 .cy-state.cy-ended { color: var(--warn); }

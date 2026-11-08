@@ -8,9 +8,12 @@
 //   goal,                 ゴールのメモ
 //   done,                 完了にしたか（完了したスプリントは、ふだんは一覧に出さない）
 //   createdAt, updatedAt, doneAt
+//   branch, branchBase,   スプリントのブランチと、その作成元（設定「スプリントごとにブランチを作る」のとき。最初のタスクを始めるときに作る）
+//   mergedAt, prUrl       スプリントのブランチをベースにマージした日時・作った PR
 // }
 // タスク（カード）は cycleIds（スプリントの ID の配列。いくつでも）を持つ。
 // サブタスクと Pipeline の並列の枝のカードは、自分の cycleIds がなければ親のスプリントに入る
+// 複数のスプリントに入っているタスクは、branchCycleId（ブランチを使うスプリント）をユーザーが選ぶ
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -73,7 +76,51 @@
     if (startDate && endDate && endDate < startDate) [startDate, endDate] = [endDate, startDate];
     const num = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : 0);
     const done = raw.done === true;
-    return { id, repoPath, name, startDate, endDate, goal: cleanGoal(raw.goal), done, createdAt: num(raw.createdAt), updatedAt: num(raw.updatedAt), doneAt: done ? num(raw.doneAt) : 0 };
+    const out = { id, repoPath, name, startDate, endDate, goal: cleanGoal(raw.goal), done, createdAt: num(raw.createdAt), updatedAt: num(raw.updatedAt), doneAt: done ? num(raw.doneAt) : 0 };
+    // スプリントのブランチ（作ったあとだけ持つ）
+    const branch = cleanBranch(raw.branch);
+    if (branch) {
+      out.branch = branch;
+      const base = cleanBranch(raw.branchBase);
+      if (base) out.branchBase = base;
+      if (num(raw.mergedAt)) out.mergedAt = num(raw.mergedAt);
+      const pr = str(raw.prUrl).trim();
+      if (/^https?:\/\//.test(pr)) out.prUrl = pr.slice(0, 500);
+    }
+    return out;
+  }
+
+  // ブランチ名として渡せる形か（git の引数にするので「-」始まりや空白・制御文字は捨てる）
+  function cleanBranch(v) {
+    const s = str(v).trim();
+    if (!s || s.length > 200 || s.startsWith('-') || /[\x00-\x20\x7f~^:?*[\\]/.test(s) || s.includes('..') || s.includes('@{')) return '';
+    return s;
+  }
+
+  // スプリントのブランチの名前: sprint/<名前を英数字にしたもの>-<ID の先頭8文字>（名前に英数字がなければ sprint/<ID>）
+  function sprintBranchName(c) {
+    const id = str(c && c.id).replace(/[^A-Za-z0-9]/g, '').slice(0, 8) || 'sprint';
+    const slug = str(c && c.name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 30)
+      .replace(/-+$/, '');
+    return slug ? `sprint/${slug}-${id}` : `sprint/${id}`;
+  }
+
+  // タスクを始めるときに使うスプリントのブランチ
+  // 戻り値: { cycle } 使うスプリント / { cycle: null, choices } 複数のスプリントに入っていて、まだ選んでいない / { cycle: null } 使わない
+  // 完了したスプリントは使わない。サブタスクと並列の枝は親のブランチから分けるので、ここでは見ない（呼ぶ側で除く）
+  function branchCycleFor(card, cards, cycles) {
+    const open = (cycles || []).filter((x) => x && !x.done);
+    const ids = cleanCycleIds(cardCycleIds(card, cards), open);
+    if (!ids.length) return { cycle: null };
+    const byId = (id) => open.find((x) => x.id === id) || null;
+    if (ids.length === 1) return { cycle: byId(ids[0]) };
+    const chosen = str(card && card.branchCycleId);
+    if (chosen && ids.includes(chosen)) return { cycle: byId(chosen) };
+    return { cycle: null, choices: sortCycles(ids.map(byId)) };
   }
 
   function cleanCycles(list) {
@@ -229,6 +276,9 @@
     cleanCycles,
     cleanCycleView,
     cleanCycleIds,
+    cleanBranch,
+    sprintBranchName,
+    branchCycleFor,
     sortCycles,
     visibleCycles,
     cardCycleIds,

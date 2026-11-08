@@ -27,6 +27,8 @@ function createCycleApi({ store, onChange = () => {}, now = () => Date.now() }) 
     const list = CycleModel.cleanCycleIds(ids, store.cyclesOf(card.repoPath));
     if (list.length) card.cycleIds = list;
     else delete card.cycleIds;
+    // ブランチを使うスプリントは、入っているスプリントのどれかのときだけ残す
+    if (card.branchCycleId && !list.includes(card.branchCycleId)) delete card.branchCycleId;
     return list;
   };
   return {
@@ -72,15 +74,22 @@ function createCycleApi({ store, onChange = () => {}, now = () => Date.now() }) 
         const rest = card.cycleIds.filter((x) => x !== id);
         if (rest.length) card.cycleIds = rest;
         else delete card.cycleIds;
+        if (card.branchCycleId === id) delete card.branchCycleId;
       }
       changed();
       return true;
     },
     // タスクを入れるスプリントを決める（いくつでも。空ならどのスプリントにも入れない）
+    // branchCycleId: 複数のスプリントに入れるときに、ブランチを使うスプリント（'' で選ばない。渡さなければ前のまま）
     setCard(p) {
-      const { id, cycleIds } = p || {};
+      const { id, cycleIds, branchCycleId } = p || {};
       const card = store.card(needId(id, tr('タスクが指定されていません')));
       if (!card) throw new Error(tr('タスクが見つかりません'));
+      if (branchCycleId !== undefined) {
+        const b = typeof branchCycleId === 'string' ? branchCycleId.trim() : '';
+        if (b) card.branchCycleId = b;
+        else delete card.branchCycleId;
+      }
       const list = assign(card, cycleIds);
       changed();
       return list;

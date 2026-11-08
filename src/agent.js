@@ -21,6 +21,7 @@ const os = require('os');
 const { agentLabel, agentShort } = providers;
 const { isNoGitRepo, cleanRelayFlow, pipelineOf } = require('./store');
 const FlowModel = require('../renderer/flow-model');
+const CycleModel = require('../renderer/cycle-model');
 const Subtasks = require('./subtasks');
 const Checkpoints = require('./checkpoints');
 const { SCRIPT_KINDS, SCRIPT_SETTINGS, PORT_START, PORT_END, PORT_COUNT, portsFree, cleanScript, appendOutput, startScript } = require('./worktree-scripts');
@@ -2645,7 +2646,9 @@ class AgentManager extends EventEmitter {
     const reopen = c.reopenBase && (await git.branchExists(top, c.reopenBase)) ? c.reopenBase : null;
     // Pipelineの並列の枝は、親のカードのブランチから分ける
     if (c.flowBase && !(await git.branchExists(top, c.flowBase))) throw new Error(tr('並列の枝を分ける元のブランチ {flowBase} が見つかりません', { flowBase: c.flowBase }));
-    const base = c.flowBase || reopen || this.store.repoSettings(c.repoPath).baseBranch || (await git.currentBranch(top));
+    // スプリントごとのブランチ（設定でオンのとき）: スプリントに入っているタスクは、スプリントのブランチから始める
+    const sprint = c.flowBase || reopen ? null : await this.sprintBaseOf(c, top);
+    const base = c.flowBase || reopen || sprint || this.store.repoSettings(c.repoPath).baseBranch || (await git.currentBranch(top));
     if (base === 'HEAD') throw new Error(tr('ベースブランチが決まりません（detached HEAD）。設定でベースブランチを指定してください'));
     const baseCommit = await git.revParse(top, base);
     let branch = c.issue ? `agent/issue-${IssueRef.branchPart(c.issue)}-${c.id}` : `agent/${slugify(c.title)}-${c.id}`;
@@ -2695,6 +2698,158 @@ class AgentManager extends EventEmitter {
     c.setupPending = !!this.scriptOf(c, 'setup');
     this.changed(c);
     await this.ensureSetup(c);
+  }
+
+  // ---------- スプリントごとのブランチ ----------
+
+  // タスクを始めるときのスプリントのブランチ（使わないときは null）。まだなければ、ベースブランチから作る
+  async sprintBaseOf(c, top) {
+    if (!this.store.repoSettings(c.repoPath).sprintBranch) return null;
+    if (c.subtaskOf || (c.relay && c.relay.branchOf)) return null; // 親のブランチから分けるもの
+    const pick = CycleModel.branchCycleFor(c, this.store.cards, this.store.cyclesOf(c.repoPath));
+    if (!pick.cycle) {
+      if (pick.choices && pick.choices.length) {
+        this.log(c, 'system', tr('複数のスプリント（{names}）に入っていて、ブランチを使うスプリントが選ばれていないので、ベースブランチから始めます（詳細の「スプリント」で選べます）', { names: pick.choices.map((x) => x.name).join(tr('、')) }));
+      }
+      return null;
+    }
+    const branch = await this.ensureSprintBranch(pick.cycle, top, c);
+    c.sprintId = pick.cycle.id;
+    return branch;
+  }
+
+  // スプリントのブランチを用意する（もうあればそれを使う）。名前と作成元をスプリントに覚える
+  async ensureSprintBranch(cy, top, c) {
+    if (cy.branch && (await git.branchExists(top, cy.branch))) return cy.branch;
+    const name = cy.branch || CycleModel.sprintBranchName(cy);
+    await git.checkBranchName(top, name);
+    const from = this.store.repoSettings(cy.repoPath).baseBranch || (await git.currentBranch(top));
+    if (from === 'HEAD') throw new Error(tr('ベースブランチが決まりません（detached HEAD）。設定でベースブランチを指定してください'));
+    if (!(await git.branchExists(top, name))) {
+      try {
+        await git.createBranch(top, name, from);
+        if (c) this.log(c, 'system', tr('スプリント「{name}」のブランチ {branch} を {base} から作成しました', { name: cy.name, branch: name, base: from }));
+      } catch (err) {
+        // 同時に始めた別のタスクが先に作ったときは、それを使う
+        if (!(await git.branchExists(top, name))) throw err;
+      }
+    }
+    cy.branch = name;
+    if (!cy.branchBase) cy.branchBase = from;
+    cy.updatedAt = Date.now();
+    this.store.save();
+    return name;
+  }
+
+  isSprintBranch(repoPath, branch) {
+    return !!branch && this.store.cyclesOf(repoPath).some((x) => x.branch === branch);
+  }
+
+  // ブランチを用意してあるスプリント（と、その作成元のブランチ）
+  async sprintWithBranch(id) {
+    const cy = id && this.store.cycle(id);
+    if (!cy) throw new Error(tr('スプリントが見つかりません（消されたかもしれません）'));
+    const top = cy.repoPath;
+    if (!cy.branch || !(await git.branchExists(top, cy.branch))) throw new Error(tr('スプリント「{name}」のブランチはまだありません（スプリントのタスクを始めると作ります）', { name: cy.name }));
+    git.assertSafeRef(cy.branch);
+    const target = cy.branchBase || this.store.repoSettings(top).baseBranch || (await git.currentBranch(top));
+    if (!target || target === 'HEAD') throw new Error(tr('ベースブランチが決まりません（detached HEAD）。設定でベースブランチを指定してください'));
+    git.assertSafeRef(target, tr('マージ先のブランチ名'));
+    if (target === cy.branch) throw new Error(tr('タスク自身のブランチにはマージできません'));
+    return { cy, top, target };
+  }
+
+  // スプリントのブランチを、作成元（ベース）のブランチへマージする。push なら origin にも反映する
+  async mergeSprintBranch(id, opts = {}) {
+    const { cy, top, target } = await this.sprintWithBranch(id);
+    if (!(await git.branchExists(top, target))) throw new Error(tr('ブランチ {target} が見つかりません', { target }));
+    const key = `sprint:${cy.id}`;
+    this.merging = this.merging || new Set();
+    if (this.merging.has(key)) throw new Error(tr('マージ中です'));
+    this.merging.add(key);
+    try {
+      let dir = await git.worktreeForBranch(top, target);
+      if (opts.push) {
+        if (!(await git.hasRemote(top, 'origin'))) throw new Error(tr('このリポジトリには origin がありません。push せずにマージするか、origin を設定してください'));
+        if (await git.fetchBranch(top, 'origin', target)) {
+          const behind = await git.countCommits(top, `${target}..origin/${target}`);
+          const ahead = await git.countCommits(top, `origin/${target}..${target}`);
+          if (behind > 0 && ahead > 0) throw new Error(tr('ローカルの {target} と origin/{target2} が別々に進んでいます。先にターミナルで {target3} を origin/{target4} とそろえてから（git pull など）、もう一度マージしてください', { target, target2: target, target3: target, target4: target }));
+          if (behind > 0) {
+            if (dir && (await git.isDirty(dir))) throw new Error(tr('{target} をチェックアウトしている {dir} に未コミットの変更があるため、origin の最新を取り込めません', { target, dir }));
+            await git.fastForward(top, target, `origin/${target}`, dir);
+          }
+        }
+      }
+      const ahead = await git.countCommits(top, `${target}..${cy.branch}`);
+      if (ahead > 0) {
+        let temp = null;
+        if (!dir) {
+          temp = path.join(`${top}.worktrees`, `_merge-sprint-${cy.id}-${Date.now()}`);
+          fs.mkdirSync(path.dirname(temp), { recursive: true });
+          try {
+            await git.addWorktreeForBranch(top, temp, target);
+            dir = temp;
+          } catch (err) {
+            const at = git.checkedOutAtFromError(err, top);
+            if (!at) throw err;
+            temp = null;
+            dir = at;
+          }
+        }
+        if (!temp) {
+          const op = await git.operationInProgress(dir);
+          if (op) throw new Error(tr('{target} をチェックアウトしている {dir} で {op} が途中です。終わらせるか中止してから、もう一度マージしてください。', { target, dir, op }));
+          if (await git.isDirty(dir)) throw new Error(tr('{target} をチェックアウトしている {dir} に未コミットの変更があります。コミットするか退避してからマージしてください。', { target, dir }));
+        }
+        try {
+          await git.merge(dir, cy.branch, `Merge sprint: ${cy.name}`, target);
+        } catch (err) {
+          if (!err.conflictFiles) throw err;
+          throw new Error(tr('スプリントのブランチ {branch} が {target} とコンフリクトしています（{files}）。手元で解消するか、PR を作ってください', { branch: cy.branch, target, files: err.conflictFiles.join(', ') }));
+        } finally {
+          if (temp) await git.removeWorktree(top, temp);
+        }
+      }
+      if (opts.push) await git.push(top, 'origin', target, false);
+      cy.mergedAt = Date.now();
+      cy.updatedAt = cy.mergedAt;
+      this.store.save();
+      return { target, merged: ahead > 0, pushed: !!opts.push };
+    } finally {
+      this.merging.delete(key);
+    }
+  }
+
+  // スプリントのブランチを origin に push して、作成元（ベース）のブランチへの PR を作る
+  async sprintPullRequest(id, opts = {}) {
+    const { cy, top, target } = await this.sprintWithBranch(id);
+    const hostText = (template, vars) => I18n.forHost(template, this.store.repoSettings(top).codeHost || '', vars);
+    if (!(await git.hasRemote(top, 'origin'))) throw new Error(hostText(tr('このリポジトリに origin がありません。GitHub のリポジトリを origin に設定してください')));
+    if ((await git.branchExists(top, target)) && (await git.countCommits(top, `${target}..${cy.branch}`)) === 0) {
+      throw new Error(hostText(tr('{base} との差分がないので PR を作れません'), { base: target }));
+    }
+    await git.push(top, 'origin', cy.branch, true);
+    const tasks = this.store.cards.filter((x) => x.repoPath === top && (x.mergedInto || []).includes(cy.branch) && !x.subtaskOf && !(x.relay && x.relay.branchOf));
+    const lines = [cy.goal ? `${cy.goal}\n` : '', ...tasks.map((x) => `- ${x.title}`)].filter(Boolean);
+    const fields = {
+      head: cy.branch,
+      base: target,
+      title: String(opts.title || '').trim() || `Sprint: ${cy.name}`,
+      body: opts.body != null && String(opts.body).trim() ? String(opts.body) : lines.join('\n') || `Sprint: ${cy.name}`,
+    };
+    const host = await this.codeHostOf(top);
+    let pr;
+    if (host) {
+      pr = await this.trackers.call(host, 'createMergeRequest', { repoPath: top }, fields);
+    } else {
+      const slug = await github.repoSlug(top).catch(() => null);
+      pr = await ghCli.createPullRequest({ ...fields, cwd: top, repo: slug ? `${slug.owner}/${slug.repo}` : undefined, gh: this.opts.ghPath });
+    }
+    cy.prUrl = pr.url;
+    cy.updatedAt = Date.now();
+    this.store.save();
+    return { url: pr.url, created: pr.created, target };
   }
 
   // ---------- worktree のスクリプト（セットアップ・片付け・実行） ----------
@@ -4130,6 +4285,14 @@ class AgentManager extends EventEmitter {
       }
       await git.push(c.worktreePath, 'origin', c.branch, true);
       this.log(c, 'system',tr('ブランチ {branch} を origin に push しました', { branch: c.branch }));
+      // スプリントのブランチへの PR: origin にまだなければ、先にスプリントのブランチを push する
+      if (await this.isSprintBranch(c.repoPath, base)) {
+        const remote = await git.git(top, ['ls-remote', '--heads', 'origin', base], { network: true }).catch(() => '');
+        if (!String(remote).trim()) {
+          await git.push(top, 'origin', base, false);
+          this.log(c, 'system', tr('スプリントのブランチ {branch} を origin に push しました', { branch: base }));
+        }
+      }
       const def = this.prDefaults(c);
       const fields = {
         head: c.branch,
