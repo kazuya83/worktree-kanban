@@ -63,12 +63,65 @@
   }
 
   // 線の状態: done（通った）/ active（今の工程へ向かっている）/ ''（まだ）
-  function edgeState(e, states, back, counts) {
+  // doneLike: 「終わった」と同じに扱う状態（サブタスクの「取り込み済み」「完了（取り込まず）」など）
+  function edgeState(e, states, back, counts, doneLike) {
+    const isDone = (s) => s === DONE || !!(doneLike && doneLike.has(s));
     const a = states.get(e.from);
     const b = states.get(e.to);
     if (back.has(e.id)) return counts && counts[e.id] > 0 ? DONE : '';
-    if (a !== DONE || !b || IDLE.has(b)) return '';
-    return b === DONE ? DONE : 'active';
+    if (!isDone(a) || !b || IDLE.has(b)) return '';
+    return isDone(b) ? DONE : 'active';
+  }
+
+  // サブタスクのフローチャート: 開始 → サブタスク（after でつなぎ、同じ段のものは横に並べる）→ 終了
+  // 段は「先に終わっている必要があるサブタスク」をたどったいちばん長い道のりで決める
+  const SUB_GAP_X = 40;
+  const SUB_GAP_Y = 56;
+  const subNodeId = (key) => `s:${key}`;
+  function subtaskFlow(items) {
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) return { nodes: [], edges: [] };
+    const byKey = new Map(list.map((x) => [x.key, x]));
+    const depth = new Map();
+    const level = (k, seen = new Set()) => {
+      if (depth.has(k)) return depth.get(k);
+      if (seen.has(k)) return 0; // 循環（ふつうは無い）は 0 段目にする
+      seen.add(k);
+      const x = byKey.get(k);
+      const deps = ((x && x.after) || []).filter((a) => byKey.has(a));
+      const d = deps.length ? Math.max(...deps.map((a) => level(a, seen))) + 1 : 0;
+      depth.set(k, d);
+      return d;
+    };
+    const rows = [];
+    for (const x of list) (rows[level(x.key)] = rows[level(x.key)] || []).push(x);
+    const rowW = (n) => n * W.step + (n - 1) * SUB_GAP_X;
+    const maxW = Math.max(W.start, ...rows.map((r) => rowW((r || []).length)));
+    const cx = maxW / 2;
+    const nodes = [{ id: '__start', type: 'start', label: tr('開始'), x: cx - W.start / 2, y: 0 }];
+    let y = H.start + SUB_GAP_Y;
+    for (const r of rows) {
+      if (!r) continue;
+      let x = cx - rowW(r.length) / 2;
+      for (const it of r) {
+        nodes.push({ id: subNodeId(it.key), type: 'step', label: it.title || it.key, key: it.key, x, y });
+        x += W.step + SUB_GAP_X;
+      }
+      y += H.step + SUB_GAP_Y;
+    }
+    nodes.push({ id: '__end', type: 'end', label: tr('終了'), x: cx - W.end / 2, y });
+    const edges = [];
+    const hasNext = new Set();
+    for (const x of list) {
+      const deps = (x.after || []).filter((a) => byKey.has(a) && a !== x.key);
+      if (!deps.length) edges.push({ id: `e:start:${x.key}`, from: '__start', to: subNodeId(x.key) });
+      for (const a of deps) {
+        edges.push({ id: `e:${a}:${x.key}`, from: subNodeId(a), to: subNodeId(x.key) });
+        hasNext.add(a);
+      }
+    }
+    for (const x of list) if (!hasNext.has(x.key)) edges.push({ id: `e:${x.key}:end`, from: subNodeId(x.key), to: '__end' });
+    return { nodes, edges };
   }
 
   function edgePath(a, b) {
@@ -92,6 +145,7 @@
    * @param {{ marks?: Record<string, string>, labels?: Record<string, string>, stepInfo?: (n: object) => { title?: string, sub?: string, tip?: string }, counts?: Record<string, number>, current?: string|null, zoom?: number|null }} o
    *   marks / labels: 状態ごとの印（✓ など）と名前、stepInfo: 工程のノードに出す名前・エージェント、current: 今の工程のノード
    *   zoom: 倍率（省くと、枠の幅に収まるように縮める）
+   *   doneLike: 「終わった」と同じに扱う状態の Set（線の色に使う） / ariaLabel: 図の名前
    */
   function html(flow, states, o = {}) {
     const nodes = ((flow && flow.nodes) || []).filter((n) => Number.isFinite(n.x) && Number.isFinite(n.y));
@@ -116,7 +170,7 @@
         const b = byId.get(e.to);
         if (!a || !b) return '';
         const p = edgePath({ ...a, x: a.x + ox, y: a.y + oy }, { ...b, x: b.x + ox, y: b.y + oy });
-        const es = edgeState(e, states, back, o.counts);
+        const es = edgeState(e, states, back, o.counts, o.doneLike);
         const parts = [];
         if (a.type === 'if') parts.push(e.value || (e.else ? tr('それ以外') : ''));
         if (back.has(e.id)) parts.push(`↺${o.counts && o.counts[e.id] ? ` ${o.counts[e.id]}/` : ' '}${e.maxLoops || (FM && FM.MAX_LOOPS_DEFAULT) || 3}`);
@@ -131,6 +185,7 @@
         const x = n.x + ox;
         const y = n.y + oy;
         const s = states.get(n.id) || 'pending';
+        const doneLook = s === DONE || !!(o.doneLike && o.doneLike.has(s));
         const info = n.type === 'step' && o.stepInfo ? o.stepInfo(n) || {} : {};
         const kindJa = FM ? FM.TYPE_LABEL[n.type] : '';
         const kind = kindJa ? tr(kindJa) : n.type;
@@ -145,15 +200,15 @@
             <text class="fv-sub" x="${x + 30}" y="${y + 44}">${esc(cut([labels[s], info.sub].filter(Boolean).join(' · '), 22))}</text>
             <circle class="fv-dot" cx="${x + 16}" cy="${y + h / 2}" r="9"/><text class="fv-mark" x="${x + 16}" y="${y + h / 2}">${esc(mark)}</text>`;
         } else {
-          body = `<text class="fv-title c" x="${x + w / 2}" y="${y + h / 2}">${esc(cut(n.type === 'start' || n.type === 'end' ? title : `${kind} ${title === kind ? '' : title}`.trim(), 14))}${s === DONE && n.type !== 'start' ? ' ✓' : ''}</text>`;
+          body = `<text class="fv-title c" x="${x + w / 2}" y="${y + h / 2}">${esc(cut(n.type === 'start' || n.type === 'end' ? title : `${kind} ${title === kind ? '' : title}`.trim(), 14))}${doneLook && n.type !== 'start' ? ' ✓' : ''}</text>`;
         }
-        return `<g class="fv-node t-${n.type} rs-${s}${cur ? ' cur' : ''}"><title>${esc(tip)}</title><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${round}"/>${body}</g>`;
+        return `<g class="fv-node t-${n.type} rs-${s}${cur ? ' cur' : ''}" data-node="${esc(n.id)}"><title>${esc(tip)}</title><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${round}"/>${body}</g>`;
       })
       .join('');
 
     const z = Number(o.zoom);
     const dims = Number.isFinite(z) && z > 0 ? `width="${Math.round(vw * z)}" height="${Math.round(vh * z)}"` : `width="${vw}" height="${vh}" style="max-width:100%;height:auto"`;
-    return `<svg class="fv" viewBox="0 0 ${vw} ${vh}" ${dims} role="img" aria-label="${esc(tr('Pipelineのフローチャート'))}">
+    return `<svg class="fv" viewBox="0 0 ${vw} ${vh}" ${dims} role="img" aria-label="${esc(o.ariaLabel || tr('Pipelineのフローチャート'))}">
       <defs>
         <marker id="fvArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fv-arrow"/></marker>
         <marker id="fvArrowDone" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fv-arrow done"/></marker>
@@ -161,5 +216,5 @@
       </defs>${edgeSvg}${nodeSvg}</svg>`;
   }
 
-  return { nodeStates, edgeState, html, size };
+  return { nodeStates, edgeState, html, size, subtaskFlow, subNodeId };
 });

@@ -87,3 +87,30 @@ test('フローチャート: 終えたら終了と分岐も完了になり、SVG
   // 位置のないフロー（前の版のカード）は描かない
   assert.strictEqual(FlowView.html({ nodes: [{ id: 'a', type: 'step' }], edges: [] }, new Map()), '');
 });
+
+test('サブタスクのフローチャート: 並列は同じ段に横に並べ、after は線でつなぎ、開始と終了につなぐ', () => {
+  const items = [
+    { key: 'api', title: 'API', after: [] },
+    { key: 'ui', title: 'UI', after: [] },
+    { key: 'docs', title: 'Docs', after: ['api', 'ui'] },
+  ];
+  const flow = FlowView.subtaskFlow(items);
+  const node = (id) => flow.nodes.find((n) => n.id === id);
+  assert.strictEqual(flow.nodes.length, 5);
+  assert.strictEqual(node('s:api').y, node('s:ui').y, '並列のサブタスクは同じ段');
+  assert.ok(node('s:docs').y > node('s:api').y, 'after のサブタスクは下の段');
+  assert.ok(node('__end').y > node('s:docs').y);
+  const pairs = flow.edges.map((e) => `${e.from}>${e.to}`).sort();
+  assert.deepStrictEqual(pairs, ['__start>s:api', '__start>s:ui', 's:api>s:docs', 's:docs>__end', 's:ui>s:docs'].sort());
+  assert.strictEqual(FlowModel.backEdges(flow).size, 0, '戻る線はない');
+
+  // 「取り込み済み」は終わったものとして線に色を付け、クリック用にノードの ID を持たせる
+  const states = new Map([['__start', 'done'], ['s:api', 'mergedWait'], ['s:ui', 'running'], ['s:docs', 'pending'], ['__end', 'pending']]);
+  const svg = FlowView.html(flow, states, { doneLike: new Set(['mergedWait']), ariaLabel: 'サブタスク' });
+  assert.match(svg, /data-node="s:api"/);
+  assert.match(svg, /aria-label="サブタスク"/);
+  assert.strictEqual(FlowView.edgeState({ id: 'x', from: 's:api', to: 's:docs' }, states, new Set(), null, new Set(['mergedWait'])), '');
+  assert.strictEqual(FlowView.edgeState({ id: 'x', from: '__start', to: 's:api' }, states, new Set(), null, new Set(['mergedWait'])), 'done');
+  assert.strictEqual(FlowView.edgeState({ id: 'x', from: '__start', to: 's:ui' }, states, new Set()), 'active');
+  assert.deepStrictEqual(FlowView.subtaskFlow([]), { nodes: [], edges: [] });
+});

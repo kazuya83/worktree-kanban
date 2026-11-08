@@ -1079,6 +1079,10 @@ function updateTabsFor(c) {
   const subs = hasSubtasks(c);
   $('subtasksTab').classList.toggle('hidden', !subs);
   if (!subs && state.tab === 'subtasks') setTab('progress');
+  if (subs && state.subTabFor === c.id) {
+    state.subTabFor = null;
+    setTab('subtasks');
+  }
 }
 
 function setTab(tab) {
@@ -1590,6 +1594,74 @@ function subtaskProgressHtml(c) {
   });
   return tr('<section class="pg-sec"><div class="pg-sec-head"><b>全体の進捗</b> <span class="muted small">サブタスク {done}/{skipped} 完了（{pct}%）</span></div>\n    <div class="pg-bar" title="{pct}%"><span style="width:{pct}%"></span></div>\n    <div class="muted small">{counts} ・ {v}</div>\n    {v2}\n  </section>', { done: (n.done), skipped: (n.total - n.skipped), pct, counts: (esc(counts)), v: (esc(subPhaseText(c))), v2: (active.length ? `<ul class="pg-todos pg-active">${active.join('')}</ul>` : '') });
 }
+// サブタスクのフローチャート（読み取り専用）: 開始 → サブタスク（並列は横に並べ、順番は線でつなぐ）→ 終了
+// 状態の色は Pipeline のフローチャートと同じ。サブタスクをクリックすると詳細を開く（bindSubChart）
+const SUB_DONE_LIKE = new Set(['mergedWait', 'closed']);
+function subtaskChartHtml(c) {
+  if (!hasSubtasks(c) || typeof FlowView === 'undefined' || !FlowView.subtaskFlow) return '';
+  const st = c.subtasks;
+  const flow = FlowView.subtaskFlow(st.items);
+  const states = new Map();
+  const byNode = new Map();
+  for (const x of st.items) {
+    const id = FlowView.subNodeId(x.key);
+    byNode.set(id, x);
+    states.set(id, subItemState(c, x));
+  }
+  const started = st.phase !== 'plan' || st.items.some((x) => x.state !== 'pending');
+  states.set('__start', started ? 'done' : 'pending');
+  states.set('__end', st.phase === 'done' ? (c.status === 'running' || c.status === 'queued' ? 'running' : 'done') : 'pending');
+  const marks = {};
+  const labels = {};
+  for (const [k, [m, l]] of Object.entries({ ...RELAY_STATE, ...SUB_EXTRA_STATE })) (marks[k] = m), (labels[k] = l);
+  const svg = FlowView.html(flow, states, {
+    marks,
+    labels,
+    doneLike: SUB_DONE_LIKE,
+    zoom: state.chartZoom,
+    ariaLabel: tr('サブタスクのフローチャート'),
+    stepInfo: (n) => {
+      const x = byNode.get(n.id);
+      if (!x) return {};
+      const k = x.cardId && x.state === 'running' ? card(x.cardId) : null;
+      const who = k ? whoShort(agentOf(k), k.persona) : x.agent ? agentShort(x.agent) : '';
+      return { title: x.title, sub: who, tip: [who, k && k.lastMessage ? plainText(k.lastMessage) : ''].filter(Boolean).join('\n') };
+    },
+  });
+  if (!svg) return '';
+  return tr('<div class="pg-chart-wrap sub-chart"><div class="pg-chart">{svg}</div><div class="zoom-host">{v}</div></div><div class="pg-legend muted small"><span class="lg lg-done">完了</span><span class="lg lg-run">実行中</span><span class="lg lg-warn">止まっている・待っている</span><span class="lg lg-pending">これから</span><span class="lg lg-skip">スキップ</span> ・ サブタスクをクリックすると詳細を開きます</div>', { svg, v: chartZoomBar() });
+}
+function subtaskChartSectionHtml(c) {
+  const chart = subtaskChartHtml(c);
+  return chart ? tr('<section class="pg-sec"><div class="pg-sec-head"><b>{v}サブタスクのフローチャート</b></div>{chart}</section>', { v: icon('pipeline'), chart }) : '';
+}
+// フローチャートのサブタスクをクリックすると、サブタスクの詳細を開く（描き直すたびに付け直す）
+function bindSubChart(c, view) {
+  view.querySelectorAll('.sub-chart .fv-node.t-step[data-node]').forEach((g) => {
+    g.style.cursor = 'pointer';
+    g.onclick = () => {
+      const p = card(c.id);
+      const key = String(g.dataset.node || '').replace(/^s:/, '');
+      const x = p && p.subtasks ? p.subtasks.items.find((y) => y.key === key) : null;
+      if (x) openSubtaskDetail(p, x);
+    };
+  });
+}
+// チャットの最後: サブタスクを動かしているあいだの進み具合と、サブタスクタブへのボタン
+function subtaskChatBoxHtml(c) {
+  if (!hasSubtasks(c) || c.subtaskOf) return '';
+  const st = c.subtasks;
+  if (st.phase === 'plan' && c.status === 'todo') return '';
+  const n = subCounts(c);
+  const pct = subDonePct(n);
+  return tr('<div class="sub-box sub-chat-box"><div class="pg-sec-head"><b>{v}サブタスク {done}/{total} 完了（{pct}%）</b> <span class="muted small">{phase}</span></div>\n    <div class="pg-bar" title="{pct}%"><span style="width:{pct}%"></span></div>\n    <div class="d-actions"><button class="btn small" data-sact="openTab" type="button">{v2}サブタスクの進捗を見る</button></div></div>', { v: icon('branch'), done: n.done, total: n.total - n.skipped, pct, phase: esc(subPhaseText(c)), v2: icon('pipeline') });
+}
+// サブタスクタブを開く
+function openSubtasksTab() {
+  setTab('subtasks');
+  renderDetailHead();
+  renderDetailBody();
+}
 // サブタスクタブ: サブタスクの一覧（状態・担当・金額・マージしたものの報告）
 function subtaskListHtml(c) {
   if (!hasSubtasks(c)) return '';
@@ -1599,7 +1671,7 @@ function subtaskListHtml(c) {
   const auto = st.phase === 'run' && st.auto === false && n.pending && c.status !== 'running' && c.status !== 'queued' && !c.conflict
     ? tr(' <button class="btn small" data-sact="auto" type="button" title="まだ始めていないサブタスクを、順番（目安）どおりに自動で始めます">{v}残りを自動で進める</button>', { v: (icon('play')) })
     : '';
-  return tr('<section class="pg-sec"><div class="pg-sec-head"><b>{v}サブタスク</b> <span class="muted small">{done}/{skipped} 完了{v2}{v3} ・ {v4} ・ {v5}</span>{auto}</div>\n    <div class="pg-bar" title="{pct}%"><span style="width:{pct}%"></span></div>\n    {v6}</section>', { v: (icon('branch')), done: (n.done), skipped: (n.total - n.skipped), v2: (n.merged !== n.done ? tr('（マージ {merged}）', { merged: (n.merged) }) : ''), v3: (n.skipped ? tr('・破棄 {skipped}', { skipped: (n.skipped) }) : ''), v4: (esc(subPhaseText(c))), v5: (st.merge === 'review' ? tr('確かめてからマージ') : tr('自動でマージ')), auto, pct, v6: (subBoardHtml(c)) });
+  return tr('<section class="pg-sec"><div class="pg-sec-head"><b>{v}サブタスク</b> <span class="muted small">{done}/{skipped} 完了{v2}{v3} ・ {v4} ・ {v5}</span>{auto}</div>\n    <div class="pg-bar" title="{pct}%"><span style="width:{pct}%"></span></div>\n    {v6}</section>', { v: (icon('branch')), done: (n.done), skipped: (n.total - n.skipped), v2: (n.merged !== n.done ? tr('（マージ {merged}）', { merged: (n.merged) }) : ''), v3: (n.skipped ? tr('・破棄 {skipped}', { skipped: (n.skipped) }) : ''), v4: (esc(subPhaseText(c))), v5: (st.merge === 'review' ? tr('確かめてからマージ') : tr('自動でマージ')), auto, pct, v6: (subBoardHtml(c)) }) + subtaskChartSectionHtml(c);
 }
 // サブタスクタブ: サブタスクのかんばん（未着手 / 作業中 / レビュー / 完了）
 function subBoardHtml(c) {
@@ -1744,6 +1816,7 @@ function subKidsSig(c) {
 // 詳細の上のサブタスクの操作（提案に答える・取り込む・編集の行を足す/外す）
 async function subtaskAction(c, el) {
   const act = el.dataset.sact;
+  if (act === 'openTab') return openSubtasksTab();
   if (act === 'add') {
     const rows = el.closest('.sub-editor').querySelector('.sub-rows');
     rows.insertAdjacentHTML('beforeend', subRowHtml({ key: '', title: '', prompt: '', after: [] }));
@@ -1761,7 +1834,12 @@ async function subtaskAction(c, el) {
     if (!items.length) return toast(tr('サブタスクを1つ以上入れてください'));
     const createIssues = !!($('subIssues') && $('subIssues').checked);
     if (createIssues && !confirm(tr('{label} に {n} 件のサブIssue を作って、{key} にぶら下げます。よろしいですか？', { label: issueProviderInfo(IssueRef.providerOf(c.issue)).label, n: (items.filter((x) => !x.issue).length), key: IssueRef.keyOf(c.issue) }))) return;
-    return runBusy(createIssues ? tr('サブIssue を作って、サブタスクを始めています…') : tr('サブタスクを始めています…'), () => api.acceptSubtasks(c.id, { items, merge: $('subMerge').value, createIssues }), tr('サブタスクを始めました'));
+    return runBusy(createIssues ? tr('サブIssue を作って、サブタスクを始めています…') : tr('サブタスクを始めています…'), () => api.acceptSubtasks(c.id, { items, merge: $('subMerge').value, createIssues }).then(() => true), tr('サブタスクを始めました')).then((ok) => {
+      // 始めたら、進み具合を追えるようにサブタスクタブを開く（ほかのカードを開いていたら切り替えない）
+      if (!ok || state.selected !== c.id) return;
+      if (hasSubtasks(card(c.id))) openSubtasksTab();
+      else state.subTabFor = c.id; // ボードの更新がまだ届いていない: 届いたら開く（updateTabsFor）
+    });
   }
 }
 
@@ -1886,6 +1964,7 @@ function progressHtml(c) {
   if (compete) parts.push(`<section class="pg-sec">${compete}</section>`);
   if (s === 'todo') parts.push(tr('<p class="muted small pg-note">まだ開始していません。開始すると、ここで進み具合を見られます。</p>'));
   parts.push(subtaskProgressHtml(c));
+  if (!c.subtaskOf) parts.push(subtaskChartSectionHtml(c));
   if (c.relay && !isChat(c)) {
     parts.push(tr('<section class="pg-sec"><div class="pg-sec-head"><b>{v}フローチャート</b></div>{v2}</section>', { v: (icon('pipeline')), v2: (relayChartHtml(c)) }));
     parts.push(`<section class="pg-sec">${relayFlowHtml(c)}</section>`);
@@ -1964,6 +2043,7 @@ function bindProgressView(c, view) {
   view.querySelectorAll('[data-open-card]').forEach((a) => (a.onclick = (e) => (e.preventDefault(), card(a.dataset.openCard) && select(a.dataset.openCard))));
   view.querySelectorAll('[data-sact]').forEach((b) => (b.onclick = () => subtaskAction(c, b)));
   bindSubBoard(c, view);
+  bindSubChart(c, view);
   view.onclick = (e) => {
     if (e.target.closest('[data-act], [data-goto], [data-cact]')) detailAction(e);
   };
@@ -1984,7 +2064,12 @@ function renderSubtasksTab(c, { force = false } = {}) {
   if (body.dataset.subtasksSig === html) return;
   body.dataset.subtasksSig = html;
   const view = $('subtasksView');
+  const oldChart = view.querySelector('.pg-chart');
+  const scroll = oldChart ? [oldChart.scrollLeft, oldChart.scrollTop] : null;
   view.innerHTML = html;
+  bindChartZoom(view);
+  const chart = view.querySelector('.pg-chart');
+  if (chart && scroll) [chart.scrollLeft, chart.scrollTop] = scroll;
   bindProgressView(c, view);
 }
 // ログが届くたびに描き直すと重いので、まとめて描き直す
@@ -2371,6 +2456,7 @@ function chatActionsHtml(c) {
     isInterrupted(c) ? interruptedBoxHtml(c) : c.error ? `<div class="d-error">${esc(c.error)}</div>` : '',
     conflictBoxHtml(c),
     subtaskApproveHtml(c),
+    subtaskChatBoxHtml(c),
     questionFormHtml(c),
     spec
       ? tr('<div class="d-awaiting d-spec"><b>{v}内容が詰まっていないので、開発を開始できません</b><small>{where}</small></div>{form}', { v: (icon('note')), where: (specQuestions(c) ? tr('このすぐ下のフォーム（または下の欄）で、上の {who} の質問に答えて仕様を詰めてください。仕様が詰まると、決まった仕様をまとめてから開発を始めます。', { who }) : tr('下の欄で、上の {who} の質問に答えて仕様を詰めてください。仕様が詰まると、決まった仕様をまとめてから開発を始めます。', { who })), form: (specFormHtml(c)) })
