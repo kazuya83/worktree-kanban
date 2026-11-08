@@ -20,7 +20,7 @@ For work that is not code (making videos or documents, for example), you can ope
 - If you choose "not managed by git" under "Source control" in "Create new", only an empty folder is created, without `git init` (it cannot be created on GitHub)
 - Tasks do not create a worktree and run **directly in that folder**. They run in parallel up to the concurrency limit, so tasks touching the same files at the same time can collide
 - The Diff and worktree tabs, merge, PR, and conflict resolution do not appear. When a task is finished, check the folder's contents and press "Mark done". "Mark done" appears on the card in the Review column, at the top of the detail panel, and at the end of the chat and log (it does not appear while you are in the middle of answering a question or spec check). "Discard" does not restore the folder's files
-- Competition (several agents solving the same task) cannot be used, because the candidates cannot have separate working locations. Pipeline can be used
+- Competition (several agents solving the same task) cannot be used, because the candidates cannot have separate working locations. Pipeline can be used (parallel branches run one at a time in the same folder)
 
 ## Tasks that do not change source (just generating SQL, for example)
 You can also create tasks that end without changing source code, such as only writing MySQL SQL or only looking something up.

@@ -304,6 +304,42 @@ test('Pipeline: 並列 — 枝ごとに別の worktree で動かし、合流で�
   assert.strictEqual(store.notifications.filter((n) => n.cardId === c.id && n.kind === 'review').length, 1);
 });
 
+test('Pipeline: 並列 — git で管理していないフォルダでは、枝を同じフォルダで1本ずつ順に動かし、マージせずに次の工程へ進む', async () => {
+  const { agents, store, tmp } = setup();
+  const folder = path.join(tmp, 'plain');
+  fs.mkdirSync(folder);
+  fs.writeFileSync(path.join(folder, 'note.txt'), 'hello\n');
+  store.settings.repoPath = folder;
+  store.settings.noGitRepos = [folder];
+  store.settings.relayFlow = parallelFlow('codex', 'gemini');
+  const [c] = agents.createTask({ title: 'plainpar', prompt: '並列のタスク', agent: 'relay' });
+  assert.ok(c.noGit);
+  agents.start(c.id);
+  const kids = await waitFor(() => (c.relay.waiting && c.relay.waiting.children.length === 2 ? c.relay.waiting.children.map((id) => store.card(id)) : null));
+  for (const k of kids) {
+    assert.ok(k.noGit, '枝も git なしのフォルダで動かす');
+    assert.ok(!k.flowBase);
+  }
+  await waitFor(() => c.status === 'review' && c.relay.done, 30000);
+  assert.strictEqual(c.relay.steps[c.relay.index].label, '仕上げ');
+  assert.ok(!c.relay.waiting);
+  assert.deepStrictEqual(
+    c.relay.history.map((h) => [c.relay.steps[h.index].label, h.branch || null]),
+    [['実装', null], ['枝A', '枝A'], ['枝B', '枝B']],
+  );
+  // 1本ずつ順に: 2本目は1本目が終わってから始める
+  assert.ok(kids[1].startedAt >= kids[0].finishedAt, `${kids[1].startedAt} >= ${kids[0].finishedAt}`);
+  for (const k of kids) {
+    assert.ok(!k.worktreePath && !k.branch, 'worktree・ブランチは作らない');
+    assert.strictEqual(store.card(k.id), undefined, '合流したら枝のタスクは片付ける');
+  }
+  assert.ok(fs.existsSync(path.join(folder, 'note.txt')), 'フォルダの中身は消さない');
+  assert.ok(!fs.existsSync(path.join(folder, '.git')));
+  assert.ok(c.logs.some((l) => /1本ずつ順に動かします/.test(l.text)));
+  assert.ok(!c.logs.some((l) => /マージしました/.test(l.text)));
+  assert.strictEqual(store.notifications.filter((n) => n.cardId === c.id && n.kind === 'review').length, 1);
+});
+
 test('Pipeline: 並列 — 合流でコンフリクトしたら止めて知らせ、解消すると続きへ進む', async () => {
   const { agents, store } = setup();
   store.settings.relayFlow = parallelFlow('codex', 'codex');
