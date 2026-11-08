@@ -13,7 +13,13 @@
     "dist": "electron-builder --publish never",
     "dist:mac": "electron-builder --mac --publish never",
     "dist:win": "electron-builder --win --publish never",
-    "dist:linux": "electron-builder --linux --publish never"
+    "dist:linux": "electron-builder --linux --publish never",
+    "postinstall": "node scripts/fix-node-pty.js"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "1.1.0"
   },
   "devDependencies": {
     "electron": "^45.2.2",
@@ -23,14 +29,16 @@
     "appId": "dev.agentkanban.app",
     "productName": "Worktree Kanban",
     "artifactName": "worktree-kanban-${version}-${os}-${arch}.${ext}",
-    "files": ["main.js", "preload.js", "src/**", "renderer/**"],
-    "asarUnpack": ["src/permission-mcp.js", "renderer/i18n.js", "renderer/locales/**/*.js"],
+    "files": ["main.js", "preload.js", "src/**", "renderer/**", "mobile/**", "!node_modules/node-pty/{src,deps,third_party,scripts,typings}/**", "!node_modules/node-pty/**/*.pdb", "!node_modules/node-pty/prebuilds/win32-arm64/**", "!node_modules/node-addon-api/**", "!node_modules/@xterm/**/*.map", "!node_modules/@xterm/**/*.mjs"],
+    "asarUnpack": ["src/permission-mcp.js", "renderer/i18n.js", "renderer/locales/**/*.js", "node_modules/node-pty/**"],
+    "npmRebuild": false,
     "directories": {
       "output": "dist",
       "buildResources": "build"
     },
     "mac": {
       "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "files": ["!node_modules/node-pty/prebuilds/win32-*/**"],
       "category": "public.app-category.developer-tools",
       "identity": "-",
       "hardenedRuntime": false,
@@ -45,6 +53,7 @@
         { "target": "portable", "arch": ["x64"] },
         { "target": "zip", "arch": ["x64"] }
       ],
+      "files": ["!node_modules/node-pty/prebuilds/darwin-*/**"],
       "artifactName": "worktree-kanban-${version}-win-${arch}.${ext}"
     },
     "nsis": {
@@ -62,6 +71,7 @@
         { "target": "tar.gz", "arch": ["x64"] }
       ],
       "extraFiles": [{ "from": "build/linux/worktree-kanban-headless", "to": "worktree-kanban-headless" }],
+      "files": ["!node_modules/node-pty/prebuilds/**"],
       "category": "Development"
     }
   }

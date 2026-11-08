@@ -59,6 +59,14 @@ const MOBILE_CHANNELS = new Set([
   'subtasks:startOne',
   'skills:list',
   'sessions:list',
+  // アプリの中のターミナル。パソコンのアプリで「スマホからのターミナルを許可」にしたときだけ使える（main.js で断る）
+  'terminal:available',
+  'terminal:list',
+  'terminal:open',
+  'terminal:read',
+  'terminal:write',
+  'terminal:resize',
+  'terminal:close',
 ]);
 
 const CONTENT_TYPES = {
