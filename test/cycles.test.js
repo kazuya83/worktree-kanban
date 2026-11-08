@@ -295,7 +295,7 @@ test('スプリントの文言は4言語に訳され、差し込み名が一致�
 });
 
 // ---- 画面（cycles-view.js）: renderer.js の部品を置き換えて、HTML と操作を確かめる ----
-function loadView({ cycles = [], cards = [], settings = {}, selection } = {}) {
+function loadView({ cycles = [], cards = [], settings = {}, selection, extra = {} } = {}) {
   const ls = new Map();
   if (selection) ls.set(`cycleSel:${settings.repoPath || '/r'}`, selection);
   const calls = [];
@@ -316,6 +316,7 @@ function loadView({ cycles = [], cards = [], settings = {}, selection } = {}) {
       },
     },
     I18n,
+    ...extra,
   };
   ctx.self = ctx;
   vm.createContext(ctx);
@@ -391,4 +392,78 @@ test('画面: 新しいタスクのスプリントの欄と、詳細の「スプ
   assert.match(V.detailButtonHtml({ id: '1', cycleIds: ['a'] }), /data-act="cycles"/);
   assert.strictEqual(V.detailButtonHtml({ id: 's', subtaskOf: { parent: '1' } }), '');
   assert.strictEqual(loadView({ cycles: [] }).V.fieldHtml('n', []), '', 'スプリントがなければ欄を出さない');
+});
+
+// ---- 押している間にボードが描き直されても、スプリントの「編集」が効くこと ----
+function fakeEl(data, parent = null) {
+  const el = { dataset: { ...data }, isConnected: true, parent };
+  el.closest = (sel) => {
+    for (let x = el; x; x = x.parent) {
+      if (/data-cycle-act/.test(sel) && x.dataset.cycleAct) return x;
+      if (/data-cycle-sel/.test(sel) && x.dataset.cycleSel) return x;
+    }
+    return null;
+  };
+  return el;
+}
+function loadBoard(cycles) {
+  const handlers = {};
+  const board = fakeEl({});
+  board.addEventListener = (type, fn) => (handlers[type] = handlers[type] || []).push(fn);
+  const opened = [];
+  let atPoint = null;
+  const { V } = loadView({
+    cycles,
+    extra: {
+      $: (id) => (id === 'board' ? board : null),
+      openModal: (html) => opened.push(html),
+      closeModal: () => {},
+      renderBoard: () => {},
+      document: { elementFromPoint: () => atPoint },
+    },
+  });
+  const fire = (type, target) => (handlers[type] || []).forEach((fn) => fn({ target, clientX: 1, clientY: 1 }));
+  return { V, board, handlers, opened, fire, setAt: (el) => (atPoint = el) };
+}
+
+test('画面: 「編集」を押すとスプリントの編集を開く（何度 bindChrome しても1回だけ）', () => {
+  const { V, board, opened, fire } = loadBoard([cy('a')]);
+  V.bindChrome();
+  V.bindChrome();
+  const btn = fakeEl({ cycleAct: 'edit', id: 'a' }, board);
+  fire('mousedown', btn);
+  fire('click', btn);
+  assert.strictEqual(opened.length, 1);
+  assert.match(opened[0], /スプリントを編集|Edit sprint/);
+  assert.match(opened[0], /value="A"/);
+});
+
+test('画面: 押している間にボタンが描き直されても、同じ場所の同じボタンなら「編集」を開く', () => {
+  const { V, board, opened, fire, setAt } = loadBoard([cy('a'), cy('b')]);
+  V.bindChrome();
+  const old = fakeEl({ cycleAct: 'edit', id: 'a' }, board);
+  fire('mousedown', old);
+  old.isConnected = false; // 描き直しで差し替わった
+  setAt(fakeEl({ cycleAct: 'edit', id: 'a' }, board));
+  fire('click', board); // click はボード自体に届く
+  assert.strictEqual(opened.length, 1);
+
+  // 別のボタン（別のスプリント）がその場所に来ていたら押さない
+  const old2 = fakeEl({ cycleAct: 'edit', id: 'a' }, board);
+  fire('mousedown', old2);
+  old2.isConnected = false;
+  setAt(fakeEl({ cycleAct: 'edit', id: 'b' }, board));
+  fire('click', board);
+  assert.strictEqual(opened.length, 1);
+});
+
+test('画面: スプリントのタブをダブルクリックすると編集を開く（1回目のクリックで描き直したあとでも）', () => {
+  const { V, board, opened, fire, setAt } = loadBoard([cy('a')]);
+  V.bindChrome();
+  setAt(fakeEl({ cycleSel: 'a' }, board));
+  fire('dblclick', board);
+  assert.strictEqual(opened.length, 1);
+  setAt(fakeEl({ cycleSel: 'all' }, board));
+  fire('dblclick', board);
+  assert.strictEqual(opened.length, 1, '「すべて」は編集しない');
 });
