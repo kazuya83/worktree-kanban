@@ -118,9 +118,8 @@ test('git なしのフォルダ: worktree を作らずにフォルダで直接�
 
 test('git なしのフォルダ: 競争は使えない。git のタスクは「完了にする」を使えない', () => {
   const { store, agents } = setup();
-  store.settings.orchestration = 'compete';
   store.settings.enabledAgents = ['claude', 'codex'];
-  store.settings.competeAgents = ['claude', 'codex'];
+  store.settings.competes = [{ id: 'default', name: '競争', agents: ['claude', 'codex'], customAgents: [] }];
   assert.throws(() => agents.createTask({ prompt: 'x', agent: 'compete' }), /競争は使えません/);
   const c = agents.createCard({ prompt: 'y' });
   delete c.noGit;

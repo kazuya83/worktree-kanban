@@ -347,7 +347,6 @@ test('英語にすると、残っていたエラーと通知が日本語のま�
   const dir = tmpDir();
   const store = new Store(path.join(dir, 'board.json'));
   store.settings.repoPath = '/repo';
-  store.settings.orchestration = 'relay';
   const agents = new AgentManager(store, { mcpScript: '', mcpDir: path.join(dir, 'mcp'), nodeBin: process.execPath });
   store.cards.push(
     { id: 'a', title: '競争タスク', status: 'review', agent: 'claude', repoPath: '/repo', compete: { group: 'g', index: 0, title: '競争タスク', notified: false } },
@@ -451,18 +450,11 @@ test('英語にすると、残っていたエラーと通知が日本語のま�
       throw new Error('should-fetch');
     };
     await assert.rejects(() => agents.createFromIssues({ numbers: '8' }), /should-fetch/);
-    assert.throws(() => agents.createTask({ prompt: 'x', agent: 'compete' }), (err) => {
-      assert.doesNotMatch(err.message, /競争|どちらか1つだけ/);
-      assert.match(err.message, /Competition/);
+    assert.throws(() => agents.createTask({ prompt: 'x', agent: 'compete:k1', readOnly: true }), (err) => {
+      assert.doesNotMatch(err.message, /競争|使えません/);
+      assert.match(err.message, /cannot be used/);
       return true;
     });
-    store.settings.orchestration = 'none';
-    assert.throws(() => agents.createTask({ prompt: 'x', agent: 'compete' }), (err) => {
-      assert.doesNotMatch(err.message, /オーケストレーションを使わない設定/);
-      assert.match(err.message, /orchestration is turned off/);
-      return true;
-    });
-    store.settings.orchestration = 'relay';
     agents.fetchIssue = async (_repo, n) => ({ number: n, title: '閉じた', state: 'closed', body: '' });
     agents.createTask = () => [{ id: 'made', title: '#4 閉じた', compete: { group: 'x' } }];
     const made = await agents.createFromIssues({ numbers: '4' });

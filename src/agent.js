@@ -1246,6 +1246,12 @@ class AgentManager extends EventEmitter {
       pipelineId = mode.slice('relay:'.length);
       mode = 'relay';
     }
+    // 競争は「compete」（一覧の先頭）か「compete:<ID>」（そのプロジェクトの競争の1つ）
+    let competeId = '';
+    if (typeof mode === 'string' && mode.startsWith('compete:')) {
+      competeId = mode.slice('compete:'.length);
+      mode = 'compete';
+    }
     // カスタムエージェント: その CLI・モデル・プロフィールで動かす
     const custom = providers.isCustomRef(mode) ? this.customAgent(mode, repo) : null;
     if (custom) mode = custom.agent;
@@ -1254,14 +1260,8 @@ class AgentManager extends EventEmitter {
     // 会話の続き、または完了したタスクの修正として作る
     const chat = fromChat ? this.store.card(fromChat) : null;
     const from = isChat(chat) || (chat && chat.status === 'done') ? chat : null;
-    // Pipelineと競争は排他。設定で選んでいない方（「なし」ならどちらも）は使えない
-    if ((mode === 'relay' || mode === 'compete') && providers.cleanOrchestration(s.orchestration) !== mode) {
-      const name = (m) => (m === 'relay' ? 'Pipeline' : tr('競争'));
-      const why = providers.cleanOrchestration(s.orchestration) === 'none' ? tr('オーケストレーションを使わない設定') : tr('Pipelineと競争はどちらか1つだけ使えます');
-      throw new Error(tr('{name}は使わない設定になっています（{why}）。「設定」の「オーケストレーション」で{name2}を選んでください', { name: name(mode), why, name2: name(mode) }));
-    }
     if (readOnly && mode === 'compete') throw new Error(tr('ソースを変更しないタスクでは、競争は使えません。ほかのエージェントを選んでください'));
-    if (mode === 'compete') return this.createCompetition({ title, prompt, issue, session, skill, fromChat: from, parsed, ...extra });
+    if (mode === 'compete') return this.createCompetition({ title, prompt, issue, session, skill, fromChat: from, parsed, competeId, ...extra });
     if (mode === 'relay') {
       // Pipelineのフローチャートは、プロジェクトごとの設定（複数あれば、選んだもの。選んでいなければ既定の Pipeline）
       const pipe = pipelineOf(this.store.repoSettings(repo), pipelineId);
@@ -1287,25 +1287,31 @@ class AgentManager extends EventEmitter {
   }
 
   // 競争: 同じタスクを、設定のエージェントそれぞれのカードにする（使わない設定のエージェントは外す）
-  createCompetition({ title, prompt, issue, session, skill, fromChat, parsed, repoPath, skipSpecCheck, scheduleId, scheduleTitle, slack }) {
+  // competeId: そのプロジェクトの競争の ID（空なら一覧の先頭）
+  createCompetition({ title, prompt, issue, session, skill, fromChat, parsed, competeId, repoPath, skipSpecCheck, scheduleId, scheduleTitle, slack }) {
     const s = this.store.settings;
     const repo = this.targetRepo(repoPath);
     if (isNoGitRepo(s, repo)) throw new Error(tr('git で管理していないフォルダでは、競争は使えません（候補ごとに別の作業場所を作れないため）。ほかのエージェントを選んでください'));
-    const list = this.competeEntries(repo);
-    if (list.length < 2) throw new Error(tr('競争させるエージェントを、設定で2つ以上選んでください（使うエージェントにチェックを付けたものと、カスタムエージェントから選べます）'));
+    const set = providers.competeOf(this.store.repoSettings(repo).competes, competeId ? `compete:${competeId}` : 'compete');
+    if (!set) throw new Error(tr('選んだ競争が見つかりません（消されたかもしれません）。「設定」の「オーケストレーション」で競争を作るか、選び直してください'));
+    const list = this.competeEntries(repo, set.id);
+    if (list.length < 2) throw new Error(tr('競争「{name}」で競争させるエージェントを、設定で2つ以上選んでください（使うエージェントにチェックを付けたものと、カスタムエージェントから選べます）', { name: set.name }));
     const group = crypto.randomBytes(4).toString('hex');
     const base = (title && title.trim()) || truncate(String(prompt || '').trim().split('\n')[0], 40);
     return list.map((x, index) =>
-      this.createCard({ title: `${base} [${whoShort(x.agent, x.persona)}]`, prompt, issue, session, skill, agent: x.agent, model: x.model, persona: x.persona, compete: { group, index, total: list.length, title: base }, fromChat, parsed, repoPath: repo, skipSpecCheck, scheduleId, scheduleTitle: scheduleTitle || base, slack }),
+      this.createCard({ title: `${base} [${whoShort(x.agent, x.persona)}]`, prompt, issue, session, skill, agent: x.agent, model: x.model, persona: x.persona, compete: { group, index, total: list.length, title: base, set: { id: set.id, name: set.name } }, fromChat, parsed, repoPath: repo, skipSpecCheck, scheduleId, scheduleTitle: scheduleTitle || base, slack }),
     );
   }
 
-  // 競争させる顔ぶれ: 設定のふつうのエージェント（使う設定のもの）と、このプロジェクトのカスタムエージェント（元の CLI が使う設定のもの）
-  competeEntries(repoPath) {
+  // 競争させる顔ぶれ: その競争の、ふつうのエージェント（使う設定のもの）と、このプロジェクトのカスタムエージェント（元の CLI が使う設定のもの）
+  // competeId を省くと、そのプロジェクトの競争の一覧の先頭
+  competeEntries(repoPath, competeId) {
     const s = this.store.settings;
-    const plain = providers.cleanCompeteAgents(s.competeAgents).filter((a) => providers.isEnabled(s, a)).map((a) => ({ agent: a, model: '', persona: null }));
+    const set = providers.competeOf(this.store.repoSettings(repoPath).competes, competeId ? `compete:${competeId}` : 'compete');
+    if (!set) return [];
+    const plain = providers.cleanCompeteAgents(set.agents).filter((a) => providers.isEnabled(s, a)).map((a) => ({ agent: a, model: '', persona: null }));
     const cas = this.customAgents(repoPath);
-    const custom = this.store.repoSettings(repoPath).competeCustomAgents
+    const custom = set.customAgents
       .map((id) => providers.findCustomAgent(cas, id))
       .filter((ca) => ca && providers.isEnabled(s, ca.agent))
       .map((ca) => ({ agent: ca.agent, model: ca.model, persona: providers.personaOf(ca) }));

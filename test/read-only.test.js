@@ -80,9 +80,8 @@ test('ソースを変更しないタスク: worktree を作らず、書き換え
 
 test('ソースを変更しないタスク: 競争は使えない。チェックしなければ、これまでどおりのタスク', () => {
   const { store, agents } = setup();
-  store.settings.orchestration = 'compete';
   store.settings.enabledAgents = ['claude', 'codex'];
-  store.settings.competeAgents = ['claude', 'codex'];
+  store.settings.competes = [{ id: 'default', name: '競争', agents: ['claude', 'codex'], customAgents: [] }];
   assert.throws(() => agents.createTask({ prompt: 'x', agent: 'compete', readOnly: true }), /競争は使えません/);
   const [c] = agents.createTask({ prompt: 'y', agent: 'claude' });
   assert.strictEqual(c.readOnly, undefined);

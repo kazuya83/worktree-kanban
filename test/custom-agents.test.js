@@ -195,9 +195,7 @@ test('Pipeline: 工程のカスタムエージェントが消えていたら始�
 
 test('競争: ふつうのエージェントとカスタムエージェントを一緒に競争させる', () => {
   const { agents, store } = setup();
-  store.settings.orchestration = 'compete';
-  store.settings.competeAgents = ['claude'];
-  store.settings.competeCustomAgents = ['rev'];
+  store.settings.competes = [{ id: 'default', name: '競争', agents: ['claude'], customAgents: ['rev'] }];
   const cards = agents.createTask({ title: '競争', prompt: '同じタスク', agent: 'compete' });
   assert.strictEqual(cards.length, 2);
   assert.deepStrictEqual(cards.map((c) => c.agent), ['claude', 'codex']);

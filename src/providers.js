@@ -531,7 +531,8 @@ const DEFAULT_RELAY_STEPS = defaultRelaySteps();
 // 競争（同じタスクを複数のエージェントで並列に解く）の初期値
 const DEFAULT_COMPETE_AGENTS = ['claude', 'codex'];
 
-// Pipelineと競争は排他。設定でどちらか1つだけを使うか、使わない（'relay' / 'compete' / 'none'。ほかの値はPipeline）
+// 前の版の設定: Pipelineと競争は排他で、どちらか1つだけを使えた（'relay' / 'compete' / 'none'）。
+// 今はどちらもいつでも設定でき、タスクを作るときに1つ選ぶ。読み込んだ値をそろえるためだけに残している
 const ORCHESTRATIONS = ['relay', 'compete', 'none'];
 function cleanOrchestration(v) {
   return ORCHESTRATIONS.includes(v) ? v : 'relay';
@@ -585,6 +586,51 @@ function cleanCompeteAgents(list) {
   const out = [];
   for (const a of Array.isArray(list) ? list : []) if (isAgent(a) && !out.includes(a)) out.push(a);
   return out;
+}
+
+// ---------- 競争の設定（プロジェクトごとに複数） ----------
+// competes: [{ id, name, agents: ふつうのエージェント, customAgents: カスタムエージェントの ID }]
+// タスクを作るときの値は「compete:<ID>」（「compete」だけなら一覧の先頭）
+const COMPETE_PREFIX = 'compete:';
+const RELAY_PREFIX = 'relay:';
+const MAX_COMPETES = 20;
+const COMPETE_NAME_MAX = 30;
+const COMPETE_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+function isCompeteRef(v) {
+  return v === 'compete' || (typeof v === 'string' && v.startsWith(COMPETE_PREFIX) && COMPETE_ID_RE.test(v.slice(COMPETE_PREFIX.length)));
+}
+function isRelayRef(v) {
+  return v === 'relay' || (typeof v === 'string' && v.startsWith(RELAY_PREFIX) && v.length > RELAY_PREFIX.length);
+}
+// 整えた競争の一覧（ID・名前は重ならないようにする。カスタムエージェントは、あるものだけ）
+function cleanCompetes(list, customAgents) {
+  const ids = new Set((Array.isArray(customAgents) ? customAgents : []).map((x) => x && x.id).filter(Boolean));
+  const out = [];
+  for (const x of Array.isArray(list) ? list : []) {
+    if (!x || typeof x !== 'object' || out.length >= MAX_COMPETES) continue;
+    let id = COMPETE_ID_RE.test(String(x.id || '')) ? String(x.id) : '';
+    while (!id || out.some((y) => y.id === id)) id = `k${require('crypto').randomBytes(4).toString('hex')}`;
+    const base = [...String(x.name || '').trim()].slice(0, COMPETE_NAME_MAX).join('') || tr('競争');
+    let name = base;
+    for (let n = 2; out.some((y) => y.name === name); n++) name = `${base} ${n}`;
+    const custom = [];
+    for (const v of Array.isArray(x.customAgents) ? x.customAgents : []) {
+      const cid = String(v || '').replace(/^custom:/, '');
+      if (ids.has(cid) && !custom.includes(cid)) custom.push(cid);
+    }
+    out.push({ id, name, agents: cleanCompeteAgents(x.agents), customAgents: custom });
+  }
+  return out;
+}
+// 前の版の設定（アプリ全体の competeAgents と、プロジェクトごとの competeCustomAgents）から作る、競争の一覧
+function legacyCompetes(agents, customIds) {
+  return [{ id: 'default', name: tr('競争'), agents: cleanCompeteAgents(agents === undefined ? DEFAULT_COMPETE_AGENTS : agents), customAgents: Array.isArray(customIds) ? customIds : [] }];
+}
+// 「compete:<ID>」の競争（「compete」だけなら先頭）。なければ null
+function competeOf(competes, ref) {
+  const list = Array.isArray(competes) ? competes : [];
+  if (ref === 'compete') return list[0] || null;
+  return isCompeteRef(ref) ? list.find((x) => x.id === ref.slice(COMPETE_PREFIX.length)) || null : null;
 }
 
 // ---------- カスタムエージェント（プロジェクトごと） ----------
@@ -694,6 +740,19 @@ function defaultAgentRefOf(settings) {
   }
   return list.includes(d) ? d : list[0];
 }
+// 新しいタスクで最初から選んでおくもの（defaultAgent）。1つのエージェント・カスタムエージェントのほかに、
+// Pipeline「relay:<ID>」・競争「compete:<ID>」も選べる。消えたものなら、1つのエージェント（defaultAgentRefOf）に戻す
+function defaultTaskRefOf(settings) {
+  const d = settings && settings.defaultAgent;
+  if (typeof d === 'string' && d.startsWith(RELAY_PREFIX)) {
+    const id = d.slice(RELAY_PREFIX.length);
+    // Pipeline の一覧がまだない（前の版の relayFlow だけの）設定では、その1つを「default」と呼ぶ
+    const flows = Array.isArray(settings.relayFlows) && settings.relayFlows.length ? settings.relayFlows : settings.relayFlow ? [{ id: 'default' }] : [];
+    if (flows.some((p) => p && p.id === id)) return d;
+  }
+  if (typeof d === 'string' && d.startsWith(COMPETE_PREFIX) && competeOf(settings.competes, d)) return d;
+  return defaultAgentRefOf(settings);
+}
 // 最初から選んでおくエージェントの CLI（カスタムエージェントなら、その元にするエージェント）。比較・Pipelineの組み立てなど、アプリが頼む作業に使う
 function defaultAgentOf(settings) {
   const ref = defaultAgentRefOf(settings);
@@ -731,6 +790,15 @@ module.exports = {
   cleanOrchestration,
   ORCHESTRATIONS,
   cleanCompeteAgents,
+  COMPETE_PREFIX,
+  MAX_COMPETES,
+  COMPETE_NAME_MAX,
+  isCompeteRef,
+  isRelayRef,
+  cleanCompetes,
+  legacyCompetes,
+  competeOf,
+  defaultTaskRefOf,
   DEFAULT_ENABLED_AGENTS,
   cleanEnabledAgents,
   enabledAgents,

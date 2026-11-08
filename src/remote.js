@@ -689,6 +689,7 @@ function settingLabel(k) {
   if (k === 'relayFlows') return tr('Pipelineの一覧');
   if (k === 'relayFlowId') return tr('既定のPipeline');
   if (k === 'competeCustomAgents') return tr('競争させるカスタムエージェント');
+  if (k === 'competes') return tr('競争の一覧');
   if (k === 'enabledAgents') return tr('使うエージェント');
   if (k === 'orchestration') return tr('オーケストレーション');
   return k;
