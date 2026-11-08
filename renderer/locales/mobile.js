@@ -111,7 +111,7 @@
   "通知はまだありません": {"en":"No notifications yet","es":"Aún no hay avisos","fr":"Pas encore de notification","zh":"还没有通知"},
   "対応済み": {"en":"Handled","es":"Atendido","fr":"Traité","zh":"已处理"},
   "この通知を消す": {"en":"Dismiss this notification","es":"Descartar este aviso","fr":"Effacer cette notification","zh":"清除此通知"},
-  "もう一度ペアリングしてください（{v}）": {"en":"Please pair again ({v})","es":"Vuelve a emparejar ({v})","fr":"Veuillez refaire l’appairage ({v})","zh":"请重新配对（{v}）"},
+  "もう一度ペアリングしてください": {"en":"Please pair again","es":"Vuelve a emparejar","fr":"Veuillez refaire l’appairage","zh":"请重新配对"},
   "1つのエージェントで動かす": {"en":"Run with one agent","es":"Ejecutar con un agente","fr":"Exécuter avec un agent","zh":"用一个代理运行"},
   "{icon}{name}（{agent}{model}）{off}": {"en":"{icon}{name} ({agent}{model}){off}","es":"{icon}{name} ({agent}{model}){off}","fr":"{icon}{name} ({agent}{model}){off}","zh":"{icon}{name}（{agent}{model}）{off}"},
   "競争: {names} で同じタスクを解いて比べる": {"en":"Compete: {names} solve the same task and are compared","es":"Competencia: {names} resuelven la misma tarea y se comparan","fr":"Concours : {names} résolvent la même tâche et sont comparés","zh":"竞争：让 {names} 解决同一任务并比较"},

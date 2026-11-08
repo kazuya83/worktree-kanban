@@ -289,7 +289,8 @@ select:focus {
   margin-bottom: 6px;
 }
 .check input,
-.q-opt input {
+.q-opt input[type='radio'],
+.q-opt input[type='checkbox'] {
   width: 22px;
   height: 22px;
   flex: none;
@@ -711,8 +712,12 @@ select:focus {
   display: block;
   color: var(--muted);
 }
+.q-opt b {
+  display: block;
+}
 .q-opt .q-other {
   margin-top: 6px;
+  width: 100%;
 }
 .sub-list {
   padding-left: 20px;

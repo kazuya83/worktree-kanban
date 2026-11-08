@@ -102,3 +102,5 @@ Quick Tunnel は Cloudflare が試用向けに出しているもので、動き�
 - `POST /api/v1/logout`
 
 認証は `Authorization: Bearer <token>` です。
+
+[← README に戻る](../README.ja.md)

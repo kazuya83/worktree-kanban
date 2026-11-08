@@ -102,3 +102,5 @@ The phone page uses only the app's HTTP API (`/api/v1/…`). The calls are colle
 - `POST /api/v1/logout`
 
 Authentication is `Authorization: Bearer <token>`.
+
+[← Back to README](../README.md)

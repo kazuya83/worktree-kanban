@@ -1429,7 +1429,7 @@
       S.board = { settings: {}, cards: [], notifications: [], repoTabs: [] };
       S.model = BM.model([]);
       history.replaceState(null, '');
-      showPair(err && err.code === 'no_token' ? '' : tr('もう一度ペアリングしてください（{v}）', { v: (err && err.message) || '401' }));
+      showPair(err && err.code === 'no_token' ? '' : (err && err.message) || tr('もう一度ペアリングしてください'));
     });
     // 開いている画面に、あとから QR コードのリンクを開いたとき
     window.addEventListener('hashchange', pairFromHash);
