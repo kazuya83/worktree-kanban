@@ -1,4 +1,4 @@
-/* global api, icon, agentIcon, NOTIF_ICON, AppView, tr, I18n, CycleView, CycleModel */
+/* global api, icon, agentIcon, NOTIF_ICON, AppView, tr, I18n, CycleView, CycleModel, BrowserView */
 // 言語の土台（i18n.js）が先に tr を置く。まだ無いときは原文のまま返す
 if (typeof tr !== 'function') {
   var tr = (key, vars) => (vars ? String(key ?? '').replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : key);
@@ -1042,13 +1042,14 @@ async function select(id, { subFrom = null } = {}) {
   renderDetailBody();
 }
 
-// 会話と git で管理していないフォルダのタスクには worktree も差分もないので、そのタブは隠す
+// 会話と git で管理していないフォルダのタスクには worktree も差分も（タスクごとのポートで動かす）ブラウザもないので、そのタブは隠す
+const WORKTREE_TABS = ['worktree', 'diff', 'browser'];
 function updateTabsFor(c) {
   const chat = isChat(c) || isNoGit(c);
   document.querySelectorAll('#tabs .tab').forEach((t) => {
-    if (t.dataset.tab === 'worktree' || t.dataset.tab === 'diff') t.classList.toggle('hidden', chat);
+    if (WORKTREE_TABS.includes(t.dataset.tab)) t.classList.toggle('hidden', chat);
   });
-  if (chat && (state.tab === 'worktree' || state.tab === 'diff')) setTab('chat');
+  if (chat && WORKTREE_TABS.includes(state.tab)) setTab('chat');
   // 「サブタスク」タブは、サブタスクがあるタスクにだけ出す
   const subs = hasSubtasks(c);
   $('subtasksTab').classList.toggle('hidden', !subs);
@@ -1058,11 +1059,15 @@ function updateTabsFor(c) {
 function setTab(tab) {
   state.tab = tab;
   document.querySelectorAll('#tabs .tab').forEach((x) => x.classList.toggle('active', x.dataset.tab === tab));
+  // 内蔵ブラウザは読み込み直さないよう、タブの中身（#detailBody）とは別の場所（#browserPane）に置いたままにする
+  $('detailBody').classList.toggle('hidden', tab === 'browser');
+  BrowserView.show(tab === 'browser' && !!state.selected);
 }
 
 function closeDetail() {
   state.selected = null;
   state.subFrom = null;
+  BrowserView.show(false);
   const panel = $('detail');
   // スライドで開いているパネルは右へ抜けてから隠す（animationend で hidden にする）。モーダルはすぐ閉じる
   if (panel.classList.contains('as-modal')) panel.classList.add('hidden');
@@ -3074,6 +3079,9 @@ async function renderDetailBody() {
     await renderDiff(c);
   } else if (state.tab === 'worktree') {
     await renderWorktree(c);
+  } else if (state.tab === 'browser') {
+    BrowserView.show(true);
+    BrowserView.render(c);
   } else if (state.tab === 'btw') {
     const live = c.status === 'running' || c.status === 'queued';
     const nonClaude = agentOf(c) !== 'claude';
@@ -3269,6 +3277,9 @@ async function sendFollow() {
 }
 $('followBtn').onclick = sendFollow;
 onSendKey($('followInput'), sendFollow);
+
+// 詳細の「ブラウザ」タブ（内蔵ブラウザとデザインモード）
+BrowserView.init({ api, icon, esc, toast, run, card, canSendFollow, viewingHost });
 
 // ---------------- モーダル ----------------
 
@@ -5798,6 +5809,7 @@ api.onBoard((board) => {
       state.wtStatus = `${c.id}:${c.status}:${c.worktreePath || ''}`;
       if (state.tab === 'progress' || state.tab === 'subtasks') scheduleProgress();
       if (state.tab === 'diff') drawDiffCommentBar(c); // 「送る」を押せるかは、タスクの状態で変わる
+      if (state.tab === 'browser') BrowserView.update(c); // 選んだ部品を送れるかは、タスクの状態で変わる
       if (state.tab === 'btw') {
         const list = $('btwList');
         if (list) list.innerHTML = btwListHtml(c);
