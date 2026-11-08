@@ -8,6 +8,7 @@ Each release that changes the app raises the last number of the version. There i
 
 ### Added
 
+- Built-in browser: the "Browser" tab in the detail panel opens the task's development server on its own port (`WORKTREE_KANBAN_PORT`) and can start it with the run script. In Design Mode, click elements on the page to send their HTML, CSS and screenshots to the agent along with what you want changed.
 - Use from your phone: from anywhere, see the board in a phone browser (iPhone and Android), create and start tasks, send follow-up instructions, approve, and answer questions. The app starts Cloudflare Tunnel (`cloudflared`, Quick Tunnel or a named tunnel), so no port forwarding is needed. Phones pair with a one-time QR code, tokens expire after 30 days, and each phone can be revoked. Merging, PRs, and settings are not available from the phone. The phone page uses a versioned HTTP API (`/api/v1`) that a future native app can also use.
 - The agent selected by default for new tasks and conversations can now be one of the project's custom agents, and it is remembered per project. Existing projects keep the value used so far. If the chosen custom agent is deleted or its base agent is unchecked, the first of the agents to use is selected.
 - A guide for moving from Conductor, with the steps to export Conductor Cloud data first (English and Japanese).
