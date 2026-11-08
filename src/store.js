@@ -267,7 +267,7 @@ const DEFAULT_SETTINGS = {
   updatePending: null, // 更新のために終了したときの { from, to, at }（次の起動で、更新できたかを知らせる）
   // ---- エージェント ----
   enabledAgents: DEFAULT_ENABLED_AGENTS, // 使うエージェント（チェックを付けたものだけ、コマンド・モデルを設定してタスクや会話で選べる）
-  defaultAgent: 'claude', // 新しいタスク・会話で最初から選んでおくもの（プロジェクトごと。claude / codex / antigravity / gemini / cursor か、このプロジェクトのカスタムエージェント「custom:<ID>」・Pipeline「relay:<ID>」・競争「compete:<ID>」。会話では Pipeline・競争のときは使うエージェントの先頭）
+  defaultAgent: 'claude', // 新しいタスク・会話で最初から選んでおくもの（プロジェクトごと。claude / codex / antigravity / gemini / cursor / opencode / copilot / amp / pi / droid か、このプロジェクトのカスタムエージェント「custom:<ID>」・Pipeline「relay:<ID>」・競争「compete:<ID>」。会話では Pipeline・競争のときは使うエージェントの先頭）
   codexPath: 'codex',
   codexModel: '',
   antigravityPath: 'agy',
@@ -276,6 +276,16 @@ const DEFAULT_SETTINGS = {
   geminiModel: '',
   cursorPath: 'cursor-agent',
   cursorModel: '',
+  opencodePath: 'opencode',
+  opencodeModel: '',
+  copilotPath: 'copilot',
+  copilotModel: '',
+  ampPath: 'amp',
+  ampModel: '',
+  piPath: 'pi',
+  piModel: '',
+  droidPath: 'droid',
+  droidModel: '',
   // ---- オーケストレーション ----
   orchestration: 'relay', // 前の版の設定（Pipelineと競争は排他で、どちらか1つだけ使えた）。今は使わない
   relaySteps: DEFAULT_RELAY_STEPS, // 前のバージョンのPipelineの工程のリスト（アプリ全体で1つ）。今はプロジェクトごとの relayFlow を使う。読み込むときに relayFlow へ移す

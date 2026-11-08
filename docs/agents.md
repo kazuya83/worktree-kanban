@@ -2,11 +2,11 @@
 
 # Agents and orchestration (🤖 / 🔁 / 🏁)
 
-With "Agent" when you create a task, you choose whether it runs on **Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI** (only the agents checked under "Agents to use" in Settings are offered). You can also choose **orchestration**, which combines several agents.
+With "Agent" when you create a task, you choose whether it runs on **Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI / OpenCode / Copilot CLI / Amp / Pi / Droid** (only the agents checked under "Agents to use" in Settings are offered). You can also choose **orchestration**, which combines several agents.
 
 | Choice | What happens |
 | --- | --- |
-| Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI | The task runs as one card on that agent (worktree, commits, merge, and PR work as usual) |
+| Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI / OpenCode / Copilot CLI / Amp / Pi / Droid | The task runs as one card on that agent (worktree, commits, merge, and PR work as usual) |
 | 🔁 Pipeline | Agents hand the work over step by step, following the **flowchart** in Settings (for example: implement with Codex → review with Claude → back to implementation if changes are needed). Steps run in the same worktree (only parallel branches use separate worktrees). Changes are committed after each step, and the final report is passed to the next step. If a step fails or stops on a question, the Pipeline stops there (fix it with a follow-up instruction and it moves on to the next steps). When all steps are done, the task moves to the Review column. You can follow progress on the card's bar and in the workflow view in the detail panel (each step's state, agent, time taken, cost, and the report passed on) |
 | 🏁 Competition | The agents of the chosen competition solve the same task **in parallel**, each on its own card (separate worktrees and branches). You get a notification when all of them finish. Compare the candidates in the "🏁 Competition" area of the "Progress" tab in the detail panel. Use "🤔 Ask ○○ to compare" to start a conversation comparing them (it asks the agent selected by default), or "🏁 Adopt this proposal" to discard the other candidates. Bring in the adopted proposal with a merge or a PR as usual |
 
@@ -27,8 +27,8 @@ With "Agent" when you create a task, you choose whether it runs on **Claude Code
 - When a task is stopped in review or has failed, you can return to the point just before a step or a run. Files, Pipeline progress, and the conversation go back to that point, later changes are discarded, and work starts right away. See [Restore an earlier point](usage.md#restore-an-earlier-point)
 - Branch naming, conflict resolution, the spec check, conversations, and skill suggestions work on every agent (branch names and conflict resolution are handled by the task's agent)
 - Tasks created from an Issue can also choose an agent, Pipeline, or competition (with competition, each Issue gets one card per agent)
-- Codex runs as `codex exec --json` (`codex app-server` when you approve on the card), Antigravity as `agy --output-format stream-json`, Gemini as `gemini --output-format stream-json`, and Cursor as `cursor-agent acp` (`cursor-agent -p --output-format stream-json` on versions without it). Follow-up instructions continue the same conversation
-- Because of how their CLIs work, Codex / Antigravity / Gemini / Cursor do not support multiple-choice questions, btw (messages while running), continuing an existing conversation (from the terminal), or cost display
+- Codex runs as `codex exec --json` (`codex app-server` when you approve on the card), Antigravity as `agy --output-format stream-json`, Gemini as `gemini --output-format stream-json`, Cursor as `cursor-agent acp` (`cursor-agent -p --output-format stream-json` on versions without it), OpenCode as `opencode run --format json`, Copilot CLI as `copilot -p … --output-format json`, Amp as `amp -x --stream-json` (`amp threads continue` to continue), Pi as `pi --mode json`, and Droid as `droid exec -o stream-json`. Follow-up instructions continue the same conversation
+- Because of how their CLIs work, Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid do not support multiple-choice questions, btw (messages while running), continuing an existing conversation (from the terminal), or cost display
 - **In-card approval** works on Claude Code, Codex, and Cursor. "Always allow" is remembered only for that card. The allowed tools setting also applies (a prefix rule such as `Bash(npm test:*)` does not match commands chained with `;` or `|`). Each permission mode works as follows
 
 | Permission mode | Codex | Cursor | Antigravity | Gemini |
@@ -38,6 +38,22 @@ With "Agent" when you create a task, you choose whether it runs on **Claude Code
 | Ask every time (`default`) | Commands and file changes are **approved on the card** | Commands not in allow are **approved on the card** (Cursor does not ask about file edits, so they are written directly) | Changes are denied (`default`) | `default` |
 | Allow everything automatically | `--dangerously-bypass-approvals-and-sandbox` | `--force --approve-mcps` | `--dangerously-skip-permissions` | `yolo` |
 
+OpenCode, Copilot CLI, Amp, Pi, and Droid do not support in-card approval, so the CLI allows actions according to the permission mode. Anything that needs confirmation is refused on the spot, because the CLI cannot ask in headless mode (it does not wait). OpenCode, Amp, and Pi run commands without asking by default, so commands are turned off in every mode except "Allow everything automatically" (tasks created from Issues or Slack never run with "Allow everything automatically", so instructions written by outsiders cannot run commands either)
+
+| Permission mode | OpenCode | Copilot CLI | Amp | Pi | Droid |
+| --- | --- | --- | --- | --- | --- |
+| Plan only | `--agent plan` (refuses file changes); commands need confirmation (so they are refused) | `--plan` | File-changing tools and commands (`edit_file` / `create_file` / `undo_edit` / `Bash`) are turned off | Read-only tools only (`--tools read,grep,find,ls`) | No flag (read-only) |
+| Auto-approve file edits (`acceptEdits`) | Commands need confirmation (so they are refused) | Only file writes are allowed (`--allow-tool=write`) | Commands (`Bash`) are turned off | No commands (`--tools read,edit,write,grep,find,ls`) | `--auto low` (up to file edits) |
+| Ask every time (`default`) | File edits, commands, and web fetches need confirmation (so they are refused) | Nothing is allowed | Commands (`Bash`) are turned off | No commands | No flag (read-only) |
+| Allow everything automatically | `--auto` | `--allow-all` | `--dangerously-allow-all` | No limits | `--skip-permissions-unsafe` |
+
+- OpenCode's permissions are passed in `permission` of the `OPENCODE_CONFIG_CONTENT` environment variable (read on top of your usual `opencode.json`). For Amp, a copy of your usual settings (`~/.config/amp/settings.json`) with `amp.tools.disable` added is passed with `--settings-file`
+- To let them run commands such as tests, choose "Allow everything automatically". When Droid tries something it is not allowed to do (for example a command under "Auto-approve file edits"), the run ends on the spot and the card shows an error (edits made so far stay)
+- Copilot CLI receives the instruction as the `-p` argument. It runs with `--no-ask-user` because it cannot ask back in headless mode. The attachments folder is made readable with `--add-dir`
+- Amp needs the `AMP_API_KEY` environment variable (`sgamp_…`) to run headless (an `amp login` session does not work). Amp has no model choice, so the "Model" in Settings or on a task is passed to `--mode` (`low` / `medium` / `high` / `ultra`, and so on)
+- Droid needs `FACTORY_API_KEY` to run headless
+- Pi exits with code 0 even when a reply fails, so the `stopReason` in its output is used to detect errors. Pi does not report TODOs, so the TODO list in the Progress tab stays empty (the same goes for Copilot CLI, whose output does not include the TODO contents)
+- OpenCode decides its working folder from `PWD`, so it is started with the worktree path in `PWD` as well
 - The Codex app-server protocol changes between versions, so availability is checked just before running. The same goes for Cursor. On versions where it does not work, the previous behavior is used (a `workspace-write` sandbox on Codex, `--force` on Cursor), and the log says so. Verified versions are Codex 0.150.0 and 0.167.0, and Cursor 2026.11.05
 - Cursor stores `acp` and `-p` conversations separately, so a card started with `-p` by an earlier version keeps using `-p` (no in-card approval). Conversations started from now on can be approved on the card
 - Antigravity denies commands that are not allowed on the spot, because it cannot ask in headless mode. To let it run commands such as tests, list them under `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` (for example `"command(npm test)"`), or choose "Allow everything automatically"

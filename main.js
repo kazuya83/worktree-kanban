@@ -1203,7 +1203,7 @@ app.whenReady().then(async () => {
     return { branches, current, hasOrigin };
   });
   handle('settings:update', (patch) => {
-    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
+    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
     if (patch && 'branchNamingRule' in patch) patch = { ...patch, branchNamingRule: String(patch.branchNamingRule || '').trim() };
     for (const k of ['setupScript', 'teardownScript', 'runScript']) if (patch && k in patch) patch = { ...patch, [k]: cleanScript(patch[k]) };
     if (patch && 'integration' in patch && !['merge', 'pr'].includes(patch.integration)) patch = { ...patch, integration: 'merge' };
@@ -1228,7 +1228,7 @@ app.whenReady().then(async () => {
     }
     // 最初から選んでおくもの: 1つのエージェント・カスタムエージェント・Pipeline「relay:<ID>」・競争「compete:<ID>」（あるかどうかは保存の最後に確かめる）
     if (patch && 'defaultAgent' in patch && !providers.isAgent(patch.defaultAgent) && !providers.isCustomRef(patch.defaultAgent) && !(providers.isRelayRef(patch.defaultAgent) && patch.defaultAgent !== 'relay') && !(providers.isCompeteRef(patch.defaultAgent) && patch.defaultAgent !== 'compete')) patch = { ...patch, defaultAgent: 'claude' };
-    for (const k of ['codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel']) if (patch && k in patch) patch = { ...patch, [k]: String(patch[k] || '').trim() };
+    for (const k of ['codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel']) if (patch && k in patch) patch = { ...patch, [k]: String(patch[k] || '').trim() };
     if (patch && 'relaySteps' in patch) patch = { ...patch, relaySteps: providers.cleanRelaySteps(patch.relaySteps) };
     // Pipeline（複数）: 一覧・既定の Pipeline・既定のフローを、そろえて保存する
     const relay = patch && require('./src/store').relayPatchOf(store.settings, patch);
@@ -1295,7 +1295,7 @@ app.whenReady().then(async () => {
     if (fs.statSync(file).size > 20 * 1024 * 1024) throw new Error(tr('ファイルが大きすぎます（20MB まで）'));
     return { name: path.basename(file), data: fs.readFileSync(file).toString('base64') };
   });
-  // agent: claude / codex / antigravity / gemini / cursor / relay（Pipeline） / compete（競争。カードが複数できる）。返すのは最初のカードの ID
+  // agent: claude / codex / antigravity / gemini / cursor / opencode / copilot / amp / pi / droid / relay（Pipeline） / compete（競争。カードが複数できる）。返すのは最初のカードの ID
   // fromChat: 会話の続きとしてタスクを作るときの、元の会話のカードの ID
   // attachments: 添付ファイル [{ name, mediaType, data(base64) }]
   // model: このタスク・会話で使うモデル（空なら設定のエージェントごとの既定）

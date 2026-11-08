@@ -37,13 +37,18 @@ const PERMISSION_MODES = [
   ['bypassPermissions', tr('すべて自動で許可する（注意）')],
 ];
 
-// エージェント（Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI）と、オーケストレーション（Pipeline・競争）
+// エージェント（Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI / OpenCode / Copilot CLI / Amp / Pi / Droid）と、オーケストレーション（Pipeline・競争）
 const AGENTS = [
   ['claude', 'Claude Code', 'Claude'],
   ['codex', 'Codex CLI', 'Codex'],
   ['antigravity', 'Antigravity CLI', 'Antigravity'],
   ['gemini', 'Gemini CLI', 'Gemini'],
   ['cursor', 'Cursor CLI', 'Cursor'],
+  ['opencode', 'OpenCode', 'OpenCode'],
+  ['copilot', 'Copilot CLI', 'Copilot'],
+  ['amp', 'Amp', 'Amp'],
+  ['pi', 'Pi', 'Pi'],
+  ['droid', 'Droid', 'Droid'],
 ];
 // 設定で「使う」にチェックを付けたエージェント（1つもなければ Claude Code）
 function enabledAgents(s = state.board.settings || {}) {
@@ -3461,13 +3466,18 @@ function firstAgentOf(v) {
 // ---------------- モデルを選ぶ欄（タスク・会話を作るとき） ----------------
 
 // 設定のエージェントごとの既定のモデルの名前（キー）と、入力欄に出す候補
-const MODEL_KEY = { claude: 'model', codex: 'codexModel', antigravity: 'antigravityModel', gemini: 'geminiModel', cursor: 'cursorModel' };
+const MODEL_KEY = { claude: 'model', codex: 'codexModel', antigravity: 'antigravityModel', gemini: 'geminiModel', cursor: 'cursorModel', opencode: 'opencodeModel', copilot: 'copilotModel', amp: 'ampModel', pi: 'piModel', droid: 'droidModel' };
 const MODEL_SUGGEST = {
   claude: ['opus', 'sonnet', 'haiku', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1'],
   codex: ['gpt-5-codex', 'gpt-5'],
   antigravity: ['gemini-4-argon-high', 'gemini-3.8-flash-high'],
   gemini: ['gemini-2.5-pro', 'gemini-3.5-flash'],
   cursor: ['gpt-5', 'sonnet-4.5', 'opus-4.1'],
+  opencode: ['anthropic/claude-sonnet-4-5', 'openai/gpt-5'],
+  copilot: ['gpt-5', 'claude-sonnet-4.5', 'auto'],
+  amp: ['high', 'medium', 'low', 'ultra'],
+  pi: ['claude-sonnet-4-5', 'gpt-5'],
+  droid: ['claude-sonnet-4-5-20250929', 'gpt-5-codex'],
 };
 function settingsModel(agent, s = state.board.settings || {}) {
   return String(s[MODEL_KEY[agent] || 'model'] || '').trim();
@@ -4073,6 +4083,14 @@ async function openPr(c) {
 }
 
 // 設定の「使うエージェント」の1つ分。チェックを付けたときだけ、コマンド・モデルなどの欄を出す
+// OpenCode / Copilot CLI / Amp / Pi / Droid の設定の欄: [ID, 既定のコマンド, モデルの例]
+const EXTRA_AGENT_CFG = [
+  ['opencode', 'opencode', 'anthropic/claude-sonnet-4-5'],
+  ['copilot', 'copilot', 'gpt-5'],
+  ['amp', 'amp', 'high'],
+  ['pi', 'pi', 'claude-sonnet-4-5'],
+  ['droid', 'droid', 'claude-sonnet-4-5-20250929'],
+];
 function agentConfigHtml(a, s, body) {
   const on = enabledAgents(s).includes(a);
   return `<div class="agent-cfg ${on ? 'on' : ''}" data-agent="${a}">
@@ -4625,7 +4643,13 @@ function renderSettingsView() {
           <label class="field">${tr('<span>cursor-agent コマンドのパス</span>')}<input id="sCursor" value="${esc(s.cursorPath || 'cursor-agent')}" /></label>
           <label class="field">${tr('<span>モデル（空なら既定）</span>')}<input id="sCursorModel" placeholder="${tr('例: gpt-5 / sonnet-4.5')}" value="${esc(s.cursorModel || '')}" /></label>
         </div>`)}
+      ${EXTRA_AGENT_CFG.map(([a, cmd, example]) => agentConfigHtml(a, s, `
+        <div class="row">
+          <label class="field">${tr('<span>{cmd} コマンドのパス</span>', { cmd })}<input id="s_${a}Path" value="${esc(s[`${a}Path`] || cmd)}" /></label>
+          <label class="field">${tr('<span>モデル（空なら既定）</span>')}<input id="s_${a}Model" placeholder="${esc(tr('例: {model}', { model: example }))}" value="${esc(s[`${a}Model`] || '')}" /></label>
+        </div>`)).join('')}
       <small class="muted s-note">${tr('Claude Code・Codex・Cursor は、自動で許可されない操作をカードで承認できます（「毎回確認する」でも、Cursor のファイル編集は承認なしで書かれます。Codex の「ファイル編集は自動」は、worktree の sandbox の中のコマンドも承認なしで動きます）。Antigravity / Gemini はカードでの承認に対応していないため、権限モードに合わせて CLI 側で許可します（計画だけ → 読み取りのみ、すべて自動で許可 → 確認なし、それ以外 → ファイル編集だけ自動で許可）。')}</small>
+      <small class="muted s-note">${tr('OpenCode・Copilot CLI・Amp・Pi・Droid もカードでの承認に対応していないため、権限モードに合わせて CLI 側で許可します（確認が要る操作は、その場で断られます）。「すべて自動で許可」以外では、コマンドは動きません（「計画だけ」と、Droid の「毎回確認する」は読み取りのみ）。テストなどのコマンドも動かしたいときは「すべて自動で許可」を選んでください。Amp を動かすには、環境変数 AMP_API_KEY が要ります。')}</small>
       <label class="field">${tr('<span>新しいタスク・会話で最初から選んでおくもの</span>')}
         <select id="sDefaultAgent"></select>
         <small>${tr('タスクを作るときの「エージェント」の欄で、これを最初から選んでおきます。このプロジェクトのカスタムエージェント・Pipeline・競争も選べます（Pipeline・競争が使えない状態のときと会話では、使うエージェントの先頭）。競争の比較も、このエージェントに頼みます（カスタムエージェントなら元にするエージェント、Pipeline・競争なら使うエージェントの先頭。スキルの提案は、元のタスクのエージェントが使えればそちらに頼みます）。')}<br />${tr('このプロジェクトの設定です。選んだものを消したり、元にするエージェントを使わない設定にしたりしたときは、使うエージェントの先頭に戻ります。')}</small></label>`,
@@ -5189,6 +5213,7 @@ ${tr('読めなかったファイル: {v1}', { v1: (parsed.skipped.join(tr('、'
         geminiModel: $('sGeminiModel').value.trim(),
         cursorPath: $('sCursor').value.trim() || 'cursor-agent',
         cursorModel: $('sCursorModel').value.trim(),
+        ...Object.fromEntries(EXTRA_AGENT_CFG.flatMap(([a, cmd]) => [[`${a}Path`, $(`s_${a}Path`).value.trim() || cmd], [`${a}Model`, $(`s_${a}Model`).value.trim()]])),
         defaultAgent: $('sDefaultAgent').value,
         enabledAgents: on,
         customAgents: cas,

@@ -1091,6 +1091,12 @@
     "fr": "<span>Chemin de la commande cursor-agent</span>",
     "zh": "<span>cursor-agent 命令的路径</span>"
   },
+  "<span>{cmd} コマンドのパス</span>": {
+    "en": "<span>Path to the {cmd} command</span>",
+    "es": "<span>Ruta del comando {cmd}</span>",
+    "fr": "<span>Chemin de la commande {cmd}</span>",
+    "zh": "<span>{cmd} 命令的路径</span>"
+  },
   "例: gpt-5 / sonnet-4.5": {
     "en": "Example: gpt-5 / sonnet-4.5",
     "es": "Ejemplo: gpt-5 / sonnet-4.5",
@@ -1102,6 +1108,12 @@
     "es": "Claude Code, Codex y Cursor pueden aprobar en la tarjeta lo que no se permite automáticamente (incluso con «Preguntar siempre», Cursor escribe las ediciones de archivos sin aprobación; en Codex, la aprobación automática de ediciones también ejecuta sin aprobación los comandos dentro del sandbox del worktree). Antigravity / Gemini no aprueban en la tarjeta, así que el CLI los permite según el modo de permisos (solo plan → solo lectura; permitir todo → sin confirmación; en los demás casos, solo la edición de archivos).",
     "fr": "Claude Code, Codex et Cursor peuvent approuver sur la carte ce qui n’est pas autorisé automatiquement (même avec « Demander à chaque fois », Cursor écrit les modifications de fichiers sans approbation ; avec Codex, l’approbation automatique des modifications exécute aussi sans approbation les commandes dans le sandbox du worktree). Antigravity / Gemini ne le peuvent pas : le CLI autorise selon le mode (plan seul → lecture seule ; tout autoriser → sans confirmation ; sinon, seulement l’édition de fichiers).",
     "zh": "Claude Code、Codex 和 Cursor 可以把不会自动允许的操作放到卡片上批准（即使选择“每次确认”，Cursor 的文件编辑也不经批准直接写入；Codex 的“文件编辑自动”也会不经批准运行 worktree sandbox 内的命令）。Antigravity / Gemini 不能在卡片上批准，因此会按权限模式在 CLI 侧允许（只做计划 → 只读；全部自动允许 → 不再确认；其他情况：只允许编辑文件）。"
+  },
+  "OpenCode・Copilot CLI・Amp・Pi・Droid もカードでの承認に対応していないため、権限モードに合わせて CLI 側で許可します（確認が要る操作は、その場で断られます）。「すべて自動で許可」以外では、コマンドは動きません（「計画だけ」と、Droid の「毎回確認する」は読み取りのみ）。テストなどのコマンドも動かしたいときは「すべて自動で許可」を選んでください。Amp を動かすには、環境変数 AMP_API_KEY が要ります。": {
+    "en": "OpenCode, Copilot CLI, Amp, Pi, and Droid do not support approval on the card either, so the CLI allows actions according to the permission mode (anything that needs confirmation is refused on the spot). Except with \"Allow everything automatically\", commands do not run (\"Plan only\", and \"Ask every time\" on Droid, are read-only). To let them run commands such as tests, choose \"Allow everything automatically\". Amp needs the AMP_API_KEY environment variable.",
+    "es": "OpenCode, Copilot CLI, Amp, Pi y Droid tampoco admiten la aprobación en la tarjeta, así que la CLI permite las acciones según el modo de permisos (lo que necesita confirmación se rechaza en el acto). Salvo con «Permitir todo automáticamente», los comandos no se ejecutan («Solo planificar», y «Preguntar siempre» en Droid, son de solo lectura). Para que ejecuten comandos como las pruebas, elige «Permitir todo automáticamente». Amp necesita la variable de entorno AMP_API_KEY.",
+    "fr": "OpenCode, Copilot CLI, Amp, Pi et Droid ne prennent pas non plus en charge l’approbation sur la carte : la CLI autorise les actions selon le mode de permission (ce qui demande une confirmation est refusé sur-le-champ). Sauf avec « Tout autoriser automatiquement », les commandes ne s’exécutent pas (« Planifier seulement », et « Demander à chaque fois » sur Droid, sont en lecture seule). Pour qu’ils lancent des commandes comme les tests, choisissez « Tout autoriser automatiquement ». Amp nécessite la variable d’environnement AMP_API_KEY.",
+    "zh": "OpenCode、Copilot CLI、Amp、Pi 和 Droid 也不支持在卡片上批准，因此会按权限模式由 CLI 自己允许（需要确认的操作会被当场拒绝）。除“全部自动允许”外，命令都不会运行（“只制定计划”以及 Droid 的“每次确认”为只读）。如果也想运行测试等命令，请选择“全部自动允许”。运行 Amp 需要环境变量 AMP_API_KEY。"
   },
   "<span>新しいタスク・会話で最初から選んでおくエージェント</span>": {
     "en": "<span>Agent selected by default for new tasks and chat</span>",

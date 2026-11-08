@@ -2,11 +2,11 @@
 
 # エージェントとオーケストレーション（🤖 / 🔁 / 🏁）
 
-タスクを作るときの「エージェント」で、**Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI** のどれで動かすかを選べます（メニューの設定の「使うエージェント」でチェックを付けたものだけが出ます）。さらに、複数のエージェントを組み合わせる **オーケストレーション** も選べます。
+タスクを作るときの「エージェント」で、**Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI / OpenCode / Copilot CLI / Amp / Pi / Droid** のどれで動かすかを選べます（メニューの設定の「使うエージェント」でチェックを付けたものだけが出ます）。さらに、複数のエージェントを組み合わせる **オーケストレーション** も選べます。
 
 | 選び方 | 動き方 |
 | --- | --- |
-| Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI | そのエージェントで1枚のカードとして動きます（worktree・コミット・マージ・PR はこれまでと同じ） |
+| Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI / OpenCode / Copilot CLI / Amp / Pi / Droid | そのエージェントで1枚のカードとして動きます（worktree・コミット・マージ・PR はこれまでと同じ） |
 | 🔁 Pipeline | 設定の **フローチャート** に沿って、工程ごとにエージェントが作業を引き継ぎます（例: Codex で実装 → Claude でレビュー → 差し戻しなら実装へ戻る）。工程は同じ worktree で動き（並列の枝だけは別の worktree）、工程が終わるたびに変更をコミットし、最後の報告を次の工程に渡します。途中の工程が失敗・質問で止まったら、そこで止まります（追加指示で直すと、続きの工程へ進みます）。すべての工程が終わるとレビュー列に入ります。進み具合は、カードのバーと、詳細のワークフロー（工程ごとの状態・エージェント・かかった時間・金額・次へ渡した報告）で確かめられます |
 | 🏁 競争 | 同じタスクを、選んだ競争のエージェントそれぞれのカード（別々の worktree・ブランチ）で **並列に** 解きます。全員が終わると通知が届きます。詳細の「進捗」タブの「🏁 競争」の欄で候補を見比べ、「🤔 ○○ に比べてもらう」で比較の会話を始めたり（最初から選んでおくエージェントに頼みます）、「🏁 この案を採用」でほかの候補を破棄したりできます。採用した案は、いつもどおりマージ・PR の作成で取り込みます |
 
@@ -27,8 +27,8 @@
 - レビューや失敗で止まっているときは、工程や各回の直前の時点へ戻せます。ファイル・進み具合・会話をその時点に戻し、あとの変更は捨てて、すぐに動き始めます。くわしくは [途中の状態に戻す](usage.ja.md#途中の状態に戻す)
 - ブランチの命名・コンフリクトの解消・仕様の確認・会話・スキルの提案も、どのエージェントでも動きます（ブランチ名とコンフリクトの解消は、そのタスクのエージェントが行います）
 - Issue から作るときも、同じようにエージェント・Pipeline・競争を選べます（競争なら、1つの Issue につきエージェントの数だけカードができます）
-- Codex は `codex exec --json`（カードで承認するときは `codex app-server`）、Antigravity は `agy --output-format stream-json`、Gemini は `gemini --output-format stream-json`、Cursor は `cursor-agent acp`（使えない版では `cursor-agent -p --output-format stream-json`）で動かし、追加指示は同じ会話の続きから動きます
-- Codex / Antigravity / Gemini / Cursor は、CLI の作りの都合で、選択肢の質問・btw（実行中のメッセージ）・既存の会話（ターミナルの会話）の引き継ぎ・使った金額の表示には対応していません
+- Codex は `codex exec --json`（カードで承認するときは `codex app-server`）、Antigravity は `agy --output-format stream-json`、Gemini は `gemini --output-format stream-json`、Cursor は `cursor-agent acp`（使えない版では `cursor-agent -p --output-format stream-json`）、OpenCode は `opencode run --format json`、Copilot CLI は `copilot -p … --output-format json`、Amp は `amp -x --stream-json`（続きは `amp threads continue`）、Pi は `pi --mode json`、Droid は `droid exec -o stream-json` で動かし、追加指示は同じ会話の続きから動きます
+- Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid は、CLI の作りの都合で、選択肢の質問・btw（実行中のメッセージ）・既存の会話（ターミナルの会話）の引き継ぎ・使った金額の表示には対応していません
 - **カードでの承認**は Claude Code・Codex・Cursor で使えます。「常に許可」はそのカードの中だけ覚えます。設定の「許可しておくツール」も効きます（`Bash(npm test:*)` のような前方一致は、`;` や `|` でつないだコマンドには効きません）。権限モードごとの動きは次のとおりです
 
 | 権限モード | Codex | Cursor | Antigravity | Gemini |
@@ -38,6 +38,22 @@
 | 毎回確認する（`default`） | コマンドとファイルの変更を **カードで承認** | allow にないコマンドを **カードで承認**（ファイル編集は Cursor が承認を聞いてこないので、そのまま書かれます） | 変更は拒否（`default`） | `default` |
 | すべて自動で許可 | `--dangerously-bypass-approvals-and-sandbox` | `--force --approve-mcps` | `--dangerously-skip-permissions` | `yolo` |
 
+OpenCode・Copilot CLI・Amp・Pi・Droid はカードでの承認に対応していないので、権限モードに合わせて CLI 側で許可します。確認が要る操作は、ヘッドレスでは聞き返せないので、その場で断られます（待ち続けません）。OpenCode・Amp・Pi はもともと確認なしでコマンドを動かすので、「すべて自動で許可」以外ではコマンドを止めて動かします（Issue・Slack から作ったタスクは「すべて自動で許可」にならないので、外の人が書いた指示からコマンドが動くこともありません）
+
+| 権限モード | OpenCode | Copilot CLI | Amp | Pi | Droid |
+| --- | --- | --- | --- | --- | --- |
+| 計画だけ | `--agent plan`（ファイルの変更を断る）。コマンドは確認（＝断られる） | `--plan` | ファイルを変えるツールとコマンド（`edit_file` / `create_file` / `undo_edit` / `Bash`）を止める | 読み取りのツールだけ（`--tools read,grep,find,ls`） | 何も付けない（読み取りのみ） |
+| ファイル編集は自動（`acceptEdits`） | コマンドは確認（＝断られる） | ファイルの書き込みだけ許可（`--allow-tool=write`） | コマンド（`Bash`）を止める | コマンドなし（`--tools read,edit,write,grep,find,ls`） | `--auto low`（ファイルの編集まで） |
+| 毎回確認する（`default`） | ファイル編集・コマンド・Web の取得を確認（＝断られる） | 何も許可しない | コマンド（`Bash`）を止める | コマンドなし | 何も付けない（読み取りのみ） |
+| すべて自動で許可 | `--auto` | `--allow-all` | `--dangerously-allow-all` | 制限なし | `--skip-permissions-unsafe` |
+
+- OpenCode の許可は、環境変数 `OPENCODE_CONFIG_CONTENT` の `permission` で渡します（ふだんの `opencode.json` に重ねて読まれます）。Amp は、ふだんの設定（`~/.config/amp/settings.json`）を写して `amp.tools.disable` を足した設定ファイルを `--settings-file` で渡します
+- テストなどのコマンドも動かしたいときは「すべて自動で許可」を選びます。Droid は、許されない操作（「ファイル編集は自動」でのコマンドなど）をしようとすると、その場で実行が終わり、カードがエラーになります（それまでの編集は残ります）
+- Copilot CLI は指示を `-p` の引数で渡します。ヘッドレスでは聞き返せないので `--no-ask-user` を付けます。添付ファイルの置き場所は `--add-dir` で読めるようにします
+- Amp をヘッドレスで動かすには、環境変数 `AMP_API_KEY`（`sgamp_…`）が要ります（`amp login` のセッションでは動きません）。モデルは選べないので、設定やタスクの「モデル」は `--mode`（`low` / `medium` / `high` / `ultra` など）に渡します
+- Droid をヘッドレスで動かすには `FACTORY_API_KEY` が要ります
+- Pi は応答が失敗しても終了コードが 0 なので、出力の `stopReason` を見てエラーにします。TODO は出さないので、進捗タブの TODO は空のままです（Copilot CLI も、出力に TODO の中身が入らないので空のままです）
+- OpenCode は作業フォルダを `PWD` から決めるので、worktree のパスを `PWD` にも入れて起動します
 - Codex は app-server の仕様が版によって変わるので、動かす手前で使えるかを確かめます。Cursor も同じです。使えない版では、前のやり方（Codex は `workspace-write` の sandbox、Cursor は `--force`）で動かし、ログにそのことを出します。確かめた版は Codex 0.150.0 と 0.167.0、Cursor 2026.11.05 です
 - Cursor の `acp` と `-p` は会話の保存場所が別なので、前の版で `-p` で始めたカードは、そのまま `-p` で続けます（カードで承認はできません）。新しく始めた会話から承認できます
 - Antigravity は、許可されていないコマンドをその場で拒否します（ヘッドレスでは確認を出せないため）。テストなどのコマンドを動かしたいときは、`~/.gemini/antigravity-cli/settings.json` の `permissions.allow` に `"command(npm test)"` のように書くか、「すべて自動で許可」を選びます

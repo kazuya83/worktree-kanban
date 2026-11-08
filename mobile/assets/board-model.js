@@ -27,6 +27,11 @@
     ['antigravity', 'Antigravity CLI', 'Antigravity'],
     ['gemini', 'Gemini CLI', 'Gemini'],
     ['cursor', 'Cursor CLI', 'Cursor'],
+    ['opencode', 'OpenCode', 'OpenCode'],
+    ['copilot', 'Copilot CLI', 'Copilot'],
+    ['amp', 'Amp', 'Amp'],
+    ['pi', 'Pi', 'Pi'],
+    ['droid', 'Droid', 'Droid'],
   ];
   const agentOf = (c) => (c && AGENTS.some((x) => x[0] === c.agent) ? c.agent : 'claude');
   const agentLabel = (a) => (AGENTS.find((x) => x[0] === a) || AGENTS[0])[1];
