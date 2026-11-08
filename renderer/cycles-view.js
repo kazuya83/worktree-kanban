@@ -209,38 +209,72 @@
   }
 
   // ---- 操作 ----
+  // タブ・ボタンのクリックは、ボードにまとめて受ける（イベント委譲）。
+  // エージェントが動いているあいだはボードが何度も描き直されるので、押している間にボタンが差し替わると
+  // click はボタンではなくボード自体に届き、「編集」などが効かなくなる。
+  // そのときは、押したボタンと同じもの（同じ操作・同じスプリント）が今その場所にあれば、それを押したことにする
+  const HIT = '[data-cycle-sel], [data-cycle-act]';
+  const keyOf = (el) => (el ? `${el.dataset.cycleSel || ''}|${el.dataset.cycleAct || ''}|${el.dataset.id || ''}` : '');
+  let pressed = null;
+  let bound = null;
+  function hitAt(e, sel, from) {
+    const direct = e.target && e.target.closest ? e.target.closest(sel) : null;
+    if (direct) return direct;
+    if (!from || from.isConnected) return null;
+    const doc = root.document;
+    const at = doc && doc.elementFromPoint ? doc.elementFromPoint(e.clientX, e.clientY) : null;
+    const el = at && at.closest ? at.closest(sel) : null;
+    return el && keyOf(el) === keyOf(from) ? el : null;
+  }
+  function onBoardDown(e) {
+    pressed = e.target && e.target.closest ? e.target.closest(HIT) : null;
+  }
+  function onBoardClick(e) {
+    const from = pressed;
+    pressed = null;
+    const b = hitAt(e, HIT, from);
+    if (!b) return;
+    if (b.dataset.cycleSel) {
+      setSelection(b.dataset.cycleSel);
+      renderBoard();
+      return;
+    }
+    const act = b.dataset.cycleAct;
+    if (act === 'showDone') return; // チェックボックスは change で受ける
+    const cy = findCycle(b.dataset.id);
+    if (act === 'new') return openEditor(null);
+    if (!cy) return;
+    if (act === 'edit') return openEditor(cy);
+    if (act === 'done') return setDone(cy, true);
+    if (act === 'reopen') return setDone(cy, false);
+    if (act === 'mergeBranch') return mergeBranch(cy);
+    if (act === 'prBranch') return prBranch(cy);
+  }
+  // タブのダブルクリックで編集。1回目のクリックで描き直すので、押した場所にある今のタブを見る
+  function onBoardDblClick(e) {
+    let b = e.target && e.target.closest ? e.target.closest('[data-cycle-sel]') : null;
+    if (!b) {
+      const doc = root.document;
+      const at = doc && doc.elementFromPoint ? doc.elementFromPoint(e.clientX, e.clientY) : null;
+      b = at && at.closest ? at.closest('[data-cycle-sel]') : null;
+    }
+    const cy = b ? findCycle(b.dataset.cycleSel) : null;
+    if (cy) openEditor(cy);
+  }
+  function onBoardChange(e) {
+    const b = e.target;
+    if (!b || !b.dataset || b.dataset.cycleAct !== 'showDone') return;
+    setShowDone(b.checked);
+    renderBoard();
+  }
   function bindChrome() {
     const board = $('board');
-    board.querySelectorAll('[data-cycle-sel]').forEach((b) => {
-      b.onclick = () => {
-        setSelection(b.dataset.cycleSel);
-        renderBoard();
-      };
-      b.ondblclick = () => {
-        const cy = findCycle(b.dataset.cycleSel);
-        if (cy) openEditor(cy);
-      };
-    });
-    board.querySelectorAll('[data-cycle-act]').forEach((b) => {
-      const act = b.dataset.cycleAct;
-      if (act === 'showDone') {
-        b.onchange = () => {
-          setShowDone(b.checked);
-          renderBoard();
-        };
-        return;
-      }
-      b.onclick = () => {
-        const cy = findCycle(b.dataset.id);
-        if (act === 'new') return openEditor(null);
-        if (!cy) return;
-        if (act === 'edit') return openEditor(cy);
-        if (act === 'done') return setDone(cy, true);
-        if (act === 'reopen') return setDone(cy, false);
-        if (act === 'mergeBranch') return mergeBranch(cy);
-        if (act === 'prBranch') return prBranch(cy);
-      };
-    });
+    if (!board || bound === board) return;
+    bound = board;
+    board.addEventListener('mousedown', onBoardDown);
+    board.addEventListener('click', onBoardClick);
+    board.addEventListener('dblclick', onBoardDblClick);
+    board.addEventListener('change', onBoardChange);
   }
 
   async function setDone(cy, done) {
