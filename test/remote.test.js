@@ -31,8 +31,8 @@ test('main.js の操作は、転送するか・手元で動かすか・わざと
   const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
   const channels = [...src.matchAll(/\bhandle\('([^']+)'/g)].map((m) => m[1]);
   assert.ok(channels.length > 20);
-  // ホストの画面にダイアログや Finder が出るだけなので、遠隔中は止める操作
-  const blocked = new Set(['repo:choose', 'repo:chooseParent', 'card:open']);
+  // ホストの画面にダイアログや Finder・外部のターミナルが出るだけなので、遠隔中は止める操作
+  const blocked = new Set(['repo:choose', 'repo:chooseParent', 'card:open', 'terminal:openExternal']);
   const unknown = channels.filter((ch) => !isProxyChannel(ch) && !isLocalChannel(ch) && !blocked.has(ch));
   assert.deepStrictEqual(unknown, [], `遠隔中に「この操作を使えません」になる操作があります: ${unknown.join(', ')}`);
 });

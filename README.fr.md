@@ -204,6 +204,10 @@ Dans « Conversation », vous pouvez interroger l'agent sur le dépôt sans cré
 
 </details>
 
+### Terminal
+
+Ouvrez un shell dans l'application. L'onglet « Terminal » d'une tâche s'ouvre dans le worktree de cette tâche, et le bouton « Terminal » en haut (Ctrl + `) ouvre un panneau en bas où vous pouvez ouvrir autant de shells que vous voulez, indépendamment des tâches. Les shells continuent de tourner quand vous changez d'onglet ou masquez le panneau, jusqu'à ce que vous les fermiez. Pendant le contrôle à distance, le shell tourne sur l'hôte, et vous pouvez aussi l'autoriser depuis le téléphone.
+
 ### Notifications
 
 L'attente d'approbation, les questions, l'attente d'une réponse, l'attente de revue et la fin de tâche s'accumulent sur l'icône de cloche en haut à droite, et une notification de bureau s'affiche aussi. Un clic sur une notification ouvre cette tâche. Elles peuvent aussi aller dans Slack (voir « Intégrations » plus haut).

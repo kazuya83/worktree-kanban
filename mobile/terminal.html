@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#14151c" media="(prefers-color-scheme: dark)" />
+    <title>Worktree Kanban</title>
+    <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png" />
+    <link rel="stylesheet" href="/assets/app.css" />
+    <link rel="stylesheet" href="/vendor/xterm.css" />
+    <link rel="stylesheet" href="/assets/terminal.css" />
+  </head>
+  <body class="term-page">
+    <!-- アプリの中のターミナル（スマホ）。中身と言葉は assets/terminal.js が作る -->
+    <div id="app" class="term-app"></div>
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+    <noscript>Worktree Kanban needs JavaScript.</noscript>
+    <script src="/i18n.js"></script>
+    <script src="/locales/shell.js"></script>
+    <script src="/locales/board.js"></script>
+    <script src="/locales/mobile.js"></script>
+    <script src="/vendor/xterm.js"></script>
+    <script src="/vendor/addon-fit.js"></script>
+    <script src="/assets/api-client.js"></script>
+    <script src="/assets/terminal.js"></script>
+  </body>
+</html>
