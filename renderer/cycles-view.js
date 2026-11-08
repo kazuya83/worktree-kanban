@@ -1,19 +1,19 @@
-// サイクル（期間とゴールを持つ、タスクのまとまり）の画面: ボードの上のタブ・左のサイドバー・スイムレーン、
-// サイクルの作成・編集、タスクを入れるサイクルの選択。
+// スプリント（期間とゴールを持つ、タスクのまとまり）の画面: ボードの上のタブ・左のサイドバー・スイムレーン、
+// スプリントの作成・編集、タスクを入れるスプリントの選択。
 // 画面の部品（openModal・runBusy・cardHtml など）は renderer.js のものを使う。
 // このファイルは renderer.js より先に読み込むので、それらは関数の中でだけ触る。
 //
 // 境界: window.CycleView = {
-//   mode()                 ボードの見え方（'top' / 'sidebar' / 'lanes'。設定の「サイクルの表示」）
-//   cycles()               今のプロジェクトのサイクル
-//   inView(c)              今選んでいるサイクルに入るカードか（スイムレーンでは、いつも true）
+//   mode()                 ボードの見え方（'top' / 'sidebar' / 'lanes'。設定の「スプリントの表示」）
+//   cycles()               今のプロジェクトのスプリント
+//   inView(c)              今選んでいるスプリントに入るカードか（スイムレーンでは、いつも true）
 //   chromeHtml(counts)     ボードの上のタブ・左のサイドバー（スイムレーンでは上の帯）
 //   lanesHtml(cards, cols) スイムレーンの中身
 //   bindChrome()           タブ・サイドバー・レーンの見出しのクリック
-//   chipsHtml(c)           カードに出すサイクルの印
-//   newTaskIds()           新しいタスクを入れるサイクル（サイクルを選んでいるとき）
-//   fieldHtml(idp, ids) / readField(idp)  新しいタスクのダイアログのサイクルの欄
-//   detailButtonHtml(c) / openCardCycles(c)  詳細の「サイクル」ボタンと、その選択ダイアログ
+//   chipsHtml(c)           カードに出すスプリントの印
+//   newTaskIds()           新しいタスクを入れるスプリント（スプリントを選んでいるとき）
+//   fieldHtml(idp, ids) / readField(idp)  新しいタスクのダイアログのスプリントの欄
+//   detailButtonHtml(c) / openCardCycles(c)  詳細の「スプリント」ボタンと、その選択ダイアログ
 //   canDrag(c) / canDropOn(c, target) / dropOn(c, target) / canLaneDrop(c, from, to) / moveLane(c, from, to)
 // }
 /* global api, icon, esc, $, state, CycleModel, openModal, closeModal, runBusy, toast, renderBoard, cardHtml, isChat, isHiddenSubtask */
@@ -24,7 +24,7 @@
     return vars ? String(key).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : key;
   }
   const M = () => root.CycleModel;
-  const SEL_KEY = 'cycleSel:'; // + リポジトリのパス。プロジェクトごとに、最後に選んだサイクルを覚える
+  const SEL_KEY = 'cycleSel:'; // + リポジトリのパス。プロジェクトごとに、最後に選んだスプリントを覚える
   const DONE_KEY = 'cycleShowDone';
   const store = () => {
     try {
@@ -49,7 +49,7 @@
   function repoKey() {
     return SEL_KEY + String((state.board.settings && state.board.settings.repoPath) || '');
   }
-  // 選んでいるもの（'all' / 'none' / サイクルの ID）。消えた・隠したサイクルなら「すべて」
+  // 選んでいるもの（'all' / 'none' / スプリントの ID）。消えた・隠したスプリントなら「すべて」
   function selection() {
     if (mode() === 'lanes') return M().ALL;
     return M().cleanSelection(store()?.getItem(repoKey()) || M().ALL, cycles(), showDone());
@@ -89,7 +89,7 @@
     return parts.join('\n');
   }
 
-  // 一覧に出すもの: すべて・未割り当て・各サイクル（数はボードに出るカードの数）
+  // 一覧に出すもの: すべて・未割り当て・各スプリント（数はボードに出るカードの数）
   function entries(list) {
     const all = list.length;
     const none = list.filter((c) => M().inSelection(c, M().NONE, state.board.cards, cycles())).length;
@@ -104,11 +104,11 @@
     const cy = e.cycle;
     const period = cy ? M().periodLabel(cy) : '';
     const cls = ['cy-item', e.key === sel ? 'active' : '', cy && cy.done ? 'done' : '', cy ? `cy-${M().cycleState(cy) || 'none'}` : ''].filter(Boolean).join(' ');
-    const title = cy ? itemTitle(cy) : e.key === M().NONE ? tr('どのサイクルにも入っていないタスク。カードをここへドラッグすると、サイクルから外します') : tr('すべてのタスク');
+    const title = cy ? itemTitle(cy) : e.key === M().NONE ? tr('どのスプリントにも入っていないタスク。カードをここへドラッグすると、スプリントから外します') : tr('すべてのタスク');
     return `<button type="button" class="${cls}" data-cycle-sel="${esc(e.key)}" ${e.drop ? `data-cycle-drop="${esc(e.key)}"` : ''} title="${esc(title)}">
       <span class="cy-name">${esc(e.label)}</span>${side && period ? `<span class="cy-period">${esc(period)}</span>` : ''}<span class="cy-count">${e.count}</span></button>`;
   }
-  // 選んでいるサイクルの、期間・ゴールと操作
+  // 選んでいるスプリントの、期間・ゴールと操作
   function currentHtml(sel) {
     const cy = findCycle(sel);
     if (!cy) return '';
@@ -123,8 +123,8 @@
     </div>`;
   }
   function toolsHtml() {
-    return `<button type="button" class="btn small ghost cy-new" data-cycle-act="new" title="${esc(tr('期間とゴールを持つ、タスクのまとまりを作ります'))}">${icon('plus')}${tr('サイクル')}</button>
-      <label class="check cy-show-done" title="${esc(tr('完了にしたサイクルも一覧に出します'))}"><input type="checkbox" data-cycle-act="showDone" ${showDone() ? 'checked' : ''} /> ${tr('完了したサイクルを表示')}</label>`;
+    return `<button type="button" class="btn small ghost cy-new" data-cycle-act="new" title="${esc(tr('期間とゴールを持つ、タスクのまとまりを作ります'))}">${icon('plus')}${tr('スプリント')}</button>
+      <label class="check cy-show-done" title="${esc(tr('完了にしたスプリントも一覧に出します'))}"><input type="checkbox" data-cycle-act="showDone" ${showDone() ? 'checked' : ''} /> ${tr('完了したスプリントを表示')}</label>`;
   }
 
   // ボードの上のタブ（top）・左のサイドバー（sidebar）・スイムレーンの上の帯（lanes）
@@ -134,21 +134,21 @@
     const sel = selection();
     const items = entries(list);
     if (m === 'sidebar') {
-      return `<aside class="cycle-side" aria-label="${esc(tr('サイクル'))}">
-        <div class="cy-side-head">${tr('サイクル')}</div>
+      return `<aside class="cycle-side" aria-label="${esc(tr('スプリント'))}">
+        <div class="cy-side-head">${tr('スプリント')}</div>
         <div class="cy-side-list">${items.map((e) => entryHtml(e, sel, true)).join('')}</div>
         <div class="cy-side-tools">${toolsHtml()}</div>
         ${currentHtml(sel)}
       </aside>`;
     }
-    return `<div class="cycle-bar" role="tablist" aria-label="${esc(tr('サイクル'))}">
+    return `<div class="cycle-bar" role="tablist" aria-label="${esc(tr('スプリント'))}">
       <div class="cy-tabs">${items.map((e) => entryHtml(e, sel, false)).join('')}</div>
       <div class="cy-tools">${toolsHtml()}</div>
       ${currentHtml(sel)}
     </div>`;
   }
 
-  // スイムレーン: 列の見出しの行と、サイクルごとの段（最後に「未割り当て」）
+  // スイムレーン: 列の見出しの行と、スプリントごとの段（最後に「未割り当て」）
   // cols: [{ key, label, list(cards) }] の作り方は renderer.js（列ごとの並べ方を同じにする）
   function lanesHtml(list, columns, columnCards) {
     const lanes = M().laneGroups(list, cycles(), state.board.cards, showDone());
@@ -176,7 +176,7 @@
     return `${head}<div class="lanes">${body}</div>`;
   }
 
-  // カードに出すサイクルの印（スイムレーンと、選んでいるサイクルそのものは出さない）
+  // カードに出すスプリントの印（スイムレーンと、選んでいるスプリントそのものは出さない）
   function chipsHtml(c) {
     if (isChat(c) || mode() === 'lanes') return '';
     const sel = selection();
@@ -223,17 +223,17 @@
   }
 
   async function setDone(cy, done) {
-    if (done && !confirm(tr('サイクル「{name}」を完了にしますか？\n完了したサイクルは一覧から隠れます（「完了したサイクルを表示」で見られます）。中のタスクはそのまま残ります。', { name: cy.name }))) return;
-    await runBusy(done ? tr('サイクルを完了にしています…') : tr('サイクルを未完了に戻しています…'), () => api.updateCycle(cy.id, { done }), done ? tr('サイクルを完了にしました') : tr('サイクルを未完了に戻しました'));
+    if (done && !confirm(tr('スプリント「{name}」を完了にしますか？\n完了したスプリントは一覧から隠れます（「完了したスプリントを表示」で見られます）。中のタスクはそのまま残ります。', { name: cy.name }))) return;
+    await runBusy(done ? tr('スプリントを完了にしています…') : tr('スプリントを未完了に戻しています…'), () => api.updateCycle(cy.id, { done }), done ? tr('スプリントを完了にしました') : tr('スプリントを未完了に戻しました'));
   }
 
-  // サイクルの作成・編集（cy が null なら作成）。作ったら、そのサイクルを選ぶ
+  // スプリントの作成・編集（cy が null なら作成）。作ったら、そのスプリントを選ぶ
   function openEditor(cy, onCreated) {
     if (!state.board.settings.repoPath) return toast(tr('先にリポジトリを開いてください'));
     const v = cy || { name: '', startDate: '', endDate: '', goal: '' };
     openModal(
-      `<h2>${cy ? tr('サイクルを編集') : tr('新しいサイクル')}</h2>
-       <p class="muted small">${tr('期間とゴールを決めて、タスクをまとめます。サイクルを選ぶと、そのサイクルのタスクだけがボードに出ます。')}</p>
+      `<h2>${cy ? tr('スプリントを編集') : tr('新しいスプリント')}</h2>
+       <p class="muted small">${tr('期間とゴールを決めて、タスクをまとめます。スプリントを選ぶと、そのスプリントのタスクだけがボードに出ます。')}</p>
        <label class="field"><span>${tr('名前')}</span><input id="cyName" maxlength="${M().NAME_MAX}" value="${esc(v.name)}" placeholder="${esc(tr('例: 11月前半・v0.2 リリース'))}" /></label>
        <div class="row cy-dates">
          <label class="field"><span>${tr('開始日（任意）')}</span><input id="cyStart" type="date" value="${esc(v.startDate)}" /></label>
@@ -252,7 +252,7 @@
           const p = read();
           const err = M().cycleError(p);
           if (err) return toast(err);
-          const r = await runBusy(cy ? tr('サイクルを保存しています…') : tr('サイクルを作成しています…'), () => (cy ? api.updateCycle(cy.id, p) : api.createCycle(p)), cy ? tr('サイクルを保存しました') : tr('サイクルを作成しました'));
+          const r = await runBusy(cy ? tr('スプリントを保存しています…') : tr('スプリントを作成しています…'), () => (cy ? api.updateCycle(cy.id, p) : api.createCycle(p)), cy ? tr('スプリントを保存しました') : tr('スプリントを作成しました'));
           if (!r) return;
           closeModal();
           if (!cy && r.id) {
@@ -266,26 +266,26 @@
           await setDone(cy, !cy.done);
         };
         $('cyDelete').onclick = async () => {
-          if (!confirm(tr('サイクル「{name}」を削除しますか？\n中のタスクは消さずに、このサイクルから外します。', { name: cy.name }))) return;
-          const r = await runBusy(tr('サイクルを削除しています…'), () => api.deleteCycle(cy.id), tr('サイクルを削除しました'));
+          if (!confirm(tr('スプリント「{name}」を削除しますか？\n中のタスクは消さずに、このスプリントから外します。', { name: cy.name }))) return;
+          const r = await runBusy(tr('スプリントを削除しています…'), () => api.deleteCycle(cy.id), tr('スプリントを削除しました'));
           if (r) closeModal();
         };
       },
     );
   }
 
-  // 新しいタスクを入れるサイクル（サイクルを選んでいるときは、そのサイクル）
+  // 新しいタスクを入れるスプリント（スプリントを選んでいるときは、そのスプリント）
   function newTaskIds() {
     return M().newTaskCycleIds(selection(), cycles());
   }
 
-  // 選べるサイクル: 完了していないもの（と、もう入っている完了したもの）
+  // 選べるスプリント: 完了していないもの（と、もう入っている完了したもの）
   function pickable(ids) {
     return M().sortCycles(cycles().filter((cy) => !cy.done || ids.includes(cy.id)));
   }
   function checksHtml(idp, ids) {
     const list = pickable(ids);
-    if (!list.length) return `<small class="muted">${tr('サイクルはまだありません。ボードの「＋ サイクル」から作れます。')}</small>`;
+    if (!list.length) return `<small class="muted">${tr('スプリントはまだありません。ボードの「＋ スプリント」から作れます。')}</small>`;
     return `<div class="cy-checks" id="${idp}Cycles">${list
       .map((cy) => {
         const period = M().periodLabel(cy);
@@ -293,10 +293,10 @@
       })
       .join('')}</div>`;
   }
-  // 新しいタスクのダイアログの欄（サイクルがなければ出さない）
+  // 新しいタスクのダイアログの欄（スプリントがなければ出さない）
   function fieldHtml(idp, ids) {
     if (!cycles().some((cy) => !cy.done)) return '';
-    return `<div class="field"><span>${tr('サイクル（いくつでも）')}</span>${checksHtml(idp, ids || [])}</div>`;
+    return `<div class="field"><span>${tr('スプリント（いくつでも）')}</span>${checksHtml(idp, ids || [])}</div>`;
   }
   function readField(idp) {
     const box = $(`${idp}Cycles`);
@@ -304,26 +304,26 @@
     return [...box.querySelectorAll('input[type=checkbox]:checked')].map((x) => x.value);
   }
 
-  // 詳細の上の段の「サイクル」ボタン（会話・サブタスクには出さない）
+  // 詳細の上の段の「スプリント」ボタン（会話・サブタスクには出さない）
   function detailButtonHtml(c) {
     if (isChat(c) || isHiddenSubtask(c)) return '';
     const names = idsOf(c).map((id) => findCycle(id)).filter(Boolean).map((cy) => cy.name);
-    const title = names.length ? tr('入っているサイクル: {names}', { names: names.join(tr('、')) }) : tr('どのサイクルにも入っていません');
-    return `<button class="btn ghost" data-act="cycles" title="${esc(title)}">${icon('flag')}${names.length ? tr('サイクル（{n}）', { n: names.length }) : tr('サイクル')}</button>`;
+    const title = names.length ? tr('入っているスプリント: {names}', { names: names.join(tr('、')) }) : tr('どのスプリントにも入っていません');
+    return `<button class="btn ghost" data-act="cycles" title="${esc(title)}">${icon('flag')}${names.length ? tr('スプリント（{n}）', { n: names.length }) : tr('スプリント')}</button>`;
   }
   function openCardCycles(c) {
     const ids = idsOf(c);
     openModal(
-      `<h2>${tr('タスクを入れるサイクル')}</h2>
-       <p class="muted small">${tr('「{title}」を入れるサイクルを選びます（いくつでも。どれも選ばなければ「未割り当て」）。', { title: esc(c.title) })}</p>
+      `<h2>${tr('タスクを入れるスプリント')}</h2>
+       <p class="muted small">${tr('「{title}」を入れるスプリントを選びます（いくつでも。どれも選ばなければ「未割り当て」）。', { title: esc(c.title) })}</p>
        <div id="ccBox">${checksHtml('cc', ids)}</div>
-       <div class="modal-actions"><button class="btn ghost" id="ccNew">${icon('plus')}${tr('新しいサイクル')}</button><span class="spacer"></span><button class="btn ghost" id="ccCancel">${tr('キャンセル')}</button><button class="btn primary" id="ccOk">${tr('保存')}</button></div>`,
+       <div class="modal-actions"><button class="btn ghost" id="ccNew">${icon('plus')}${tr('新しいスプリント')}</button><span class="spacer"></span><button class="btn ghost" id="ccCancel">${tr('キャンセル')}</button><button class="btn primary" id="ccOk">${tr('保存')}</button></div>`,
       () => {
         $('ccCancel').onclick = closeModal;
         $('ccNew').onclick = () => openEditor(null, () => openCardCycles(card(c.id) || c));
         $('ccOk').onclick = async () => {
           const next = readField('cc') || [];
-          const r = await runBusy(tr('サイクルを保存しています…'), () => api.setCardCycles(c.id, next), tr('サイクルを保存しました'));
+          const r = await runBusy(tr('スプリントを保存しています…'), () => api.setCardCycles(c.id, next), tr('スプリントを保存しました'));
           if (r) closeModal();
         };
       },
@@ -334,11 +334,11 @@
   }
 
   // ---- ドラッグ&ドロップ ----
-  // サイクルへ動かせるカードか（サイクルがあり、会話・親に入っているサブタスクでない）
+  // スプリントへ動かせるカードか（スプリントがあり、会話・親に入っているサブタスクでない）
   function canDrag(c) {
     return !!c && cycles().length > 0 && !isChat(c) && !isHiddenSubtask(c);
   }
-  // タブ・サイドバーのサイクル（'none' は外す）へ落とせるか（もう入っているなら光らせない）
+  // タブ・サイドバーのスプリント（'none' は外す）へ落とせるか（もう入っているなら光らせない）
   function canDropOn(c, target) {
     if (!canDrag(c) || !target || target === M().ALL) return false;
     const ids = idsOf(c);
@@ -350,7 +350,7 @@
     if (!canDropOn(c, target)) return;
     const next = M().dropCycleIds(idsOf(c), target);
     const cy = findCycle(target);
-    await runBusy(tr('サイクルを保存しています…'), () => api.setCardCycles(c.id, next), cy ? tr('サイクル「{name}」に入れました', { name: cy.name }) : tr('サイクルから外しました'));
+    await runBusy(tr('スプリントを保存しています…'), () => api.setCardCycles(c.id, next), cy ? tr('スプリント「{name}」に入れました', { name: cy.name }) : tr('スプリントから外しました'));
   }
   // スイムレーンで、別の段へ動かせるか
   function canLaneDrop(c, from, to) {
@@ -362,7 +362,7 @@
   async function moveLane(c, from, to) {
     if (!canLaneDrop(c, from, to)) return;
     const next = M().dropCycleIds(idsOf(c), to, from);
-    await runBusy(tr('サイクルを保存しています…'), () => api.setCardCycles(c.id, next));
+    await runBusy(tr('スプリントを保存しています…'), () => api.setCardCycles(c.id, next));
   }
 
   root.CycleView = { mode, cycles, selection, inView, chromeHtml, lanesHtml, bindChrome, chipsHtml, newTaskIds, fieldHtml, readField, detailButtonHtml, openCardCycles, openEditor, canDrag, canDropOn, dropOn, canLaneDrop, moveLane };

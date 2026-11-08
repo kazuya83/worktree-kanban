@@ -1,4 +1,4 @@
-// サイクル（期間とゴールを持つ、タスクのまとまり）: 形・絞り込み・スイムレーン・IPC の中身・保存・画面
+// スプリント（期間とゴールを持つ、タスクのまとまり）: 形・絞り込み・スイムレーン・IPC の中身・保存・画面
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -47,7 +47,7 @@ test('cleanCycleView は知らない値なら上のタブ', () => {
   assert.strictEqual(DEFAULT_SETTINGS.cycleView, 'top');
 });
 
-test('カードのサイクル: 自分のものがなければ親（サブタスク・並列の枝）のものを使う', () => {
+test('カードのスプリント: 自分のものがなければ親（サブタスク・並列の枝）のものを使う', () => {
   const cards = [
     { id: 'p', cycleIds: ['a', 'b', 'a'] },
     { id: 's', subtaskOf: { parent: 'p' } },
@@ -65,7 +65,7 @@ test('カードのサイクル: 自分のものがなければ親（サブタス
   assert.deepStrictEqual(M.cardCycleIds(loop[0], loop), []);
 });
 
-test('選んでいるもので絞る: すべて・未割り当て・サイクル。消えたサイクルは数えない', () => {
+test('選んでいるもので絞る: すべて・未割り当て・スプリント。消えたスプリントは数えない', () => {
   const cycles = [cy('a'), cy('b')];
   const cards = [{ id: '1', cycleIds: ['a'] }, { id: '2', cycleIds: ['a', 'b'] }, { id: '3' }, { id: '4', cycleIds: ['gone'] }];
   const pick = (sel) => cards.filter((c) => M.inSelection(c, sel, cards, cycles)).map((c) => c.id);
@@ -75,7 +75,7 @@ test('選んでいるもので絞る: すべて・未割り当て・サイクル
   assert.deepStrictEqual(pick('b'), ['2']);
 });
 
-test('cleanSelection: 消えた・隠した（完了した）サイクルは「すべて」に戻す', () => {
+test('cleanSelection: 消えた・隠した（完了した）スプリントは「すべて」に戻す', () => {
   const cycles = [cy('a'), cy('d', { done: true })];
   assert.strictEqual(M.cleanSelection('a', cycles, false), 'a');
   assert.strictEqual(M.cleanSelection('none', cycles, false), 'none');
@@ -84,7 +84,7 @@ test('cleanSelection: 消えた・隠した（完了した）サイクルは「�
   assert.strictEqual(M.cleanSelection('d', cycles, true), 'd');
 });
 
-test('新しいタスク: サイクルを選んでいるときだけ、そのサイクルに入れる（完了したサイクルには入れない）', () => {
+test('新しいタスク: スプリントを選んでいるときだけ、そのスプリントに入れる（完了したスプリントには入れない）', () => {
   const cycles = [cy('a'), cy('d', { done: true })];
   assert.deepStrictEqual(M.newTaskCycleIds('a', cycles), ['a']);
   assert.deepStrictEqual(M.newTaskCycleIds('d', cycles), []);
@@ -92,7 +92,7 @@ test('新しいタスク: サイクルを選んでいるときだけ、そのサ
   assert.deepStrictEqual(M.newTaskCycleIds('none', cycles), []);
 });
 
-test('ドラッグ: サイクルへ落とすと加え、未割り当てなら外す。スイムレーンでは元の段から移す', () => {
+test('ドラッグ: スプリントへ落とすと加え、未割り当てなら外す。スイムレーンでは元の段から移す', () => {
   assert.deepStrictEqual(M.dropCycleIds(['a'], 'b'), ['a', 'b']);
   assert.deepStrictEqual(M.dropCycleIds(['a', 'b'], 'b'), ['a', 'b']);
   assert.deepStrictEqual(M.dropCycleIds(['a', 'b'], 'none'), []);
@@ -101,7 +101,7 @@ test('ドラッグ: サイクルへ落とすと加え、未割り当てなら外
   assert.deepStrictEqual(M.dropCycleIds(['a'], 'all'), ['a']);
 });
 
-test('スイムレーン: 表示するサイクルごとの段と、最後に未割り当て。複数のサイクルのカードは両方の段に出る', () => {
+test('スイムレーン: 表示するスプリントごとの段と、最後に未割り当て。複数のスプリントのカードは両方の段に出る', () => {
   const cycles = [cy('b', { startDate: '2026-12-01' }), cy('a', { startDate: '2026-11-01' }), cy('d', { done: true }), cy('n')];
   const cards = [{ id: '1', cycleIds: ['a', 'b'] }, { id: '2' }, { id: '3', cycleIds: ['d'] }, { id: '4', cycleIds: ['n'] }];
   const lanes = M.laneGroups(cards, cycles, cards, false);
@@ -185,7 +185,7 @@ test('cycles:update は名前・期間・ゴール・完了を変える', () => 
   assert.throws(() => api.update({ name: 'x' }), /指定されていません/);
 });
 
-test('cycles:delete はサイクルを消し、タスクは消さずにそのサイクルから外す', () => {
+test('cycles:delete はスプリントを消し、タスクは消さずにそのスプリントから外す', () => {
   const store = fakeStore();
   const api = createCycleApi({ store });
   const a = api.create({ name: 'A' });
@@ -199,7 +199,7 @@ test('cycles:delete はサイクルを消し、タスクは消さずにそのサ
   assert.throws(() => api.delete({ id: a.id }), /見つかりません/);
 });
 
-test('cycles:setCard はそのリポジトリのサイクルだけを入れる。空なら消す', () => {
+test('cycles:setCard はそのリポジトリのスプリントだけを入れる。空なら消す', () => {
   const store = fakeStore();
   const api = createCycleApi({ store });
   const a = api.create({ name: 'A' });
@@ -214,7 +214,7 @@ test('cycles:setCard はそのリポジトリのサイクルだけを入れる�
   assert.throws(() => api.setCard({ cycleIds: [] }), /指定されていません/);
 });
 
-test('作ったばかりのタスクを、選んでいたサイクルに入れる（なければ何もしない）', () => {
+test('作ったばかりのタスクを、選んでいたスプリントに入れる（なければ何もしない）', () => {
   const store = fakeStore();
   let changed = 0;
   const api = createCycleApi({ store, onChange: () => changed++ });
@@ -228,7 +228,7 @@ test('作ったばかりのタスクを、選んでいたサイクルに入れ�
   assert.strictEqual(changed, 1);
 });
 
-test('サイクルは board.json に保存され、読み直せる（壊れたものは捨てる）', () => {
+test('スプリントは board.json に保存され、読み直せる（壊れたものは捨てる）', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cycles-'));
   const file = path.join(dir, 'board.json');
   try {
@@ -269,12 +269,12 @@ test('つなぎ: main・preload・遠隔操作・画面のスクリプト', () =
   assert.ok(order.indexOf('cycles-view.js') < order.indexOf('renderer.js'));
 });
 
-test('サイクルの文言は4言語に訳され、差し込み名が一致する', () => {
+test('スプリントの文言は4言語に訳され、差し込み名が一致する', () => {
   const re = /(?:^|[^A-Za-z0-9_$])tr\(\s*'((?:\\.|[^'\\])*)'/g;
   const keys = new Set();
   for (const f of ['renderer/cycle-model.js', 'renderer/cycles-view.js', 'src/cycles.js']) for (const m of read(f).matchAll(re)) keys.add(m[1].replace(/\\(.)/g, (_, c) => ({ n: '\n' })[c] || c));
   const src = read('renderer/renderer.js');
-  for (const k of ['サイクルの表示', 'ボードの上にタブで並べて切り替える', 'ボードの左のサイドバーで切り替える']) {
+  for (const k of ['スプリントの表示', 'ボードの上にタブで並べて切り替える', 'ボードの左のサイドバーで切り替える']) {
     assert.ok(src.includes(`tr('${k}')`), k);
     keys.add(k);
   }
@@ -291,7 +291,7 @@ test('サイクルの文言は4言語に訳され、差し込み名が一致す�
   } finally {
     I18n.setLanguage('ja');
   }
-  assert.doesNotMatch(read('renderer/locales/cycles.js'), /Sprint|スプリント/i, '「Sprint」という名前は使わない');
+  assert.doesNotMatch(read('renderer/locales/cycles.js'), /サイクル|\b[Cc]ycles?\b|[Cc]iclos?\b|周期/, '画面の言葉は「スプリント」にそろえる');
 });
 
 // ---- 画面（cycles-view.js）: renderer.js の部品を置き換えて、HTML と操作を確かめる ----
@@ -324,7 +324,7 @@ function loadView({ cycles = [], cards = [], settings = {}, selection } = {}) {
   return { V: ctx.CycleView, calls, ls };
 }
 
-test('画面: 上のタブは「すべて・未割り当て・各サイクル」と数を出し、選んだサイクルのタスクだけを残す', () => {
+test('画面: 上のタブは「すべて・未割り当て・各スプリント」と数を出し、選んだスプリントのタスクだけを残す', () => {
   const cycles = [cy('a', { goal: '<b>ゴール</b>', startDate: '2026-11-01' }), cy('d', { done: true })];
   const cards = [{ id: '1', cycleIds: ['a'] }, { id: '2' }, { id: '3', cycleIds: ['d'] }];
   const { V } = loadView({ cycles, cards, selection: 'a' });
@@ -334,7 +334,7 @@ test('画面: 上のタブは「すべて・未割り当て・各サイクル」
   assert.match(html, /data-cycle-sel="all"[\s\S]*?cy-count">3</);
   assert.match(html, /data-cycle-sel="none" data-cycle-drop="none"[\s\S]*?cy-count">1</);
   assert.match(html, /cy-item active[^"]*" data-cycle-sel="a"/);
-  assert.doesNotMatch(html, /data-cycle-sel="d"/, '完了したサイクルは出さない');
+  assert.doesNotMatch(html, /data-cycle-sel="d"/, '完了したスプリントは出さない');
   assert.match(html, /&lt;b&gt;ゴール&lt;\/b&gt;/, 'ゴールは文字として出す');
   assert.deepStrictEqual(cards.filter(V.inView).map((c) => c.id), ['1']);
   assert.deepStrictEqual([...V.newTaskIds()], ['a']);
@@ -358,14 +358,14 @@ test('画面: サイドバー・スイムレーン', () => {
   assert.strictEqual(V.chipsHtml(cards[0]), '', 'スイムレーンではカードに印を出さない');
 });
 
-test('画面: ドラッグでサイクルに入れる・外す・段を移す', async () => {
+test('画面: ドラッグでスプリントに入れる・外す・段を移す', async () => {
   const cycles = [cy('a'), cy('b'), cy('d', { done: true })];
   const cards = [{ id: '1', cycleIds: ['a'] }, { id: '2' }, { id: 'c', kind: 'chat' }];
   const { V, calls } = loadView({ cycles, cards });
   const plain = (v) => JSON.parse(JSON.stringify(v));
   assert.strictEqual(V.canDropOn(cards[0], 'a'), false, 'もう入っている');
   assert.strictEqual(V.canDropOn(cards[0], 'b'), true);
-  assert.strictEqual(V.canDropOn(cards[0], 'd'), false, '完了したサイクルには入れない');
+  assert.strictEqual(V.canDropOn(cards[0], 'd'), false, '完了したスプリントには入れない');
   assert.strictEqual(V.canDropOn(cards[0], 'none'), true);
   assert.strictEqual(V.canDropOn(cards[1], 'none'), false, 'もう未割り当て');
   assert.strictEqual(V.canDropOn(cards[2], 'a'), false, '会話は入れない');
@@ -382,13 +382,13 @@ test('画面: ドラッグでサイクルに入れる・外す・段を移す', 
   assert.strictEqual(V.chipsHtml(cards[1]), '');
 });
 
-test('画面: 新しいタスクのサイクルの欄と、詳細の「サイクル」ボタン', () => {
+test('画面: 新しいタスクのスプリントの欄と、詳細の「スプリント」ボタン', () => {
   const { V } = loadView({ cycles: [cy('a'), cy('d', { done: true })], cards: [{ id: '1', cycleIds: ['a'] }, { id: 's', subtaskOf: { parent: '1' } }] });
   const f = V.fieldHtml('n', ['a']);
   assert.match(f, /id="nCycles"/);
   assert.match(f, /value="a" checked/);
-  assert.doesNotMatch(f, /value="d"/, '完了したサイクルは、入っていなければ選ばせない');
+  assert.doesNotMatch(f, /value="d"/, '完了したスプリントは、入っていなければ選ばせない');
   assert.match(V.detailButtonHtml({ id: '1', cycleIds: ['a'] }), /data-act="cycles"/);
   assert.strictEqual(V.detailButtonHtml({ id: 's', subtaskOf: { parent: '1' } }), '');
-  assert.strictEqual(loadView({ cycles: [] }).V.fieldHtml('n', []), '', 'サイクルがなければ欄を出さない');
+  assert.strictEqual(loadView({ cycles: [] }).V.fieldHtml('n', []), '', 'スプリントがなければ欄を出さない');
 });

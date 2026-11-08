@@ -1,16 +1,16 @@
-// サイクル（期間とゴールを持つ、タスクのまとまり。プロジェクト＝リポジトリごと）の形・確かめ方・絞り込み方。
+// スプリント（期間とゴールを持つ、タスクのまとまり。プロジェクト＝リポジトリごと）の形・確かめ方・絞り込み方。
 // レンダラ（<script> で読み込む。ボードの絞り込み・スイムレーン）と、アプリ本体（require。保存・IPC）の両方から使う。
 //
-// サイクル: {
+// スプリント: {
 //   id, repoPath,
 //   name,                 名前（必須）
 //   startDate, endDate,   期間（'YYYY-MM-DD'。どちらも空でよい）
 //   goal,                 ゴールのメモ
-//   done,                 完了にしたか（完了したサイクルは、ふだんは一覧に出さない）
+//   done,                 完了にしたか（完了したスプリントは、ふだんは一覧に出さない）
 //   createdAt, updatedAt, doneAt
 // }
-// タスク（カード）は cycleIds（サイクルの ID の配列。いくつでも）を持つ。
-// サブタスクと Pipeline の並列の枝のカードは、自分の cycleIds がなければ親のサイクルに入る
+// タスク（カード）は cycleIds（スプリントの ID の配列。いくつでも）を持つ。
+// サブタスクと Pipeline の並列の枝のカードは、自分の cycleIds がなければ親のスプリントに入る
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -25,10 +25,10 @@
   const NAME_MAX = 60;
   const GOAL_MAX = 2000;
   const MAX_CYCLES = 500; // 全プロジェクトの合計
-  const VIEWS = ['top', 'sidebar', 'lanes']; // ボードの上のタブ / 左のサイドバー / 列の中をサイクルごとの段に分ける
+  const VIEWS = ['top', 'sidebar', 'lanes']; // ボードの上のタブ / 左のサイドバー / 列の中をスプリントごとの段に分ける
   const DEFAULT_VIEW = 'top';
   const ALL = 'all'; // すべてのタスク
-  const NONE = 'none'; // どのサイクルにも入っていないタスク
+  const NONE = 'none'; // どのスプリントにも入っていないタスク
 
   const str = (v) => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
@@ -52,7 +52,7 @@
   // 入力の確かめ（保存する前）。問題なければ空文字
   function cycleError(p) {
     const x = p || {};
-    if (!cleanName(x.name)) return tr('サイクルの名前を入力してください');
+    if (!cleanName(x.name)) return tr('スプリントの名前を入力してください');
     if (str(x.startDate).trim() && !cleanDate(x.startDate)) return tr('開始日が正しくありません');
     if (str(x.endDate).trim() && !cleanDate(x.endDate)) return tr('終了日が正しくありません');
     const a = cleanDate(x.startDate);
@@ -92,7 +92,7 @@
     return VIEWS.includes(v) ? v : DEFAULT_VIEW;
   }
 
-  // サイクルの ID の配列（文字列・重なりなし）。cycles を渡すと、その中にあるものだけ
+  // スプリントの ID の配列（文字列・重なりなし）。cycles を渡すと、その中にあるものだけ
   function cleanCycleIds(list, cycles) {
     const known = Array.isArray(cycles) ? new Set(cycles.map((c) => c && c.id)) : null;
     const out = [];
@@ -112,7 +112,7 @@
     });
   }
 
-  // 一覧に出すサイクル（完了したものは showDone のときだけ）
+  // 一覧に出すスプリント（完了したものは showDone のときだけ）
   function visibleCycles(cycles, showDone) {
     return sortCycles((cycles || []).filter((c) => c && (showDone || !c.done)));
   }
@@ -122,7 +122,7 @@
     return (c && ((c.subtaskOf && c.subtaskOf.parent) || (c.relay && c.relay.branchOf && c.relay.branchOf.parent))) || '';
   }
 
-  // カードが入っているサイクル。自分の cycleIds がなければ親のものを使う（親の親もたどる）
+  // カードが入っているスプリント。自分の cycleIds がなければ親のものを使う（親の親もたどる）
   function cardCycleIds(c, cards) {
     const byId = new Map((cards || []).map((x) => [x && x.id, x]));
     let cur = c;
@@ -135,7 +135,7 @@
     return [];
   }
 
-  // 選んでいるもの（'all' / 'none' / サイクルの ID）に入るカードか。消えたサイクルの ID は数えない
+  // 選んでいるもの（'all' / 'none' / スプリントの ID）に入るカードか。消えたスプリントの ID は数えない
   function inSelection(c, selection, cards, cycles) {
     if (!selection || selection === ALL) return true;
     const ids = cleanCycleIds(cardCycleIds(c, cards), cycles);
@@ -143,21 +143,21 @@
     return ids.includes(selection);
   }
 
-  // 選んでいるものを確かめる: 消えたサイクルや、隠している（完了した）サイクルなら「すべて」に戻す
+  // 選んでいるものを確かめる: 消えたスプリントや、隠している（完了した）スプリントなら「すべて」に戻す
   function cleanSelection(selection, cycles, showDone) {
     if (selection === ALL || selection === NONE) return selection;
     const c = (cycles || []).find((x) => x && x.id === selection);
     return c && (showDone || !c.done) ? c.id : ALL;
   }
 
-  // 新しいタスクを入れるサイクル: サイクルを選んでいるときだけ、そのサイクル（完了したサイクルには入れない）
+  // 新しいタスクを入れるスプリント: スプリントを選んでいるときだけ、そのスプリント（完了したスプリントには入れない）
   function newTaskCycleIds(selection, cycles) {
     const c = (cycles || []).find((x) => x && x.id === selection);
     return c && !c.done ? [c.id] : [];
   }
 
-  // サイクルへドラッグしたときの、新しい cycleIds
-  // target: 'none' ならどのサイクルからも外す。サイクルの ID なら加える。from（スイムレーンで元の段のサイクル）を渡すと、そこからは外す
+  // スプリントへドラッグしたときの、新しい cycleIds
+  // target: 'none' ならどのスプリントからも外す。スプリントの ID なら加える。from（スイムレーンで元の段のスプリント）を渡すと、そこからは外す
   function dropCycleIds(current, target, from) {
     if (target === NONE) return [];
     if (!target || target === ALL) return cleanCycleIds(current);
@@ -166,7 +166,7 @@
     return ids;
   }
 
-  // スイムレーン: 表示するサイクルごとの段と、最後に「未割り当て」の段。複数のサイクルに入っているカードは、それぞれの段に出す
+  // スイムレーン: 表示するスプリントごとの段と、最後に「未割り当て」の段。複数のスプリントに入っているカードは、それぞれの段に出す
   function laneGroups(list, cycles, allCards, showDone) {
     const shown = visibleCycles(cycles, showDone);
     const lanes = shown.map((cy) => ({ key: cy.id, cycle: cy, cards: [] }));

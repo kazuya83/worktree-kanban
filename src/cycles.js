@@ -1,4 +1,4 @@
-// サイクル（期間とゴールを持つ、タスクのまとまり）の cycles:* のハンドラの中身。main.js から呼ぶ。
+// スプリント（期間とゴールを持つ、タスクのまとまり）の cycles:* のハンドラの中身。main.js から呼ぶ。
 // Electron なしで試せるように、ここでは store を変えて onChange を呼ぶだけにする
 const crypto = require('crypto');
 const CycleModel = require('../renderer/cycle-model');
@@ -15,14 +15,14 @@ function needId(arg, msg) {
 function createCycleApi({ store, onChange = () => {}, now = () => Date.now() }) {
   const find = (id) => {
     const c = store.cycle(id);
-    if (!c) throw new Error(tr('サイクルが見つかりません（消されたかもしれません）'));
+    if (!c) throw new Error(tr('スプリントが見つかりません（消されたかもしれません）'));
     return c;
   };
   const changed = () => {
     store.save();
     onChange();
   };
-  // カードの cycleIds を、そのリポジトリにあるサイクルだけにして入れる（空なら消す）
+  // カードの cycleIds を、そのリポジトリにあるスプリントだけにして入れる（空なら消す）
   const assign = (card, ids) => {
     const list = CycleModel.cleanCycleIds(ids, store.cyclesOf(card.repoPath));
     if (list.length) card.cycleIds = list;
@@ -30,7 +30,7 @@ function createCycleApi({ store, onChange = () => {}, now = () => Date.now() }) 
     return list;
   };
   return {
-    // 新しいサイクルは、今開いているリポジトリのものにする（遠隔操作ではホストの今のリポジトリ）
+    // 新しいスプリントは、今開いているリポジトリのものにする（遠隔操作ではホストの今のリポジトリ）
     create(p) {
       const repoPath = store.settings.repoPath;
       if (!repoPath) throw new Error(tr('先にリポジトリを開いてください'));
@@ -46,7 +46,7 @@ function createCycleApi({ store, onChange = () => {}, now = () => Date.now() }) 
     // 名前・期間・ゴールを変える。done で完了にする・戻す
     update(p) {
       const { id, ...patch } = p || {};
-      const cur = find(needId(id, tr('サイクルが指定されていません')));
+      const cur = find(needId(id, tr('スプリントが指定されていません')));
       const next = { ...cur };
       for (const k of EDIT_KEYS) if (patch[k] !== undefined) next[k] = patch[k];
       const err = CycleModel.cycleError(next);
@@ -62,9 +62,9 @@ function createCycleApi({ store, onChange = () => {}, now = () => Date.now() }) 
       changed();
       return cur;
     },
-    // サイクルを消す。中のタスクは消さず、そのサイクルから外すだけ
+    // スプリントを消す。中のタスクは消さず、そのスプリントから外すだけ
     delete(arg) {
-      const id = needId(arg, tr('サイクルが指定されていません'));
+      const id = needId(arg, tr('スプリントが指定されていません'));
       find(id);
       store.removeCycle(id);
       for (const card of store.cards) {
@@ -76,7 +76,7 @@ function createCycleApi({ store, onChange = () => {}, now = () => Date.now() }) 
       changed();
       return true;
     },
-    // タスクを入れるサイクルを決める（いくつでも。空ならどのサイクルにも入れない）
+    // タスクを入れるスプリントを決める（いくつでも。空ならどのスプリントにも入れない）
     setCard(p) {
       const { id, cycleIds } = p || {};
       const card = store.card(needId(id, tr('タスクが指定されていません')));

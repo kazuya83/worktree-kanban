@@ -733,7 +733,7 @@ function renderBoard() {
   });
   // サブタスクは親のカードにまとめて出す
   const boardCards = cards.filter((c) => !isChat(c) && !isHiddenSubtask(c));
-  // サイクル: 上のタブ・左のサイドバーでは選んだサイクルのタスクだけ、スイムレーンではサイクルごとの段に分ける
+  // スプリント: 上のタブ・左のサイドバーでは選んだスプリントのタスクだけ、スイムレーンではスプリントごとの段に分ける
   const cv = CycleView.mode();
   boardEl.className = `board cv-${cv}`;
   if (cv === 'lanes') boardEl.innerHTML = CycleView.chromeHtml(boardCards) + CycleView.lanesHtml(boardCards, COLUMNS, columnCards);
@@ -882,7 +882,7 @@ function canDropCard(c, to) {
   return false;
 }
 let boardDragId = null;
-let boardDragLane = null; // スイムレーンで、ドラッグを始めた段（サイクルの ID か 'none'）
+let boardDragLane = null; // スイムレーンで、ドラッグを始めた段（スプリントの ID か 'none'）
 $('board').addEventListener('dragstart', (e) => {
   const el = e.target.closest('.card');
   if (!el) return;
@@ -908,7 +908,7 @@ function boardDropPlan(c, col) {
 }
 $('board').addEventListener('dragover', (e) => {
   const c = card(boardDragId);
-  // タブ・サイドバーのサイクルへ落とすと、そのサイクルに入れる（「未割り当て」なら外す）
+  // タブ・サイドバーのスプリントへ落とすと、そのスプリントに入れる（「未割り当て」なら外す）
   const cy = e.target.closest('[data-cycle-drop]');
   if (cy) {
     if (CycleView.canDropOn(c, cy.dataset.cycleDrop)) {
@@ -4504,9 +4504,9 @@ function renderSettingsView() {
         <select id="sLanguage">${I18n.LANGUAGES.map((l) => `<option value="${l.code}" ${l.code === I18n.getLanguage() ? 'selected' : ''}>${esc(l.label)}</option>`).join('')}</select>
         <small>${tr('表示の言語です。選ぶとすぐに保存して、画面を読み直します。')}</small></label>
       <label class="field">${tr('<span>同時に動かす数</span>')}<input id="sMax" type="number" min="1" max="10" value="${esc(s.maxParallel)}" /></label>
-      <label class="field"><span>${tr('サイクルの表示')}</span>
-        <select id="sCycleView">${[['top', tr('ボードの上にタブで並べて切り替える')], ['sidebar', tr('ボードの左のサイドバーで切り替える')], ['lanes', tr('切り替えずに、列の中をサイクルごとの段（スイムレーン）に分ける')]].map(([v, l]) => `<option value="${v}" ${CycleModel.cleanCycleView(s.cycleView) === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
-        <small>${tr('サイクルは、期間とゴールを持つタスクのまとまりです（プロジェクトごと）。ボードの「＋ サイクル」から作れます。')}</small></label>
+      <label class="field"><span>${tr('スプリントの表示')}</span>
+        <select id="sCycleView">${[['top', tr('ボードの上にタブで並べて切り替える')], ['sidebar', tr('ボードの左のサイドバーで切り替える')], ['lanes', tr('切り替えずに、列の中をスプリントごとの段（スイムレーン）に分ける')]].map(([v, l]) => `<option value="${v}" ${CycleModel.cleanCycleView(s.cycleView) === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+        <small>${tr('スプリントは、期間とゴールを持つタスクのまとまりです（プロジェクトごと）。ボードの「＋ スプリント」から作れます。')}</small></label>
       <label class="check"><input type="checkbox" id="sSuggestSkills" ${s.suggestSkillsOnDone !== false ? 'checked' : ''} /> ${tr('タスクが完了したとき、前に完了したタスクと似た作業が続いていたら、スキルにしないか通知で聞く（右上のベル）')}</label>
       <label class="check"><input type="checkbox" id="sDeleteSessions" ${s.deleteSessionsOnMerge !== false ? 'checked' : ''} /> ${tr('マージして完了したら、そのタスクの作業に使った Claude Code の会話（セッション）を消す（引き継いだ元の会話は残します）')}</label>`,
     update: `<div id="updPanel" class="gh-panel upd-panel">${updatePanelHtml(state.update)}</div>`,
