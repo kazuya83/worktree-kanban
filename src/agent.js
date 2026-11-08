@@ -1237,7 +1237,8 @@ class AgentManager extends EventEmitter {
     const extra = { repoPath: repo, skipSpecCheck, scheduleId, scheduleTitle, slack };
     // 添付は先に確かめておく（カードごとに保存する）
     const parsed = attachments.parseAttachments(files);
-    let mode = agent || providers.defaultAgentOf(s);
+    // 指定がなければ、そのプロジェクトで最初から選んでおくエージェント（カスタムエージェントのこともある）
+    let mode = agent || providers.defaultAgentRefOf({ ...s, ...this.store.repoSettings(repo) });
     // Pipeline は「relay」（既定の Pipeline）か「relay:<ID>」（そのプロジェクトの Pipeline の1つ）
     let pipelineId = '';
     if (typeof mode === 'string' && mode.startsWith('relay:')) {
@@ -2148,8 +2149,9 @@ class AgentManager extends EventEmitter {
     const text = String(message || '').trim();
     if (!text) throw new Error(tr('メッセージを入力してください'));
     const parsed = attachments.parseAttachments(files);
-    const custom = providers.isCustomRef(agent) ? this.customAgent(agent) : null;
-    const a = custom ? custom.agent : agent || providers.defaultAgentOf(s);
+    const ref = agent || providers.defaultAgentRefOf(s);
+    const custom = providers.isCustomRef(ref) ? this.customAgent(ref) : null;
+    const a = custom ? custom.agent : ref;
     this.assertEnabled(a);
     const m = custom ? custom.model : cleanModel(model);
     const card = {

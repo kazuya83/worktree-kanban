@@ -1115,6 +1115,12 @@
     "fr": "Si l’orchestration est Pipeline ou compétition, ce choix est présélectionné dans le champ « Agent » à la création d’une tâche (cet agent sert s’il est indisponible, et pour la conversation). La comparaison de la compétition lui est aussi demandée (la proposition de skills revient à l’agent de la tâche d’origine s’il est disponible).",
     "zh": "如果编排选了 Pipeline 或竞争，新建任务时「智能体」一栏会预先选中它（不可用时以及对话中则用这个智能体）。竞争的比较也交给这个智能体（技能建议在原任务的智能体可用时交给它）。"
   },
+  "このプロジェクトの設定です。このプロジェクトのカスタムエージェントも選べます（競争の比較は、元にするエージェントに頼みます）。選んだカスタムエージェントを消したり、元にするエージェントを使わない設定にしたりしたときは、使うエージェントの先頭に戻ります。": {
+    "en": "This is a per-project setting. You can also choose one of this project’s custom agents (competition comparison then uses its base agent). If you delete the chosen custom agent or stop using its base agent, the first agent in use is selected instead.",
+    "es": "Es un ajuste de este proyecto. También puedes elegir un agente personalizado de este proyecto (la comparación de la competición se pide a su agente base). Si borras el agente personalizado elegido o dejas de usar su agente base, se vuelve al primer agente en uso.",
+    "fr": "C’est un réglage de ce projet. Vous pouvez aussi choisir un agent personnalisé de ce projet (la comparaison de la compétition est alors demandée à son agent de base). Si vous supprimez l’agent personnalisé choisi ou cessez d’utiliser son agent de base, le premier agent utilisé est repris.",
+    "zh": "这是本项目的设置。也可以选择本项目的自定义智能体（竞争的比较会交给它所基于的智能体）。如果删除所选的自定义智能体，或不再使用它所基于的智能体，则回到正在使用的第一个智能体。"
+  },
   "カスタムエージェントは、このプロジェクトの設定です。": {
     "en": "Custom agents are settings for this project.",
     "es": "Los agentes personalizados son ajustes de este proyecto.",

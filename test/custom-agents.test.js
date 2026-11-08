@@ -206,3 +206,55 @@ test('競争: ふつうのエージェントとカスタムエージェントを
   assert.strictEqual(cards[1].persona.name, '慎重なレビュアー');
   assert.strictEqual(cards[0].persona, undefined);
 });
+
+test('既定のエージェント: カスタムエージェントを選んでおくと、指定のないタスク・会話はそれで動く', async () => {
+  const { agents, store } = setup();
+  store.settings.defaultAgent = 'custom:rev';
+  assert.strictEqual(providers.defaultAgentRefOf(store.settings), 'custom:rev');
+  assert.strictEqual(providers.defaultAgentOf(store.settings), 'codex', '比較などアプリが頼む作業は元にするエージェント');
+  const [c] = agents.createTask({ prompt: '既定のタスク' });
+  assert.strictEqual(c.agent, 'codex');
+  assert.strictEqual(c.model, 'gpt-5-codex');
+  assert.strictEqual(c.persona.name, '慎重なレビュアー');
+  store.settings.defaultAgent = 'custom:gem';
+  const chat = agents.createChat({ message: 'こんにちは' });
+  assert.strictEqual(chat.agent, 'gemini');
+  assert.strictEqual(chat.persona.name, 'ジェミ');
+  await waitFor(() => chat.status === 'review' || chat.status === 'failed');
+});
+
+test('既定のエージェント: 選んだカスタムエージェントが消えた・元の CLI を使わない設定なら、使うものの先頭に戻す', () => {
+  const { agents, store } = setup();
+  store.settings.defaultAgent = 'custom:nope';
+  assert.strictEqual(providers.defaultAgentRefOf(store.settings), 'claude');
+  const [c] = agents.createTask({ prompt: 'x' });
+  assert.strictEqual(c.agent, 'claude');
+  assert.strictEqual(c.persona, undefined);
+  store.settings.defaultAgent = 'custom:rev';
+  store.settings.enabledAgents = ['gemini', 'claude'];
+  assert.strictEqual(providers.defaultAgentRefOf(store.settings), 'claude');
+  assert.strictEqual(providers.defaultAgentOf(store.settings), 'claude');
+});
+
+test('既定のエージェント: プロジェクトごとに覚え、今までの値を引き継ぐ', () => {
+  const s = { ...require('../src/store').DEFAULT_SETTINGS, enabledAgents: ['claude', 'codex'], repoPath: '/a', repoSettings: {}, defaultAgent: 'codex', customAgents: providers.cleanCustomAgents([{ id: 'x', name: 'X', agent: 'codex' }]) };
+  s.defaultAgent = 'custom:x';
+  switchRepoSettings(s, '/b');
+  assert.strictEqual(s.defaultAgent, 'codex', '初めて開くプロジェクトは、元にするエージェントを引き継ぐ');
+  s.defaultAgent = 'claude';
+  switchRepoSettings(s, '/a');
+  assert.strictEqual(s.defaultAgent, 'custom:x');
+  switchRepoSettings(s, '/b');
+  assert.strictEqual(s.defaultAgent, 'claude');
+  assert.strictEqual(pickRepoSettings({ defaultAgent: 'relay' }).defaultAgent, 'claude', '知らない値は初期値');
+});
+
+test('既定のエージェント: アプリ全体の設定だったころの値を、どのプロジェクトにも入れる', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-kanban-da-'));
+  const file = path.join(tmp, 'board.json');
+  fs.writeFileSync(file, JSON.stringify({ settings: { enabledAgents: ['claude', 'gemini'], defaultAgent: 'gemini', repoPath: '/a', repoSettings: { '/a': { baseBranch: 'main' }, '/b': { baseBranch: 'dev' } } }, cards: [] }));
+  const store = new Store(file);
+  assert.strictEqual(store.settings.defaultAgent, 'gemini');
+  assert.strictEqual(store.repoSettings('/b').defaultAgent, 'gemini');
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
