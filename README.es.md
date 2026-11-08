@@ -79,6 +79,15 @@ Puedes manejar el tablero del PC que ejecuta los agentes (el host) desde Worktre
 
 Los pasos, y cómo arreglar una conexión que falla, están en [docs/remote.md](docs/remote.md) (English).
 
+### Usar desde el teléfono
+Desde cualquier lugar, puede ver el tablero en el navegador del teléfono (Safari en iPhone, Chrome en Android), crear tareas, enviar instrucciones adicionales, aprobar y responder preguntas. No hace falta instalar nada en el teléfono.
+
+- La aplicación del PC inicia [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (`cloudflared`, gratuito) y crea una URL HTTPS. No hace falta abrir puertos en el router. Elija un Quick Tunnel sin cuenta, o un túnel con nombre cuya URL no cambia
+- Pulse «Teléfono» arriba, luego «Conectar un teléfono», y escanee el código QR con el teléfono. Los tokens caducan a los 30 días, y puede revocar un teléfono conectado cuando quiera
+- Fusionar, los PR y cambiar la configuración no están disponibles desde el teléfono. Los agentes siempre se ejecutan en el PC, y solo funciona mientras la aplicación está abierta en el PC
+
+Los pasos, y cómo arreglar una conexión que falla, están en [docs/mobile.md](docs/mobile.md) (English).
+
 Además: cambiar el estado (columna) de una tarjeta arrastrándola, mensajes a un agente en ejecución (btw), adjuntar imágenes y archivos, competición (varios agentes resuelven la misma tarea), y repositorios de WSL en Windows. El uso está resumido en [docs/usage.md](docs/usage.md) (English).
 
 ### Pipeline: describe un flujo en lenguaje natural y ejecuta tareas con él
@@ -279,6 +288,7 @@ Los mismos comandos actualizan a la última versión. También se puede actualiz
 | [Ajustes](docs/settings.md) (English) | La pantalla de ajustes que se abre desde el menú de la barra superior, y sus apartados |
 | [Integraciones](docs/integrations.md) (English) | Configurar GitLab, Linear, Jira y Slack, y qué pueden y no pueden hacer |
 | [Control remoto](docs/remote.md) (English) | Cómo manejar el tablero desde otro PC por un túnel SSH, y cómo arreglar una conexión que falla |
+| [Usar desde el teléfono](docs/mobile.md) (English) | Cómo manejar el tablero desde el navegador del teléfono desde cualquier lugar (Cloudflare Tunnel), y cómo arreglar una conexión que falla |
 | [Instalación](docs/install.md) (English) | Instalación, actualización, desinstalación y uso de un repositorio de WSL en Windows |
 | [Para desarrolladores](docs/development.md) (English) | Ejecutar desde el código, compilar, publicar, cómo está hecha la aplicación y las pruebas |
 | [Migrar desde Vibe Kanban](https://kazuya83.github.io/worktree-kanban/migrate-from-vibe-kanban.html) (English) | Qué cambió en Vibe Kanban, qué se conserva y los pasos para migrar |

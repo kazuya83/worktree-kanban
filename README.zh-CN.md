@@ -79,6 +79,15 @@ flowchart LR
 
 步骤，以及连不上时的处理方法，写在 [docs/remote.md](docs/remote.md) (English)。
 
+### 从手机使用
+在任何地方都能用手机浏览器（iPhone 的 Safari、Android 的 Chrome）查看看板，创建任务、发送追加指示、批准、回答问题。手机上不需要安装应用。
+
+- 电脑上的应用会启动 [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)（`cloudflared`，免费），创建 HTTPS 的 URL。不需要在路由器上开放端口。可以选择无需账号的 Quick Tunnel，或 URL 不变的命名隧道
+- 点顶部的「手机」，再点「连接手机」，用手机扫描显示的二维码即可连接。令牌 30 天后失效，已连接的手机随时可以使失效
+- 合并、PR 和更改设置不能在手机上进行。代理始终在电脑上运行，只在电脑上的应用打开期间可用
+
+步骤，以及连不上时的处理方法，写在 [docs/mobile.md](docs/mobile.md) (English)。
+
 此外还支持：用拖放改变卡片的状态（列）、给正在运行的智能体发消息（btw）、附加图片和文件、竞争（多个智能体解决同一任务），以及在 Windows 上使用 WSL 的仓库。用法汇总在 [docs/usage.md](docs/usage.md) (English)。
 
 ### Pipeline：用自然语言描述流程，并按流程运行任务
@@ -279,6 +288,7 @@ irm https://raw.githubusercontent.com/kazuya83/worktree-kanban/main/install.ps1 
 | [设置](docs/settings.md) (English) | 从顶栏菜单打开的设置画面和各个项目 |
 | [集成](docs/integrations.md) (English) | 设置 GitLab、Linear、Jira 和 Slack，以及能做和不能做的事 |
 | [远程操作](docs/remote.md) (English) | 通过 SSH 隧道从另一台电脑操作看板的步骤，以及连不上时的处理方法 |
+| [从手机使用](docs/mobile.md) (English) | 从任何地方用手机浏览器操作看板的步骤（Cloudflare Tunnel），以及连不上时的处理方法 |
 | [安装](docs/install.md) (English) | 安装、更新、卸载，以及在 Windows 上使用 WSL 仓库 |
 | [面向开发者](docs/development.md) (English) | 从源码运行、构建、发布、应用的结构，以及测试 |
 | [从 Vibe Kanban 迁移](https://kazuya83.github.io/worktree-kanban/migrate-from-vibe-kanban.html) (English) | Vibe Kanban 发生了什么、可以保留什么，以及迁移步骤 |

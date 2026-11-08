@@ -43,6 +43,8 @@ const { Scheduler } = require('./src/scheduler');
 const trackersRegistry = require('./src/trackers');
 const { SecretStore } = require('./src/secrets');
 const { SlackBridge } = require('./src/slack');
+const { MobileServer } = require('./src/mobile-server');
+const { CloudflareTunnel, findCloudflared, installHint } = require('./src/cloudflare-tunnel');
 const { createScheduleApi, notificationClickPlan } = require('./src/schedule-wiring');
 const fs = require('fs');
 
@@ -82,6 +84,10 @@ let trackers; // 課題管理・チャットサービスとの連携（src/track
 let slack; // Slack への通知と、Slack からの開始（src/slack.js）
 let permServer;
 let remoteHost = null;
+let mobileServer = null; // スマホ用のサーバー（src/mobile-server.js）
+let mobileTunnel = null; // 外からスマホ用のサーバーへつなぐ Cloudflare Tunnel
+let mobilePair = null; // 画面に出したペアリングコード（{ code, expiresAt }）。QR に入れる URL を作るため
+let secretStore = null; // OS の安全な保存先に置く秘密（連携のトークン・名前付きトンネルのトークン）
 let remoteClient = null;
 let sshTunnel = null;
 let reconnector = null; // 前回の接続を再開する（起動時・切れたとき）
@@ -201,6 +207,7 @@ function notifyBoard() {
     // （このマシンが別のホストにつないでいても、そのホストのタブやカードは混ぜない）
     const own = withRemoteSession(boardState());
     remoteHost?.broadcast('board:changed', own);
+    mobileServer?.broadcast('board:changed', own);
     // クライアント接続中の画面には、ホストのタブと並べて出す
     send('board:changed', remoteClient?.connected ? viewBoard() : own);
   }, 120);
@@ -313,6 +320,133 @@ async function startRemoteHost() {
   store.save();
   notifyRemoteOnly();
   return remoteSession();
+}
+
+// ---- スマホから使う（src/mobile-server.js と src/cloudflare-tunnel.js） ----
+// スマホ用のサーバーは 127.0.0.1 で待ち受け、外からは Cloudflare Tunnel だけが届く。
+// スマホが見るのは、いつもこのマシンのボード（このマシンが別のホストにつないでいても、そのホストのボードは混ぜない）
+const MOBILE_TOKEN_SECRET = 'mobile:namedTunnelToken';
+// 見るだけの操作。これ以外の操作は、どのスマホから行ったかを記録に残す
+const MOBILE_READ_CHANNELS = new Set(['board:get', 'card:logs', 'card:diff', 'card:markSeen', 'notifications:read', 'skills:list', 'sessions:list']);
+
+function mobileCloudflared() {
+  const found = findCloudflared(store.settings.cloudflaredPath || '');
+  return { path: found || '', hint: installHint(process.platform) };
+}
+
+function mobilePublicUrl() {
+  const t = mobileTunnel?.status();
+  return t && t.state === 'running' && t.url ? t.url : '';
+}
+
+function mobileStatus() {
+  const server = mobileServer?.status() || { listening: false, port: store.settings.mobilePort, pairCode: null, devices: [] };
+  if (!server.devices || !server.devices.length) server.devices = (store.settings.mobileDevices || []).map(({ tokenHash, ...d }) => d);
+  // 期限が切れた・使われたコードは、画面に出さない
+  if (mobilePair && (!server.pairCode || mobilePair.expiresAt <= Date.now())) mobilePair = null;
+  const url = mobilePublicUrl();
+  let hasNamedToken = false;
+  try {
+    hasNamedToken = !!secretStore?.has(MOBILE_TOKEN_SECRET);
+  } catch {
+    /* 読めなければ、無いものとして出す */
+  }
+  return {
+    enabled: !!store.settings.mobileEnabled,
+    mode: store.settings.mobileTunnelMode === 'named' ? 'named' : 'quick',
+    namedHostname: store.settings.mobileNamedHostname || '',
+    hasNamedToken,
+    server,
+    tunnel: mobileTunnel?.status() || { state: 'stopped', url: '', mode: store.settings.mobileTunnelMode, error: '' },
+    cloudflared: mobileCloudflared(),
+    pair: mobilePair ? { ...mobilePair, url: url ? `${url}/#pair=${encodeURIComponent(mobilePair.code)}` : '' } : null,
+  };
+}
+
+let mobileNotifyTimer = null;
+function notifyMobile() {
+  if (mobileNotifyTimer) return;
+  mobileNotifyTimer = setTimeout(() => {
+    mobileNotifyTimer = null;
+    send('mobile:changed', mobileStatus());
+  }, 100);
+}
+
+function mobileTunnelOptions() {
+  const named = store.settings.mobileTunnelMode === 'named';
+  return {
+    command: mobileCloudflared().path,
+    mode: named ? 'named' : 'quick',
+    localPort: mobileServer?.status().port || store.settings.mobilePort,
+    namedToken: named ? secretStore.get(MOBILE_TOKEN_SECRET) : '',
+    namedHostname: named ? store.settings.mobileNamedHostname || '' : '',
+  };
+}
+
+async function startMobile() {
+  if (!mobileCloudflared().path) throw new Error(tr('cloudflared が見つかりません。入れてから、もう一度試してください'));
+  if (store.settings.mobileTunnelMode === 'named') {
+    if (!store.settings.mobileNamedHostname) throw new Error(tr('名前付きトンネルの、公開するホスト名を入れてください'));
+    if (!secretStore.has(MOBILE_TOKEN_SECRET)) throw new Error(tr('名前付きトンネルの、トンネルのトークンを入れてください'));
+  }
+  if (!mobileServer) {
+    mobileServer = new MobileServer({
+      port: store.settings.mobilePort,
+      devices: store.settings.mobileDevices || [],
+      onDevices: (devices) => {
+        store.settings.mobileDevices = devices;
+        store.save();
+      },
+      appVersion: app.getVersion(),
+      getLanguage: () => store.settings.language,
+      invoke: (channel, arg, who) => {
+        const fn = localHandlers.get(channel);
+        if (!fn) throw new Error(tr('未対応の操作です: {channel}', { channel }));
+        if (!MOBILE_READ_CHANNELS.has(channel)) console.log(`[mobile] ${who?.deviceName || who?.deviceId || '?'}: ${channel}`);
+        if (channel === 'board:get') return withRemoteSession(boardState());
+        return fn(arg);
+      },
+    });
+    mobileServer.on('changed', notifyMobile);
+    mobileServer.on('error', (err) => console.error('スマホ用のサーバーのエラー:', err));
+  }
+  await mobileServer.start(store.settings.mobilePort);
+  try {
+    if (!mobileTunnel) {
+      mobileTunnel = new CloudflareTunnel(mobileTunnelOptions());
+      mobileTunnel.on('status', notifyMobile);
+      // Quick Tunnel は起動し直すと URL が変わる。前の URL の QR は使えないので、コードも出し直してもらう
+      mobileTunnel.on('url', () => {
+        if (mobilePair) {
+          mobilePair = null;
+          mobileServer?.clearPairCode();
+        }
+        notifyMobile();
+      });
+    } else mobileTunnel.setOptions(mobileTunnelOptions());
+    store.settings.mobileEnabled = true;
+    store.save();
+    // トンネルがつながるまで待つ（つながらなくても裏で起動し直し続け、状態は画面に出る）
+    await mobileTunnel.start();
+  } catch (err) {
+    if (!store.settings.mobileEnabled) await mobileServer.stop();
+    throw err;
+  } finally {
+    notifyMobile();
+  }
+  return mobileStatus();
+}
+
+// keepEnabled: アプリの終了で止めるとき（次の起動で再開する）
+async function stopMobile({ keepEnabled = false } = {}) {
+  if (!keepEnabled) {
+    store.settings.mobileEnabled = false;
+    store.save();
+  }
+  mobilePair = null;
+  await Promise.allSettled([mobileTunnel?.stop(), mobileServer?.stop()]);
+  if (!keepEnabled) notifyMobile();
+  return mobileStatus();
 }
 
 async function stopRemoteHost() {
@@ -478,7 +612,8 @@ app.whenReady().then(async () => {
   store = new Store(boardFile);
   // 初めて起動したときは、インストールされているエージェントを使う設定にする
   store.adoptAgents(providers.AGENT_IDS.filter((a) => resolveCommand(providers.agentCommand(store.settings, a))));
-  trackers = new trackersRegistry.Trackers({ store, secrets: new SecretStore({ file: path.join(userData, 'secrets.json'), safeStorage }) });
+  secretStore = new SecretStore({ file: path.join(userData, 'secrets.json'), safeStorage });
+  trackers = new trackersRegistry.Trackers({ store, secrets: secretStore });
   trackers.on('changed', notifyBoard);
   agents = new AgentManager(store, {
     // パッケージ後は asar の外に出した MCP スクリプトを使う
@@ -503,6 +638,7 @@ app.whenReady().then(async () => {
     const payload = { id, entry };
     send('card:log', payload);
     remoteHost?.broadcast('card:log', payload);
+    mobileServer?.broadcast('card:log', payload);
   });
   // 通知（右上のベルに貯まるもの）は、デスクトップ通知でも知らせる
   agents.on('notification', (n) => {
@@ -634,6 +770,53 @@ app.whenReady().then(async () => {
     }
     notifyRemoteOnly();
     return remoteSession();
+  });
+  // スマホから使う
+  handle('mobile:status', () => mobileStatus());
+  handle('mobile:start', () => startMobile());
+  handle('mobile:stop', () => stopMobile());
+  handle('mobile:recheck', () => mobileStatus());
+  handle('mobile:pair', () => {
+    if (!mobileServer?.listening()) throw new Error(tr('スマホ用のサーバーが動いていません。先に「使う」を押してください'));
+    if (!mobilePublicUrl()) throw new Error(tr('トンネルがまだつながっていません。つながるまで待ってください'));
+    mobilePair = mobileServer.refreshPairCode();
+    return mobileStatus();
+  });
+  handle('mobile:revoke', ({ id } = {}) => {
+    if (mobileServer) mobileServer.revokeDevice(String(id || ''));
+    else {
+      store.settings.mobileDevices = (store.settings.mobileDevices || []).filter((d) => d.id !== id);
+      store.save();
+    }
+    return mobileStatus();
+  });
+  handle('mobile:revokeAll', () => {
+    if (mobileServer) mobileServer.revokeAll();
+    else {
+      store.settings.mobileDevices = [];
+      store.save();
+    }
+    return mobileStatus();
+  });
+  handle('mobile:setTunnel', async ({ mode, hostname, token } = {}) => {
+    const named = mode === 'named';
+    if (named) {
+      const host = String(hostname || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+      if (!host || !/^[a-z0-9.-]+$/i.test(host)) throw new Error(tr('公開するホスト名が正しくありません（例: kanban.example.com）'));
+      if (token) secretStore.set(MOBILE_TOKEN_SECRET, String(token).trim());
+      else if (!secretStore.has(MOBILE_TOKEN_SECRET)) throw new Error(tr('名前付きトンネルの、トンネルのトークンを入れてください'));
+      store.settings.mobileNamedHostname = host;
+    }
+    store.settings.mobileTunnelMode = named ? 'named' : 'quick';
+    store.save();
+    mobilePair = null;
+    mobileServer?.clearPairCode();
+    // 動いていれば、新しい設定でつなぎ直す
+    if (store.settings.mobileEnabled && mobileTunnel) {
+      mobileTunnel.setOptions(mobileTunnelOptions());
+    }
+    notifyMobile();
+    return mobileStatus();
   });
   handle('remote:connect', async ({ mode, host, port, code, sshHost, sshUser, sshPort, sshKey, sshPath } = {}) => {
     if (remoteHost?.listening()) throw new Error(tr('ホストとして待ち受け中は接続できません。先にホストを停止してください'));
@@ -1154,6 +1337,11 @@ app.whenReady().then(async () => {
     }
   }
 
+  // 前回スマホから使えるようにしていたら、起動時に再開する（トンネルがつながるのは待たない）
+  if (store.settings.mobileEnabled) {
+    startMobile().catch((err) => console.error('スマホ用のサーバーの起動に失敗:', err));
+  }
+
   // 以前の版で保存したトークン（接続先1つ分）を、これまでの接続に移す
   if (store.settings.remoteClientToken && (store.settings.remoteClientMode === 'direct' || String(store.settings.remoteSshHost || '').trim()) && !findConnectionHistory(store.settings.remoteClientHistory, connectionKey(currentConnection()))) {
     store.settings.remoteClientHistory = upsertConnectionHistory(store.settings.remoteClientHistory, currentConnection(), { token: store.settings.remoteClientToken, at: 0 });
@@ -1273,6 +1461,7 @@ app.on('before-quit', (e) => {
     remoteClient?.disconnect();
     sshTunnel?.close();
     remoteHost?.stop();
+    stopMobile({ keepEnabled: true });
     return;
   }
   e.preventDefault();
@@ -1290,6 +1479,7 @@ app.on('before-quit', (e) => {
       remoteClient?.disconnect();
       sshTunnel?.close();
       await remoteHost?.stop();
+      await stopMobile({ keepEnabled: true });
     } catch {
       /* */
     }

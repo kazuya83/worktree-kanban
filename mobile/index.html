@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#14151c" media="(prefers-color-scheme: dark)" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Kanban" />
+    <title>Worktree Kanban</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png" />
+    <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body>
+    <!-- 画面の中身と言葉は app.js が作る（言語が決まってから描くため、ここには文字を書かない） -->
+    <div id="app" class="app">
+      <section id="pairScreen" class="screen hidden"></section>
+      <section id="boardScreen" class="screen hidden"></section>
+      <section id="detailScreen" class="screen hidden"></section>
+      <section id="createScreen" class="screen hidden"></section>
+      <section id="notifScreen" class="screen hidden"></section>
+    </div>
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+    <noscript>Worktree Kanban needs JavaScript.</noscript>
+    <script src="/i18n.js"></script>
+    <script src="/locales/shell.js"></script>
+    <script src="/locales/board.js"></script>
+    <script src="/locales/mobile.js"></script>
+    <script src="/assets/api-client.js"></script>
+    <script src="/assets/markdown-dom.js"></script>
+    <script src="/assets/chat-model.js"></script>
+    <script src="/assets/board-model.js"></script>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

@@ -24,6 +24,7 @@
       <span id="remoteInfo" class="pill remote-pill hidden" title="遠隔操作の状態"></span>
       <span id="runInfo" class="pill"></span>
       <button id="rcBtn" class="btn ghost" title="遠隔操作（RC）: ホストの開始・別の PC への接続・SSH の鍵"><span data-icon="monitor"></span><span class="btn-label">RC設定</span></button>
+      <button id="mobileBtn" class="btn ghost" title="スマホから使う: 外からスマホのブラウザでボードを見て、指示・承認・回答をします"><span data-icon="phone"></span><span class="btn-label">スマホ</span></button>
       <button id="sessionsBtn" class="btn ghost" title="Claude Code の会話（セッション）を一覧して消します（タスクとは別に管理できます）"><span data-icon="clock"></span><span class="btn-label">セッション</span></button>
       <button id="chatBtn" class="btn chat-btn" title="タスクを作らずに、このリポジトリについてエージェントと話します"><span data-icon="chat"></span><span class="btn-label">会話</span><span id="chatCount" class="chat-count hidden"></span></button>
       <button id="newBtn" class="btn primary" title="新しいタスク"><span data-icon="plus"></span><span class="btn-label">新しいタスク</span></button>
@@ -76,12 +77,14 @@
     <script src="locales/screens.js"></script>
     <script src="locales/integrations.js"></script>
     <script src="locales/slack.js"></script>
+    <script src="locales/phone.js"></script>
     <script src="issue-ref.js"></script>
     <script src="icons.js"></script>
     <script src="diff-parse.js"></script>
     <script src="diff-comments.js"></script>
     <script src="markdown.js"></script>
     <script src="chat-log.js"></script>
+    <script src="qr.js"></script>
     <script src="zoom.js"></script>
     <script src="app-view.js"></script>
     <script src="schedule-model.js"></script>

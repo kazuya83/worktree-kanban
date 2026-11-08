@@ -8,6 +8,7 @@ Each release that changes the app raises the last number of the version. There i
 
 ### Added
 
+- Use from your phone: from anywhere, see the board in a phone browser (iPhone and Android), create and start tasks, send follow-up instructions, approve, and answer questions. The app starts Cloudflare Tunnel (`cloudflared`, Quick Tunnel or a named tunnel), so no port forwarding is needed. Phones pair with a one-time QR code, tokens expire after 30 days, and each phone can be revoked. Merging, PRs, and settings are not available from the phone. The phone page uses a versioned HTTP API (`/api/v1`) that a future native app can also use.
 - A guide for moving from Conductor, with the steps to export Conductor Cloud data first (English and Japanese).
 
 ### Security

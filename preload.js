@@ -132,4 +132,14 @@ contextBridge.exposeInMainWorld('api', {
   remoteDisconnect: () => call('remote:disconnect'),
   remoteForgetToken: () => call('remote:forgetToken'),
   onRemote: (cb) => ipcRenderer.on('remote:changed', (_e, d) => cb(d)),
+  // スマホから使う（外からスマホのブラウザで操作する。src/mobile-server.js と src/cloudflare-tunnel.js）
+  mobileStatus: () => call('mobile:status'),
+  mobileStart: () => call('mobile:start'),
+  mobileStop: () => call('mobile:stop'),
+  mobilePair: () => call('mobile:pair'),
+  mobileRevoke: (p) => call('mobile:revoke', p || {}),
+  mobileRevokeAll: () => call('mobile:revokeAll'),
+  mobileSetTunnel: (p) => call('mobile:setTunnel', p || {}),
+  mobileRecheck: () => call('mobile:recheck'),
+  onMobile: (cb) => ipcRenderer.on('mobile:changed', (_e, d) => cb(d)),
 });

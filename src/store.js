@@ -292,6 +292,13 @@ const DEFAULT_SETTINGS = {
   remoteSshPort: 22,
   remoteSshKey: '', // 鍵ファイル（空なら ssh の既定）
   remoteSshPath: 'ssh', // ssh コマンド
+  // ---- スマホから使う（外から Cloudflare Tunnel を通して、スマホのブラウザで操作する） ----
+  mobileEnabled: false, // スマホ用のサーバーとトンネルを動かす（起動時にも再開する）
+  mobilePort: 17832, // スマホ用のサーバーの待ち受けポート（127.0.0.1）。名前付きトンネルはここへ向ける
+  mobileDevices: [], // ペアリングしたスマホ（トークンは SHA-256 だけ）
+  mobileTunnelMode: 'quick', // 'quick' = Quick Tunnel（URL が起動ごとに変わる） / 'named' = 名前付きトンネル
+  mobileNamedHostname: '', // 名前付きトンネルで公開するホスト名（トークンは secrets.json）
+  cloudflaredPath: '', // cloudflared のパス（空なら探す）
 };
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
