@@ -1130,3 +1130,8 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .sub-merge select { max-width: 100%; }
 .sub-flow a, .sub-box .rf-list a, .progress .rf-wait a { color: var(--accent); }
 .sub-box .rh-row > span { flex: 1; min-width: 0; }
+
+/* スマホから使う: ペアリングの QR コード */
+.mobile-pair { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.mobile-qr { width: 200px; height: 200px; flex: none; background: #fff; border-radius: 8px; padding: 4px; }
+.mobile-qr svg { width: 100%; height: 100%; display: block; }

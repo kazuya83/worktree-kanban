@@ -79,6 +79,15 @@ Vous pouvez piloter le tableau du PC qui fait tourner les agents (l'hôte) depui
 
 La procédure, et comment réparer une connexion qui échoue, se trouve dans [docs/remote.md](docs/remote.md) (English).
 
+### Utiliser depuis le téléphone
+Où que vous soyez, vous pouvez voir le tableau dans le navigateur du téléphone (Safari sur iPhone, Chrome sur Android), créer des tâches, envoyer des instructions complémentaires, approuver et répondre aux questions. Rien n'est à installer sur le téléphone.
+
+- L'application du PC démarre [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (`cloudflared`, gratuit) et crée une URL HTTPS. Aucune redirection de port sur le routeur n'est nécessaire. Choisissez un Quick Tunnel sans compte, ou un tunnel nommé dont l'URL ne change pas
+- Cliquez sur « Téléphone » en haut, puis sur « Connecter un téléphone », et scannez le code QR avec le téléphone. Les jetons expirent après 30 jours, et vous pouvez révoquer un téléphone connecté à tout moment
+- La fusion, les PR et la modification des réglages ne sont pas disponibles depuis le téléphone. Les agents tournent toujours sur le PC, et cela ne fonctionne que tant que l'application est ouverte sur le PC
+
+La procédure, et comment réparer une connexion qui échoue, se trouve dans [docs/mobile.md](docs/mobile.md) (English).
+
 Également : changer l'état (colonne) d'une carte par glisser-déposer, messages à un agent en cours d'exécution (btw), pièces jointes image et fichier, compétition (plusieurs agents résolvent la même tâche), et dépôts WSL sous Windows. L'utilisation est résumée dans [docs/usage.md](docs/usage.md) (English).
 
 ### Pipeline : décrivez un flux en langage naturel et lancez vos tâches dessus
@@ -279,6 +288,7 @@ Les mêmes commandes mettent à jour vers la dernière version. Vous pouvez auss
 | [Réglages](docs/settings.md) (English) | L'écran des réglages ouvert depuis le menu de la barre du haut, et ses rubriques |
 | [Intégrations](docs/integrations.md) (English) | Configurer GitLab, Linear, Jira et Slack, et ce qu'ils peuvent ou non faire |
 | [Contrôle à distance](docs/remote.md) (English) | Comment piloter le tableau depuis un autre PC par un tunnel SSH, et comment réparer une connexion qui échoue |
+| [Utiliser depuis le téléphone](docs/mobile.md) (English) | Comment piloter le tableau depuis le navigateur du téléphone où que vous soyez (Cloudflare Tunnel), et comment réparer une connexion qui échoue |
 | [Installation](docs/install.md) (English) | Installation, mise à jour, désinstallation, et utilisation d'un dépôt WSL sous Windows |
 | [Pour les développeurs](docs/development.md) (English) | Lancer depuis les sources, compiler, publier, comment l'application est faite, et les tests |
 | [Migrer depuis Vibe Kanban](https://kazuya83.github.io/worktree-kanban/migrate-from-vibe-kanban.html) (English) | Ce qui a changé chez Vibe Kanban, ce qui est conservé et les étapes de migration |

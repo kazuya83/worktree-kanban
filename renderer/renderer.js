@@ -4296,6 +4296,122 @@ function openRemoteSettings() {
   );
 }
 
+// ---------------- スマホから使う ----------------
+// 外（Cloudflare Tunnel）からスマホのブラウザでこのマシンのボードを見て、指示・承認・回答をする。設定は main.js の mobile:*
+
+let mobileDialogRedraw = null;
+
+function openMobileSettings() {
+  openModal(
+    `<h2>${tr('スマホから使う')}</h2>
+     <small class="muted s-note">${tr('このマシンのボードを、外からスマホのブラウザで見て、タスクを作る・指示を送る・承認する・質問に答える、ができます。Cloudflare Tunnel（cloudflared）で HTTPS の URL を作るので、ポートの開放は要りません。動くのはこのアプリを開いている間だけです。')}</small>
+     <div class="remote-box" id="mbBox">${tr('状態を読み込み中…')}</div>
+     <div class="modal-actions"><button class="btn primary" id="mbClose">${tr('閉じる')}</button></div>`,
+    () => {
+      let pair = null; // 出したペアリングコード（{ code, expiresAt, url }）。閉じたら忘れる
+      const fmt = (t) => (t ? new Date(t).toLocaleString(I18n.locale()) : '—');
+      const draw = async (st) => {
+        const box = $('mbBox');
+        if (!box) return;
+        if (!st) {
+          try {
+            st = await api.mobileStatus();
+          } catch (err) {
+            box.innerHTML = `<div class="warn">${esc(err.message)}</div>`;
+            return;
+          }
+        }
+        if (pair && (pair.expiresAt <= Date.now() || !st.server.pairCode)) pair = null;
+        const t = st.tunnel || {};
+        const named = st.mode === 'named';
+        const tunnelState = { stopped: tr('止まっています'), starting: tr('つないでいます…'), running: tr('つながっています'), error: tr('エラー') }[t.state] || t.state || '';
+        const cf = st.cloudflared || {};
+        const cfBlock = cf.path
+          ? `<small class="muted">${tr('cloudflared: {v1}', { v1: esc(cf.path) })}</small>`
+          : `<div class="warn">${tr('cloudflared が見つかりません。次のコマンドで入れてから「もう一度確かめる」を押してください（無料です）。')}
+               <div class="remote-key-row"><div class="remote-ssh" id="mbCfCmd">${esc(cf.hint?.command || '')}</div><button class="btn small" type="button" data-copy="mbCfCmd">${tr('コピー')}</button></div>
+               <div class="row"><button class="btn small" type="button" id="mbCfDocs">${tr('入れ方のページを開く')}</button><button class="btn small" type="button" id="mbCfRecheck">${tr('もう一度確かめる')}</button></div></div>`;
+        const tunnelForm = `
+          <label class="field"><span>${tr('トンネルの種類')}</span>
+            <select id="mbMode">
+              <option value="quick" ${named ? '' : 'selected'}>${tr('Quick Tunnel（アカウント不要。起動のたびに URL が変わります）')}</option>
+              <option value="named" ${named ? 'selected' : ''}>${tr('名前付きトンネル（Cloudflare のアカウントと自分のドメイン。URL が変わりません）')}</option>
+            </select></label>
+          <div id="mbNamed" ${named ? '' : 'hidden'}>
+            <label class="field"><span>${tr('公開するホスト名（例: kanban.example.com）')}</span><input id="mbHost" value="${esc(st.namedHostname || '')}" placeholder="kanban.example.com" /></label>
+            <label class="field"><span>${st.hasNamedToken ? tr('トンネルのトークン（保存済み。変えるときだけ入れます）') : tr('トンネルのトークン')}</span><input id="mbToken" type="password" autocomplete="off" placeholder="${st.hasNamedToken ? '••••••••' : 'eyJ…'}" /></label>
+            <small class="muted">${tr('Cloudflare の Zero Trust で、トンネルを作り、Public Hostname を http://127.0.0.1:{port} に向けてください。手順は docs/mobile.ja.md にあります。', { port: esc(st.server.port || '') })}</small>
+          </div>
+          <div class="row"><button class="btn small" type="button" id="mbSaveTunnel">${tr('トンネルの設定を保存')}</button></div>`;
+        const devices = st.server.devices || [];
+        const deviceRows = devices.length
+          ? devices.map((d) => `<div class="remote-key-row"><div><b>${esc(d.name || d.id)}</b><br /><small class="muted">${tr('つないだ日: {a} ・ 最後に使った日: {b} ・ 期限: {c}', { a: esc(fmt(d.createdAt)), b: esc(fmt(d.lastSeenAt)), c: esc(fmt(d.expiresAt)) })}</small></div><button class="btn small" type="button" data-revoke="${esc(d.id)}">${tr('無効にする')}</button></div>`).join('')
+          : `<small class="muted">${tr('まだつないだスマホはありません。')}</small>`;
+        let pairBlock = '';
+        if (pair) {
+          pairBlock = `<div class="mobile-pair">
+              <div class="mobile-qr">${pair.url ? QR.toSvg(pair.url) : ''}</div>
+              <div><div>${tr('スマホのカメラで QR コードを読み取ってください。読み取れないときは、URL を開いて、このコードを入れます。')}</div>
+                <div class="pair-code">${esc(pair.code)}</div>
+                ${pair.url ? `<div class="remote-key-row"><div class="remote-ssh" id="mbUrl">${esc(pair.url.split('#')[0])}</div><button class="btn small" type="button" data-copy="mbUrl">${tr('コピー')}</button></div>` : ''}
+                <small class="muted">${tr('このコードは {v1} まで、1 回だけ使えます。', { v1: esc(new Date(pair.expiresAt).toLocaleTimeString(I18n.locale())) })}</small>
+                ${st.mode === 'named' ? '' : `<small class="muted">${tr('Quick Tunnel は、URL が出てから 30 秒ほどは開けません。その間に開くと、1〜2 分開けなくなることがあります。そのときは少し待ってから開き直してください。')}</small>`}</div></div>`;
+        }
+        const on = st.enabled;
+        box.innerHTML = `
+          <div class="row"><b>${on ? tr('使っています') : tr('使っていません')}</b>
+            ${on ? `<button class="btn small" type="button" id="mbStop">${tr('止める')}</button>` : `<button class="btn small primary" type="button" id="mbStart" ${cf.path ? '' : 'disabled'}>${tr('使う')}</button>`}</div>
+          ${cfBlock}
+          ${on ? `<div>${tr('トンネル: {v1}', { v1: esc(tunnelState) })}${t.url ? ` ・ <code>${esc(t.url)}</code>` : ''}</div>${t.error ? `<div class="warn">${esc(t.error)}</div>` : ''}` : ''}
+          ${tunnelForm}
+          ${on ? `<div class="row"><button class="btn small primary" type="button" id="mbPair" ${t.url ? '' : 'disabled'}>${tr('スマホをつなぐ')}</button></div>${pairBlock}` : ''}
+          <div><b>${tr('つないだスマホ')}</b></div>
+          ${deviceRows}
+          ${devices.length ? `<div class="row"><button class="btn small" type="button" id="mbRevokeAll">${tr('すべて無効にする')}</button></div>` : ''}
+          <small class="muted">${tr('外のネットワークに公開されます。ペアリングしたスマホのトークンは 30 日で切れます（切れたら、もう一度つなぎます）。なくしたスマホは、ここで無効にしてください。マージ・PR・設定の変更は、スマホからはできません。')}</small>`;
+        const busy = (label, fn) => runBusy(label, fn).then((r) => { if (r !== undefined) draw(r && r.server ? r : undefined); return r; });
+        box.querySelectorAll('[data-copy]').forEach((b) => {
+          b.onclick = () => navigator.clipboard.writeText($(b.dataset.copy).textContent).then(() => toast(tr('コピーしました'), 'ok'), () => toast(tr('コピーできませんでした')));
+        });
+        if ($('mbCfDocs')) $('mbCfDocs').onclick = () => api.openExternal(cf.hint?.url || '');
+        if ($('mbCfRecheck')) $('mbCfRecheck').onclick = () => busy(tr('確かめています…'), () => api.mobileRecheck());
+        if ($('mbStart')) $('mbStart').onclick = () => busy(tr('スマホ用のサーバーとトンネルを起動しています…'), () => api.mobileStart());
+        if ($('mbStop')) $('mbStop').onclick = () => { pair = null; busy(tr('止めています…'), () => api.mobileStop()); };
+        $('mbMode').onchange = () => ($('mbNamed').hidden = $('mbMode').value !== 'named');
+        $('mbSaveTunnel').onclick = () => {
+          const mode = $('mbMode').value;
+          if (mode === 'named' && !$('mbHost').value.trim()) return toast(tr('公開するホスト名を入れてください'));
+          if (mode === 'named' && !st.hasNamedToken && !$('mbToken').value.trim()) return toast(tr('トンネルのトークンを入れてください'));
+          pair = null;
+          busy(tr('トンネルの設定を保存しています…'), () => api.mobileSetTunnel({ mode, hostname: $('mbHost').value.trim(), token: $('mbToken').value.trim() }));
+        };
+        if ($('mbPair')) $('mbPair').onclick = async () => {
+          const r = await runBusy(tr('コードを発行しています…'), () => api.mobilePair());
+          if (!r) return;
+          pair = r.pair;
+          draw(r);
+        };
+        box.querySelectorAll('[data-revoke]').forEach((b) => {
+          b.onclick = () => {
+            if (!confirm(tr('このスマホを無効にしますか？（もう一度つなぐには、ペアリングし直します）'))) return;
+            busy(tr('無効にしています…'), () => api.mobileRevoke({ id: b.dataset.revoke }));
+          };
+        });
+        if ($('mbRevokeAll')) $('mbRevokeAll').onclick = () => {
+          if (!confirm(tr('つないだスマホをすべて無効にしますか？'))) return;
+          busy(tr('無効にしています…'), () => api.mobileRevokeAll());
+        };
+      };
+      draw();
+      mobileDialogRedraw = draw;
+      $('mbClose').onclick = () => {
+        mobileDialogRedraw = null;
+        closeModal();
+      };
+    },
+  );
+}
+
 // 設定画面（ハンバーガーメニューの「設定」）。
 // 入力中の値が消えないよう、開いたときと、見ているプロジェクトが変わったときにだけ描く（renderBoard は頻繁に呼ばれる）
 let settingsViewKey = null; // いま描いてある設定画面のプロジェクト（描いていなければ null）
@@ -5366,6 +5482,7 @@ $('detail').addEventListener('animationend', (e) => {
 });
 $('sessionsBtn').onclick = openSessionManager;
 $('rcBtn').onclick = openRemoteSettings;
+$('mobileBtn').onclick = openMobileSettings;
 
 // ---------------- gh（GitHub CLI）の案内 ----------------
 // 入っていなければインストール、ログインしていなければログインまで、この画面からできるようにする
@@ -5590,6 +5707,12 @@ api.onRemote((rs) => {
     if (remoteDialogRedraw && $('rcBox') && !isBusy()) remoteDialogRedraw();
     else if (!$('rcBox')) remoteDialogRedraw = null;
   }
+});
+
+// スマホから使うの状態が変わった（トンネルの URL が出た・スマホがつながった など）。開いているダイアログを描き直す
+api.onMobile((st) => {
+  if (mobileDialogRedraw && $('mbBox') && !isBusy()) mobileDialogRedraw(st);
+  else if (!$('mbBox')) mobileDialogRedraw = null;
 });
 
 api.onBoard((board) => {

@@ -18,7 +18,7 @@ const AUTH_TIMEOUT_MS = 30 * 1000;
 // クライアントの TCP 接続を待つ長さ
 const CONNECT_TIMEOUT_MS = 10 * 1000;
 // 遠隔へ渡さない設定（トークンなどの秘密）
-const SECRET_SETTINGS = ['remotePairTokens', 'remoteClientToken', 'remoteClientHistory'];
+const SECRET_SETTINGS = ['remotePairTokens', 'remoteClientToken', 'remoteClientHistory', 'mobileDevices'];
 // マシンごとの設定。ホストへ転送しない（ホストのエラー文はホストの言語のまま）
 const LOCAL_SETTINGS = ['language'];
 
@@ -194,8 +194,9 @@ const PROXY_CHANNELS = new Set([
 ]);
 
 // 遠隔に接続中でも、操作側のマシンで動かすチャンネル（それ以外の非転送チャンネルは接続中は使えない）
+// mobile: はこのマシンのスマホ用の設定（スマホが見るのも、いつもこのマシンのボード）
 function isLocalChannel(channel) {
-  return channel === 'app:info' || channel === 'app:language' || channel === 'app:setLanguage' || channel === 'open:external' || String(channel).startsWith('file:') || String(channel).startsWith('remote:') || String(channel).startsWith('update:');
+  return channel === 'app:info' || channel === 'app:language' || channel === 'app:setLanguage' || channel === 'open:external' || String(channel).startsWith('file:') || String(channel).startsWith('remote:') || String(channel).startsWith('mobile:') || String(channel).startsWith('update:');
 }
 
 function isProxyChannel(channel) {

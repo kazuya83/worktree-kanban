@@ -78,6 +78,15 @@ Codex / Antigravity / Gemini / Cursor では、CLI の制約から、選択肢�
 
 手順と、つながらないときの直し方は [docs/remote.ja.md](docs/remote.ja.md) にあります。
 
+### スマホから使う
+外出先から、スマホのブラウザ（iPhone の Safari・Android の Chrome）でボードを見て、タスクを作る・追加の指示を送る・承認する・質問に答える、ができます。スマホにアプリを入れる必要はありません。
+
+- PC のアプリが [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)（`cloudflared`。無料）を起動して、HTTPS の URL を作ります。ルーターのポート開放は要りません。アカウントなしの Quick Tunnel と、URL が変わらない名前付きトンネルを選べます
+- 上部の「スマホ」で「スマホをつなぐ」を押し、出た QR コードをスマホで読み取ってつなぎます。トークンは 30 日で切れ、つないだスマホはいつでも無効にできます
+- マージ・PR・設定の変更は、スマホからはできません。エージェントはいつも PC で動き、使えるのは PC のアプリを開いている間だけです
+
+手順と、つながらないときの直し方は [docs/mobile.ja.md](docs/mobile.ja.md) にあります。
+
 このほか、カードの状態（列）のドラッグ&ドロップでの変更、実行中のエージェントへのメッセージ（btw）、画像・ファイルの添付、競争（複数のエージェントに同じタスクを解かせる）、Windows での WSL のリポジトリにも対応しています。使い方は [docs/usage.ja.md](docs/usage.ja.md) にまとめています。
 
 ### Pipeline: 文章でフローを組み、それに沿ってタスクを動かす
@@ -270,6 +279,7 @@ irm https://raw.githubusercontent.com/kazuya83/worktree-kanban/main/install.ps1 
 | [設定](docs/settings.ja.md) | トップバーのメニューから開く設定の画面と項目 |
 | [連携](docs/integrations.ja.md) | GitLab・Linear・Jira・Slack の設定、できることとできないこと |
 | [遠隔操作](docs/remote.ja.md) | 別の PC から SSH トンネルでボードを操作する手順と、つながらないときの直し方 |
+| [スマホから使う](docs/mobile.ja.md) | 外からスマホのブラウザでボードを操作する手順（Cloudflare Tunnel）と、つながらないときの直し方 |
 | [インストール](docs/install.ja.md) | インストール・アップデート・アンインストール、Windows で WSL のリポジトリを使う |
 | [開発者向け](docs/development.ja.md) | ソースから動かす・ビルド・リリース・アプリのしくみ・テスト |
 | [Vibe Kanban から移る方法](https://kazuya83.github.io/worktree-kanban/migrate-from-vibe-kanban.ja.html) | Vibe Kanban に起きたこと・引き継げるもの・移行の手順 |

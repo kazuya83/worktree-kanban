@@ -79,6 +79,15 @@ You can operate the board on the PC that runs the agents (the host) from Worktre
 
 Steps, and how to fix a connection that fails, are in [docs/remote.md](docs/remote.md).
 
+### Use from your phone
+From anywhere, you can see the board in your phone's browser (Safari on iPhone, Chrome on Android), create tasks, send follow-up instructions, approve, and answer questions. Nothing needs to be installed on the phone.
+
+- The app on the PC starts [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (`cloudflared`, free) and creates an HTTPS URL. No port forwarding on your router is needed. Choose a Quick Tunnel with no account, or a named tunnel whose URL stays the same
+- Click "Phone" at the top, then "Connect a phone", and scan the QR code with your phone. Tokens expire after 30 days, and you can revoke a connected phone at any time
+- Merging, PRs, and settings changes are not available from the phone. Agents always run on the PC, and it works only while the app is open on the PC
+
+Steps, and how to fix a connection that fails, are in [docs/mobile.md](docs/mobile.md).
+
 Also included: drag-and-drop changes to a card's state (column), messages to a running agent (btw), image and file attachments, competition (several agents solving the same task), and WSL repositories on Windows. Usage is summarized in [docs/usage.md](docs/usage.md).
 
 ### Pipeline: describe a flow in plain language and run tasks on it
@@ -279,6 +288,7 @@ The same commands update to the latest version. You can also update from the app
 | [Settings](docs/settings.md) | The settings screen opened from the top-bar menu, and its items |
 | [Integrations](docs/integrations.md) | Setting up GitLab, Linear, Jira, and Slack, and what they can and cannot do |
 | [Remote control](docs/remote.md) | How to operate the board from another PC over an SSH tunnel, and how to fix a connection that fails |
+| [Use from your phone](docs/mobile.md) | How to operate the board from a phone browser from anywhere (Cloudflare Tunnel), and how to fix a connection that fails |
 | [Install](docs/install.md) | Install, update, uninstall, and using a WSL repository on Windows |
 | [For developers](docs/development.md) | Run from source, build, release, how the app is built, and tests |
 | [Migrate from Vibe Kanban](https://kazuya83.github.io/worktree-kanban/migrate-from-vibe-kanban.html) | What changed at Vibe Kanban, what carries over, and the migration steps |

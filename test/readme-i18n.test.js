@@ -301,7 +301,7 @@ test('5つの README は見出しとリンク先が一致し、言語リンク�
   for (let i = 1; i < texts.length; i++) {
     assert.equal(sameShape(texts[0], texts[i]), true, README_FILES[i]);
   }
-  assert.deepEqual(headingLevels(texts[0]), [1, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2]);
+  assert.deepEqual(headingLevels(texts[0]), [1, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2]);
 });
 
 test('冒頭の太字・承認・自動更新は、5言語で同じ事実を言う', () => {
@@ -333,7 +333,7 @@ test('英語・西・仏の README は本文が翻訳され、docs の言語の�
   assert.deepEqual(docNoteProblems(read('README.zh-CN.md'), true), []);
 });
 
-for (const name of ['agents', 'development', 'install', 'integrations', 'remote', 'settings', 'usage']) {
+for (const name of ['agents', 'development', 'install', 'integrations', 'mobile', 'remote', 'settings', 'usage']) {
   test(`docs/${name}: 英語と日本語が対で、見出しの段が同じで、たがいにリンクしている`, () => {
     const en = read(`docs/${name}.md`);
     const ja = read(`docs/${name}.ja.md`);
@@ -348,7 +348,7 @@ for (const name of ['agents', 'development', 'install', 'integrations', 'remote'
     assert.ok(en.endsWith('[← Back to README](../README.md)\n'));
     assert.ok(ja.endsWith('[← README に戻る](../README.ja.md)\n'));
     // 日本語版から文書へのリンクは、日本語版へ向ける
-    assert.doesNotMatch(ja.split('\n').slice(1).join('\n'), /\]\((?:agents|development|install|integrations|remote|settings|usage)\.md[#)]/);
+    assert.doesNotMatch(ja.split('\n').slice(1).join('\n'), /\]\((?:agents|development|install|integrations|mobile|remote|settings|usage)\.md[#)]/);
   });
 }
 
