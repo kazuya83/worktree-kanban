@@ -1433,9 +1433,9 @@ app.whenReady().then(async () => {
   const terminalCwd = ({ kind, cardId, cwd } = {}) => {
     if (kind === 'card') {
       const c = agents.must(cardId);
-      const dirs = [c.noGit ? c.repoPath : c.worktreePath, c.repoPath].filter(Boolean);
-      const dir = dirs.find((d) => wsl.isWslPath(d) || fs.existsSync(d));
-      if (!dir) throw new Error(tr('worktree がありません'));
+      // worktree がまだ無い（開始前の）タスクでは、リポジトリ本体では開かない（タスクの作業と取り違えないように）
+      const dir = c.noGit || c.kind === 'chat' ? c.repoPath : c.worktreePath;
+      if (!dir || !(wsl.isWslPath(dir) || fs.existsSync(dir))) throw new Error(tr('worktree がありません'));
       return dir;
     }
     const want = String(cwd || '').trim();

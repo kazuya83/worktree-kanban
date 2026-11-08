@@ -69,7 +69,7 @@ function rawGet(port, rawPath, method = 'GET') {
 }
 
 test('MOBILE_CHANNELS は遠隔で転送できるチャンネルの一部で、設定やフォルダ操作は入らない', () => {
-  assert.strictEqual(MOBILE_CHANNELS.size, 24);
+  assert.strictEqual(MOBILE_CHANNELS.size, 31);
   for (const c of MOBILE_CHANNELS) assert.ok(PROXY_CHANNELS.has(c), c);
   for (const c of ['settings:update', 'repo:open', 'repo:browse', 'remote:connect', 'app:info']) assert.strictEqual(MOBILE_CHANNELS.has(c), false, c);
   // main.js にある操作だけ

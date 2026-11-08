@@ -331,6 +331,8 @@ class TerminalManager extends EventEmitter {
     if (kind === 'card') {
       const old = this.findCard(cardId);
       if (old && !old.exited) {
+        // まだ送っていない出力は先に送る（返す scrollback に入っているので、あとから同じものを送らない）
+        this.flush(old);
         this.resize(old.id, cols, rows);
         return { ...this.info(old), scrollback: old.buf, offset: old.total, reused: true };
       }

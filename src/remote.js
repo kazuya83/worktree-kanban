@@ -204,6 +204,7 @@ const PROXY_CHANNELS = new Set([
   'terminal:list',
   'terminal:open',
   'terminal:attach',
+  'terminal:read',
   'terminal:write',
   'terminal:resize',
   'terminal:close',

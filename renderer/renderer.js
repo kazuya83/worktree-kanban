@@ -1,4 +1,4 @@
-/* global api, icon, agentIcon, NOTIF_ICON, AppView, tr, I18n, CycleView, CycleModel */
+/* global api, icon, agentIcon, NOTIF_ICON, AppView, tr, I18n, CycleView, CycleModel, TerminalView */
 // 言語の土台（i18n.js）が先に tr を置く。まだ無いときは原文のまま返す
 if (typeof tr !== 'function') {
   var tr = (key, vars) => (vars ? String(key ?? '').replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : key);
@@ -1022,6 +1022,7 @@ async function select(id, { subFrom = null } = {}) {
   renderDetailHead();
   updateBtwTab(card(id));
   updateTabsFor(card(id));
+  globalThis.TerminalView?.boardChanged(); // 画面下のターミナルのパネルの「このタスク」ボタン
   markSeenIfOpen();
   if (!state.logs.has(id)) {
     // 読み込みのあいだに logsVersion が進んでも、古いログを新しい版だと扱わない
@@ -1070,6 +1071,7 @@ function closeDetail() {
   panel.classList.remove('as-modal');
   $('detailBackdrop').classList.add('hidden');
   renderBoard();
+  globalThis.TerminalView?.boardChanged(); // 画面下のターミナルのパネルの「このタスク」ボタン
 }
 // ✕・背景・ボードの余白・Esc で閉じる: 親から開いたサブタスクなら、親のタスクの詳細（サブタスクタブ）に戻る
 function closeDetailOrBack() {
@@ -3056,6 +3058,8 @@ async function renderDetailBody() {
   const c = card(state.selected);
   if (!c) return;
   const body = $('detailBody');
+  // ターミナルは本文の高さいっぱいに出し、本文自体はスクロールさせない
+  body.classList.toggle('term-mode', state.tab === 'terminal');
   if (state.tab === 'info') {
     renderInfo(c);
   } else if (state.tab === 'chat') {
@@ -3104,6 +3108,9 @@ async function renderDetailBody() {
     renderProgress(c, { force: true });
   } else if (state.tab === 'subtasks') {
     renderSubtasksTab(c, { force: true });
+  } else if (state.tab === 'terminal') {
+    // ボードが変わるたびに呼ばれても、出しているターミナルは作り直さない（terminal-view.js）
+    await TerminalView.renderCardTab(body, c);
   }
 }
 
@@ -5543,6 +5550,9 @@ $('detail').addEventListener('animationend', (e) => {
 $('sessionsBtn').onclick = openSessionManager;
 $('rcBtn').onclick = openRemoteSettings;
 $('mobileBtn').onclick = openMobileSettings;
+// アプリの中のターミナル（renderer/terminal-view.js）。画面下のパネルと、タスク詳細の「ターミナル」タブ
+$('termBtn').onclick = () => TerminalView.togglePanel();
+TerminalView.init({ api, icon, toast: (msg, isErr) => toast(msg, isErr ? 'error' : 'ok'), currentCard: () => (state.selected ? card(state.selected) : null) });
 
 // ---------------- gh（GitHub CLI）の案内 ----------------
 // 入っていなければインストール、ログインしていなければログインまで、この画面からできるようにする
@@ -5798,6 +5808,8 @@ api.onBoard((board) => {
       state.wtStatus = `${c.id}:${c.status}:${c.worktreePath || ''}`;
       if (state.tab === 'progress' || state.tab === 'subtasks') scheduleProgress();
       if (state.tab === 'diff') drawDiffCommentBar(c); // 「送る」を押せるかは、タスクの状態で変わる
+      // 開始して worktree ができたら、案内の代わりにターミナルを出す（出しているターミナルは作り直さない）
+      if (state.tab === 'terminal') renderDetailBody();
       if (state.tab === 'btw') {
         const list = $('btwList');
         if (list) list.innerHTML = btwListHtml(c);
