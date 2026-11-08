@@ -170,7 +170,7 @@ function send(channel, payload) {
 function boardState() {
   const { cleanRepoTabs, repoTabSummary } = require('./src/store');
   const repoTabs = repoTabSummary(cleanRepoTabs(store.settings.repoTabs, store.settings.repoPath), store.cards, store.settings);
-  return { settings: store.settings, repoTabs, issueProviders: trackersRegistry.issueProviderMeta(), trackerStatus: trackers.statusMap(), cards: agents.publicCards(store.settings.repoPath), totalCostUsd: store.totalCost(store.settings.repoPath), notifications: agents.listNotifications(store.settings.repoPath), schedules: store.schedulesOf(store.settings.repoPath) };
+  return { settings: store.settings, repoTabs, issueProviders: trackersRegistry.issueProviderMeta(), trackerStatus: trackers.statusMap(), cards: agents.publicCards(store.settings.repoPath), totalCostUsd: store.totalCost(store.settings.repoPath), notifications: agents.listNotifications(store.settings.repoPath), schedules: store.schedulesOf(store.settings.repoPath), cycles: store.cyclesOf(store.settings.repoPath) };
 }
 
 // 画面に渡すボード。クライアントとして接続中は、見ている側（ホスト / このマシン）のボードに、両方のタブを並べて載せる
@@ -1159,7 +1159,7 @@ app.whenReady().then(async () => {
     return { branches, current, hasOrigin };
   });
   handle('settings:update', (patch) => {
-    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime'];
+    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
     if (patch && 'branchNamingRule' in patch) patch = { ...patch, branchNamingRule: String(patch.branchNamingRule || '').trim() };
     for (const k of ['setupScript', 'teardownScript', 'runScript']) if (patch && k in patch) patch = { ...patch, [k]: cleanScript(patch[k]) };
     if (patch && 'integration' in patch && !['merge', 'pr'].includes(patch.integration)) patch = { ...patch, integration: 'merge' };
@@ -1194,6 +1194,7 @@ app.whenReady().then(async () => {
       const ids = new Set(((patch.customAgents || store.settings.customAgents) || []).map((x) => x.id));
       patch = { ...patch, competeCustomAgents: [...new Set((Array.isArray(patch.competeCustomAgents) ? patch.competeCustomAgents : []).map((v) => String(v || '').replace(/^custom:/, '')))].filter((id) => ids.has(id)) };
     }
+    if (patch && 'cycleView' in patch) patch = { ...patch, cycleView: require('./renderer/cycle-model').cleanCycleView(patch.cycleView) };
     if (patch && 'statusFieldName' in patch) patch = { ...patch, statusFieldName: String(patch.statusFieldName || '').trim() };
     if (patch && 'statusMapping' in patch) {
       const m = patch.statusMapping || {};
@@ -1249,14 +1250,18 @@ app.whenReady().then(async () => {
   // attachments: 添付ファイル [{ name, mediaType, data(base64) }]
   // model: このタスク・会話で使うモデル（空なら設定のエージェントごとの既定）
   // readOnly: ソースを変更しないタスク（SQL を作るだけなど。worktree を作らず、ファイルを書き換えるツールを止める）
-  handle('card:create', ({ title, prompt, autoStart, session, skill, agent, model, fromChat, attachments, readOnly }) => {
+  // cycleIds: 入れるサイクル（サイクルを選んでいるときに作ったタスクは、そのサイクルに入る）
+  const cycleApi = require('./src/cycles').createCycleApi({ store, onChange: notifyBoard });
+  handle('card:create', ({ title, prompt, autoStart, session, skill, agent, model, fromChat, attachments, readOnly, cycleIds }) => {
     const cards = agents.createTask({ title, prompt, session, skill, agent, model, fromChat, attachments, readOnly: !!readOnly });
+    cycleApi.assignNew(cards.map((c) => c.id), cycleIds);
     if (autoStart) for (const c of cards) agents.start(c.id);
     return cards[0].id;
   });
   handle('chat:create', ({ message, title, session, skill, agent, model, attachments }) => agents.createChat({ message, title, session, skill, agent, model, attachments }).id);
-  handle('card:createFromIssues', async ({ numbers, extra, autoStart, session, skill, agent, model }) => {
+  handle('card:createFromIssues', async ({ numbers, extra, autoStart, session, skill, agent, model, cycleIds }) => {
     const { cards, errors } = await agents.createFromIssues({ numbers, extra, session, skill, agent, model });
+    cycleApi.assignNew(cards.map((c) => c.id), cycleIds);
     if (autoStart) for (const c of cards) agents.start(c.id);
     return { ids: cards.map((c) => c.id), errors };
   });
@@ -1329,6 +1334,11 @@ app.whenReady().then(async () => {
   handle('schedules:update', (p) => scheduleApi.update(p));
   handle('schedules:delete', (p) => scheduleApi.delete(p));
   handle('schedules:run', (p) => scheduleApi.run(p));
+  // サイクル（期間とゴールを持つ、タスクのまとまり。プロジェクトごと）
+  handle('cycles:create', (p) => cycleApi.create(p));
+  handle('cycles:update', (p) => cycleApi.update(p));
+  handle('cycles:delete', (p) => cycleApi.delete(p));
+  handle('cycles:setCard', (p) => cycleApi.setCard(p));
   handle('skills:list', async () => require('./src/skills').listSkills(store.settings.repoPath, { configDir: await claudeConfigFor(store.settings.repoPath) }));
   handle('card:btw', ({ id, text }) => agents.btw(id, text));
   handle('card:setSession', ({ id, session }) => agents.setSession(id, session));

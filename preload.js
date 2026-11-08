@@ -89,6 +89,11 @@ contextBridge.exposeInMainWorld('api', {
   deleteSchedule: (id) => call('schedules:delete', { id }),
   // start が true で「今すぐ実行」、false で「タスクだけ作成」。作ったカードの ID を返す
   runSchedule: (a, b) => call('schedules:run', scheduleArg(a, b)),
+  // サイクル（期間とゴールを持つ、タスクのまとまり）: { name, startDate, endDate, goal } / { id, ...変える項目, done } / タスクを入れるサイクル
+  createCycle: (p) => call('cycles:create', p),
+  updateCycle: (id, p) => call('cycles:update', { ...(p || {}), id }),
+  deleteCycle: (id) => call('cycles:delete', { id }),
+  setCardCycles: (id, cycleIds) => call('cycles:setCard', { id, cycleIds }),
   btw: (id, text) => call('card:btw', { id, text }),
   setSession: (id, session) => call('card:setSession', { id, session }),
   listSessions: () => call('sessions:list'),
