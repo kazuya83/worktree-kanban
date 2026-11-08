@@ -1,4 +1,4 @@
-// カード（タスク）ごとに worktree を作り、エージェントの CLI（Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI）を並列に動かす
+// カード（タスク）ごとに worktree を作り、エージェントの CLI（Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI / OpenCode / Copilot CLI / Amp / Pi / Droid）を並列に動かす
 const { spawn, execFile } = require('child_process');
 const { EventEmitter } = require('events');
 const fs = require('fs');
@@ -3003,7 +3003,7 @@ class AgentManager extends EventEmitter {
       args = providers.buildArgs(agent, { mode: 'plan', model: model || providers.agentModel(s, agent), prompt });
       parser = providers.createParser(agent, { summarize: summarizeInput });
     }
-    const child = await this.spawnAgent(agent, cwd, args);
+    const child = await this.spawnAgent(agent, cwd, args, agent === 'claude' ? {} : providers.agentEnv(agent, 'plan'));
     return new Promise((resolve, reject) => {
       let out = '';
       let err = '';
@@ -3055,7 +3055,7 @@ class AgentManager extends EventEmitter {
         if (code !== 0 || resultError) return reject(new Error(truncate(resultError || err.trim() || out.trim() || tr('{cmd} が終了コード {code} で終わりました', { cmd: child.agentCmd, code }), 300)));
         resolve(out);
       });
-      // 指示を引数で渡した CLI（Cursor）には、stdin は空のまま閉じる
+      // 指示を引数で渡した CLI（Cursor・Copilot）には、stdin は空のまま閉じる
       child.stdin.end(agent !== 'claude' && providers.promptViaArg(agent) ? '' : prompt);
     });
   }
@@ -3103,7 +3103,7 @@ class AgentManager extends EventEmitter {
     return this.spawnAgent('claude', cwd, args, extraEnv);
   }
 
-  // エージェントの CLI を起動する（Claude Code / Codex / Antigravity / Gemini / Cursor）。child.agentCmd に起動したコマンドの名前を入れる
+  // エージェントの CLI を起動する（Claude Code / Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid）。child.agentCmd に起動したコマンドの名前を入れる
   async spawnAgent(agent, cwd, args, extraEnv = {}) {
     const s = this.store.settings;
     const w = wsl.parseWslPath(cwd);
@@ -3125,7 +3125,8 @@ class AgentManager extends EventEmitter {
     const useShell = isWin && /\.(cmd|bat)$/i.test(resolved);
     const child = spawn(useShell ? quoteForCmd(resolved) : resolved, useShell ? args.map(quoteForCmd) : args, {
       cwd,
-      env: { ...process.env, ...extraEnv },
+      // OpenCode は作業フォルダを PWD から決めるので、cwd と合わせておく
+      env: { ...process.env, PWD: cwd, ...extraEnv },
       shell: useShell,
       windowsHide: true,
     });
@@ -3213,7 +3214,7 @@ class AgentManager extends EventEmitter {
 
   // ソースを変更しないタスクの権限モード。リポジトリのフォルダ（手元の作業中のファイル）で動くので、
   // Claude Code はファイルを書き換えるツールを止めたうえで、コマンドは毎回カードで確かめる（「計画だけ」ならそれに従う）。
-  // Codex / Antigravity / Gemini / Cursor はツールを個別に止められないので、読み取りだけの「計画」モードで動かす
+  // Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid はツールを個別に止められないので、読み取りだけの「計画」モードで動かす
   readOnlyPermissionMode(agent, mode) {
     if (agent !== 'claude') return 'plan';
     return mode === 'plan' ? 'plan' : 'default';
@@ -3417,7 +3418,7 @@ class AgentManager extends EventEmitter {
       const attachDir = this.attachDirOf(c);
       if (attachDir) args.push('--add-dir', attachDir);
     } else {
-      // Codex / Antigravity / Gemini / Cursor は、ほかの CLI の会話は引き継げないので新しい会話で始める
+      // Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid は、ほかの CLI の会話は引き継げないので新しい会話で始める
       if (c.forkNext) {
         c.sessionId = null;
         c.forkNext = false;
@@ -3441,7 +3442,9 @@ class AgentManager extends EventEmitter {
     for (const m of c.btw || []) if (m.state === 'queued') m.state = 'delivered';
     if (agent !== 'claude') this.log(c, 'system', c.sessionId ? tr('{label} で動かします（会話 {id} の続き）', { label, id: c.sessionId.slice(0, 8) }) : tr('{label} で動かします', { label }));
     // 承認待ちの MCP ツール呼び出しがタイムアウトしないようにする
-    const child = await this.spawnAgent(agent, cwd, args, { MCP_TOOL_TIMEOUT: '86400000', ...this.portEnv(c) });
+    // CLI 側の許可を環境変数で渡す CLI（OpenCode）もある
+    const permEnv = agent === 'claude' || rpcKind ? {} : providers.agentEnv(agent, mode);
+    const child = await this.spawnAgent(agent, cwd, args, { MCP_TOOL_TIMEOUT: '86400000', ...this.portEnv(c), ...permEnv });
     const cmd = child.agentCmd;
     this.procs.set(c.id, child);
     // sent: stdin に書いたメッセージ（acked = claude が受け取ったことをリプレイで確認済み）
@@ -3490,7 +3493,7 @@ class AgentManager extends EventEmitter {
       run.stdinClosed = true; // 指示は RPC で渡す。実行中の btw は、ほかの CLI と同じく終了後の追加指示にする
       run.rpc.start();
     } else {
-      // ここへ来るのは RPC を使わないとき。指示は stdin で1回だけ受け取る（Cursor は引数で受け取ったので空で閉じる）。実行中の btw は終了後の追加指示にする
+      // ここへ来るのは RPC を使わないとき。指示は stdin で1回だけ受け取る（Cursor・Copilot は引数で受け取ったので空で閉じる）。実行中の btw は終了後の追加指示にする
       run.stdinClosed = true;
       child.stdin.end(providers.promptViaArg(agent) ? '' : spoken);
     }
@@ -3774,7 +3777,7 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  // Codex / Antigravity / Gemini / Cursor の出力（providers.js で共通の形に直したもの）を、ログとカードに反映する
+  // Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid の出力（providers.js で共通の形に直したもの）を、ログとカードに反映する
   applyAction(c, a, run) {
     const who = { agent: run.agent };
     switch (a.type) {
@@ -3939,7 +3942,7 @@ class AgentManager extends EventEmitter {
       c.pendingPrompt = `${c.pendingPrompt || ''}\n\n${wrapped}`;
       entry.state = 'queued';
     } else if (c.status === 'running' && agentOf(c) !== 'claude') {
-      // Codex / Antigravity / Gemini / Cursor は実行中の stdin 追加に対応していないので、終了後の追加指示にする
+      // Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid は実行中の stdin 追加に対応していないので、終了後の追加指示にする
       entry.state = 'follow';
     } else {
       const run = this.runs && this.runs.get(id);
