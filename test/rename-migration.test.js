@@ -10,7 +10,9 @@ const root = path.join(__dirname, '..');
 const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
 
 test('データの場所は前の名前のフォルダのまま（--user-data-dir があればそちら）', () => {
-  assert.match(read('main.js'), /hasSwitch\('user-data-dir'\)\) app\.setPath\('userData', path\.join\(app\.getPath\('appData'\), 'agent-kanban'\)\)/);
+  const main = read('main.js');
+  assert.match(main, /const dataDir = app\.commandLine\.hasSwitch\('user-data-dir'\) \? app\.commandLine\.getSwitchValue\('user-data-dir'\) : path\.join\(app\.getPath\('appData'\), 'agent-kanban'\)/);
+  assert.match(main, /hasSwitch\('user-data-dir'\)\) app\.setPath\('userData', dataDir\)/);
 });
 
 test('保存済みのものに使う名前は変えない', () => {

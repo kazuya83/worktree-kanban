@@ -33,6 +33,7 @@ const ASSETS = [
   [/win-portable\.exe$/, 'Windows（インストール不要）'],
   [/win-x64\.zip$/, 'Windows（zip）'],
   [/\.AppImage$/, 'Linux（AppImage）'],
+  [/linux-x64\.tar\.gz$/, 'Linux（tar.gz。サーバーで常駐モードを動かすとき）'],
 ];
 
 /** 件名から「agent: 」などの前置きを取る */

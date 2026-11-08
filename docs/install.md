@@ -80,6 +80,7 @@ Download the file for your OS from [Releases](https://github.com/kazuya83/worktr
 | Mac (Apple Silicon: M1 and later) | `worktree-kanban-x.y.z-mac-arm64.dmg` | Open it and drag the app to "Applications" |
 | Mac (Intel) | `worktree-kanban-x.y.z-mac-x64.dmg` | Same as above |
 | Linux | `worktree-kanban-x.y.z-linux-x86_64.AppImage` | Make it executable and run it |
+| Linux (server) | `worktree-kanban-x.y.z-linux-x64.tar.gz` | For running [headless mode](headless.md) on a server with no display. Extract it and run `worktree-kanban-headless` inside |
 
 > **First launch**
 > The app is not signed with a developer certificate, so the OS shows a warning.

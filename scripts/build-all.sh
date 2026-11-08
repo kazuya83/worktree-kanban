@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# テストを動かし、Mac（dmg）・Windows（exe / zip）・Linux（AppImage）のアプリを、この Mac でまとめてビルドする
+# テストを動かし、Mac（dmg）・Windows（exe / zip）・Linux（AppImage / 常駐モード向けの tar.gz）のアプリを、この Mac でまとめてビルドする
 #
 #   scripts/build-all.sh                    → 次に出す予定の版の番号でビルドする（レビューのとき。scripts/next-version.js で決める）
 #   scripts/build-all.sh --version 0.1.9    → その番号でビルドする（package.json は書き換えない）
@@ -64,10 +64,11 @@ for f in \
   "worktree-kanban-$v-win-setup.exe" \
   "worktree-kanban-$v-win-portable.exe" \
   "worktree-kanban-$v-win-x64.zip" \
-  "worktree-kanban-$v-linux-x86_64.AppImage"; do
+  "worktree-kanban-$v-linux-x86_64.AppImage" \
+  "worktree-kanban-$v-linux-x64.tar.gz"; do
   [ -f "dist/$f" ] || { echo "見つかりません: dist/$f" >&2; missing=1; }
 done
 [ "$missing" = 0 ] || die "できていないファイルがあります"
 
 info "できました（v${v}）"
-ls -lh dist/*.dmg dist/*.exe dist/*.zip dist/*.AppImage
+ls -lh dist/*.dmg dist/*.exe dist/*.zip dist/*.AppImage dist/*.tar.gz

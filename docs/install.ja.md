@@ -80,6 +80,7 @@ $env:WORKTREE_KANBAN_UNINSTALL = "1"; irm https://raw.githubusercontent.com/kazu
 | Mac（Apple Silicon: M1〜） | `worktree-kanban-x.y.z-mac-arm64.dmg` | 開いて、アプリを「アプリケーション」にドラッグします |
 | Mac（Intel） | `worktree-kanban-x.y.z-mac-x64.dmg` | 同上 |
 | Linux | `worktree-kanban-x.y.z-linux-x86_64.AppImage` | 実行権限を付けて起動します |
+| Linux（サーバー） | `worktree-kanban-x.y.z-linux-x64.tar.gz` | 画面のないサーバーで[常駐モード](headless.ja.md)を動かすときに使います。展開して、中の `worktree-kanban-headless` を起動します |
 
 > **初めて起動するときの注意**
 > 開発元の証明書で署名していないので、OS の警告が出ます。

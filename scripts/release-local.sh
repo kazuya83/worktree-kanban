@@ -40,7 +40,7 @@ gh release view "v$version" >/dev/null 2>&1 && die "v$version はもう公開さ
 scripts/build-all.sh --version "$version"
 
 info "v$version を公開する"
-assets=(dist/*.dmg dist/*.exe dist/*.zip dist/*.AppImage)
+assets=(dist/*.dmg dist/*.exe dist/*.zip dist/*.AppImage dist/*.tar.gz)
 # 説明は前の版からの変更点を Markdown でまとめる（作れなかったら GitHub の自動の説明にする）
 notes="$(mktemp -t worktree-kanban-notes)"
 # 改名する前の版が自分を更新できるように、前の名前のファイルも載せる（説明の一覧には出さない）

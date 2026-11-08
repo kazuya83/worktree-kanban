@@ -1,0 +1,11 @@
+#!/bin/sh
+# Worktree Kanban を常駐モード（ウィンドウなし）で起動する。Linux の tar.gz に入れる
+#   ./worktree-kanban-headless [--remote-host[=PORT]] [--secrets-file=PATH]
+# 常駐モードは画面（Web のページ）を開かないので、chrome-sandbox が root の setuid になっていなければ
+# --no-sandbox で起動する（tar.gz を展開しただけだと、そうなっていない）
+dir=$(dirname "$(readlink -f "$0")")
+sandbox="$dir/chrome-sandbox"
+if [ -u "$sandbox" ] && [ "$(stat -c %u "$sandbox" 2>/dev/null)" = "0" ]; then
+  exec "$dir/worktree-kanban" --headless "$@"
+fi
+exec "$dir/worktree-kanban" --headless --no-sandbox "$@"
