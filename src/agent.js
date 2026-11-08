@@ -1273,7 +1273,6 @@ class AgentManager extends EventEmitter {
       if (lost) throw new Error(tr('Pipelineの工程「{label}」のカスタムエージェントが見つかりません（消されたかもしれません）。「設定」のフローチャートで、工程のエージェントを選び直してください', { label: lost.label }));
       const off = steps.find((st) => !providers.isEnabled(s, st.agent));
       if (off) throw new Error(tr('Pipelineの工程「{label}」の {whoLabel} は使わない設定になっています。「設定」で工程のエージェントを変えるか、使うエージェントにチェックを付けてください', { label: off.label, whoLabel: whoLabel(off.agent, off.persona) }));
-      if (isNoGitRepo(s, repo) && flow.nodes.some((n) => n.type === 'parallel')) throw new Error(tr('git で管理していないフォルダでは、並列のあるPipelineは使えません（枝ごとに別の作業場所を作れないため）。フローチャートから並列を外してください'));
       if (readOnly && flow.nodes.some((n) => n.type === 'parallel')) throw new Error(tr('ソースを変更しないタスクでは、並列のあるPipelineは使えません。フローチャートから並列を外すか、ほかのエージェントを選んでください'));
       const first = FlowModel.route(flow, FlowModel.startNode(flow).id, {});
       const index = relayStepIndex({ relay: { steps } }, first.node.id);
@@ -1501,6 +1500,8 @@ class AgentManager extends EventEmitter {
   /**
    * 並列: 枝ごとに、今のブランチから分けた worktree の「枝のタスク」を作って同時に動かす。
    * このカードは、すべての枝が合流まで来るのを待つ（tryJoin でマージして先へ進む）
+   * git で管理していないフォルダでは枝ごとの作業場所を作れないので、枝のタスクを同じフォルダで1本ずつ順に動かす
+   * （前の枝が合流まで来たら、tryJoin が次の枝を始める。マージはしない）
    */
   forkParallel(c, node, { record = true } = {}) {
     const r = c.relay;
@@ -1511,12 +1512,36 @@ class AgentManager extends EventEmitter {
     const kids = info.branches.map((b, k) => this.createBranchCard(c, node, info.join, k, relayStepIndex(c, b.edge.to)));
     r.waiting.children = kids.map((k) => k.id);
     const join = FlowModel.nodeOf(r.flow, info.join);
-    this.log(c, 'system', tr('Pipeline: 並列「{label}」で、{n} 本の枝（{names}）を別々の worktree で同時に動かします。すべての枝が終わったら、合流「{join}」でこのブランチにマージします', { label: node.label, n: kids.length, names: Subtasks.joinQuoted(kids.map((k) => k.relay.branchOf.label)), join: FlowModel.labelOf(join) }));
+    const names = Subtasks.joinQuoted(kids.map((k) => k.relay.branchOf.label));
+    if (isNoGit(c)) {
+      this.log(c, 'system', tr('Pipeline: 並列「{label}」の {n} 本の枝（{names}）を、このフォルダで1本ずつ順に動かします（git で管理していないので、枝ごとに別の作業場所を作れないため）。すべての枝が終わったら、合流「{join}」の先へ進みます', { label: node.label, n: kids.length, names, join: FlowModel.labelOf(join) }));
+      this.changed(c);
+      this.startNextFolderBranch(c);
+      return;
+    }
+    this.log(c, 'system', tr('Pipeline: 並列「{label}」で、{n} 本の枝（{names}）を別々の worktree で同時に動かします。すべての枝が終わったら、合流「{join}」でこのブランチにマージします', { label: node.label, n: kids.length, names, join: FlowModel.labelOf(join) }));
     this.changed(c);
     for (const k of kids) {
       this.log(k, 'system',tr('Pipeline: 「{title}」の並列「{label}」の枝 {v} です。ブランチ {branch} から分けた worktree で動かします', { title: c.title, label: node.label, v: k.relay.branchOf.index + 1, branch: c.branch }));
       this.enqueue(k, buildRelayStepPrompt(k, k.relay.index));
     }
+  }
+
+  // git で管理していないフォルダの並列: まだ始めていない次の枝を1本だけ始める（動いている・止まっている枝があれば待つ）
+  // @returns {boolean} 次の枝を始めたか、まだ合流まで来ていない枝があるとき true
+  startNextFolderBranch(p) {
+    const w = p.relay && p.relay.waiting;
+    if (!w) return false;
+    const kids = w.children.map((cid) => this.store.card(cid)).filter(Boolean);
+    if (kids.some((k) => !k.relay.atJoin && k.status !== 'todo')) return true;
+    const next = kids.find((k) => k.status === 'todo');
+    if (!next) return false;
+    const v = next.relay.branchOf.index + 1;
+    this.log(next, 'system', tr('Pipeline: 「{title}」の並列「{label}」の枝 {v} です。git で管理していないので、このフォルダでそのまま動かします（前の枝の変更も残っています）', { title: p.title, label: FlowModel.labelOf(FlowModel.nodeOf(p.relay.flow, w.node)), v }));
+    this.log(p, 'system', tr('Pipeline: 並列の枝「{label}」を始めます', { label: next.relay.branchOf.label }));
+    const prompt = buildRelayStepPrompt(next, next.relay.index);
+    this.enqueue(next, next.readOnly ? withReadOnlyNote(prompt) : prompt);
+    return true;
   }
 
   // 並列の枝のタスク（ボードに出す。質問・失敗のときは、このカードから答える・直す）
@@ -1549,6 +1574,12 @@ class AgentManager extends EventEmitter {
       },
     };
     if (parent.attachments) card.attachments = parent.attachments;
+    // git で管理していないフォルダ（ソースを変更しないタスクも）は、枝も同じフォルダでそのまま動かす
+    if (isNoGit(parent)) {
+      card.noGit = true;
+      delete card.flowBase;
+      if (parent.readOnly) card.readOnly = true;
+    }
     this.store.cards.push(card);
     this.changed(card);
     return card;
@@ -1581,12 +1612,19 @@ class AgentManager extends EventEmitter {
       this.changed(p);
       return;
     }
+    // git なしのフォルダは枝を1本ずつ動かすので、前の枝が合流まで来たら次の枝を始める
+    if (isNoGit(p) && this.startNextFolderBranch(p)) return;
     if (!kids.every((k) => k.relay.atJoin && k.status === 'review')) return;
     this.joining.add(id);
     try {
       const join = FlowModel.nodeOf(r.flow, w.join);
       for (const k of kids) {
         if (w.merged.includes(k.id)) continue;
+        // git なしのフォルダは、枝の変更がもう同じフォルダにあるのでマージしない
+        if (isNoGit(p)) {
+          w.merged.push(k.id);
+          continue;
+        }
         const label = k.relay.branchOf.label;
         try {
           await git.merge(p.worktreePath, k.branch, `Merge parallel branch: ${label} (${k.branch})`, p.branch);
@@ -1612,7 +1650,8 @@ class AgentManager extends EventEmitter {
       r.waiting = null;
       r.lastResult = null;
       p.error = null;
-      this.log(p, 'system',tr('Pipeline: 合流「{v}」で、{length} 本の枝をすべてマージしました', { v: FlowModel.labelOf(join), length: kids.length }));
+      if (isNoGit(p)) this.log(p, 'system', tr('Pipeline: 合流「{v}」で、{length} 本の枝がすべて終わりました', { v: FlowModel.labelOf(join), length: kids.length }));
+      else this.log(p, 'system',tr('Pipeline: 合流「{v}」で、{length} 本の枝をすべてマージしました', { v: FlowModel.labelOf(join), length: kids.length }));
       for (const k of kids) await this.discard(k.id).catch((err) => this.log(p, 'error',tr('枝のタスク「{title}」を片付けられませんでした: {message}', { title: k.title, message: err.message })));
       const plan = FlowModel.route(r.flow, w.join, { counts: r.counts });
       r.counts = plan.counts;
@@ -1625,7 +1664,7 @@ class AgentManager extends EventEmitter {
         const msg = tr('「{label}」へ戻れる上限（{max}回）に達したので、Pipelineを終えてレビューに回しました', { label: FlowModel.labelOf(FlowModel.nodeOf(r.flow, plan.edge.to)), max: plan.edge.maxLoops });
         this.log(p, 'error', tr('Pipeline: {msg}', { msg }));
         this.notify(p, 'review', tr('ループの上限: {title}', { title: p.title }), msg);
-      } else this.notify(p, 'review', tr('レビュー待ち: {title}', { title: p.title }), tr('並列の枝をすべてマージして、Pipelineが終わりました。差分を確かめてください'));
+      } else this.notify(p, 'review', tr('レビュー待ち: {title}', { title: p.title }), isNoGit(p) ? tr('並列の枝がすべて終わって、Pipelineが終わりました。フォルダの中身を確かめてください') : tr('並列の枝をすべてマージして、Pipelineが終わりました。差分を確かめてください'));
     } catch (err) {
       p.status = 'failed';
       p.error = tr('合流に失敗しました: {message}', { message: err.message });

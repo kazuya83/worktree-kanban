@@ -199,7 +199,7 @@ test('git で管理していないフォルダかどうかは、指定したリ�
   assert.strictEqual(agents.createTask({ prompt: '作業', agent: 'compete', repoPath: current }).length, 2);
 });
 
-test('並列のある Pipeline は、指定したリポジトリが git で管理していないフォルダならエラー', () => {
+test('並列のある Pipeline は、指定したリポジトリが git で管理していないフォルダでも作れる', () => {
   const step = (label) => ({ agent: 'claude', label, instruction: '' });
   const flow = {
     nodes: [
@@ -215,7 +215,8 @@ test('並列のある Pipeline は、指定したリポジトリが git で管�
   };
   const { agents, other, store } = setup({ current: { orchestration: 'relay', relayFlow: flowOf('claude') }, other: { relayFlow: flow } });
   store.settings.noGitRepos = [other];
-  assert.throws(() => agents.createTask({ prompt: '作業', agent: 'relay', repoPath: other }), /並列のあるPipelineは使えません/);
+  const [c] = agents.createTask({ prompt: '作業', agent: 'relay', repoPath: other });
+  assert.ok(c.noGit && c.relay);
   store.settings.noGitRepos = [];
   assert.strictEqual(agents.createTask({ prompt: '作業', agent: 'relay', repoPath: other }).length, 1);
 });
