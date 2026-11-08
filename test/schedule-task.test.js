@@ -83,7 +83,7 @@ test('repoPath を指定しなければ、今まで通り今のリポジトリ�
 
 test('repoPath を指定しなければ、今のリポジトリのカスタムエージェント・Pipeline を使う', () => {
   const { agents, store } = setup({
-    current: { orchestration: 'relay', customAgents: providers.cleanCustomAgents([custom('mine', '今の人', 'codex', 'gpt-5-codex')]), relayFlow: flowOf('gemini') },
+    current: { customAgents: providers.cleanCustomAgents([custom('mine', '今の人', 'codex', 'gpt-5-codex')]), relayFlow: flowOf('gemini') },
     other: { customAgents: providers.cleanCustomAgents([custom('mine', '別の人', 'gemini')]), relayFlow: flowOf('codex') },
   });
   const [c] = agents.createTask({ prompt: '作業', agent: 'custom:mine' });
@@ -136,7 +136,7 @@ test('そのリポジトリのカスタムエージェントを使う（今の�
 });
 
 test('そのリポジトリの既定の Pipeline を使う', () => {
-  const { agents, other } = setup({ current: { orchestration: 'relay', relayFlow: flowOf('gemini') }, other: { relayFlow: flowOf('codex', 'claude') } });
+  const { agents, other } = setup({ current: { relayFlow: flowOf('gemini') }, other: { relayFlow: flowOf('codex', 'claude') } });
   const [c] = agents.createTask({ prompt: '作業', agent: 'relay', repoPath: other });
   assert.strictEqual(c.repoPath, other);
   assert.strictEqual(c.agent, 'codex');
@@ -145,7 +145,7 @@ test('そのリポジトリの既定の Pipeline を使う', () => {
 
 test('ID で選んだ Pipeline は、そのリポジトリから探す（消えていればエラー）', () => {
   const { agents, other, store } = setup({
-    current: { orchestration: 'relay', relayFlows: [{ id: 'here', name: 'こちら', flow: flowOf('gemini') }], relayFlowId: 'here' },
+    current: { relayFlows: [{ id: 'here', name: 'こちら', flow: flowOf('gemini') }], relayFlowId: 'here' },
     other: { relayFlows: [{ id: 'a', name: 'A', flow: flowOf('claude') }, { id: 'b', name: 'B', flow: flowOf('cursor') }], relayFlowId: 'a' },
   });
   const [c] = agents.createTask({ prompt: '作業', agent: 'relay:b', repoPath: other });
@@ -159,7 +159,7 @@ test('Pipeline の工程のカスタムエージェントも、そのリポジ�
   const flow = FlowModel.flowFromSteps([{ agent: 'codex', label: 'レビュー', instruction: '' }]);
   FlowModel.orderSteps(flow)[0].custom = 'rev';
   const { agents, other, current, store } = setup({
-    current: { orchestration: 'relay', relayFlow: flowOf('claude') },
+    current: { relayFlow: flowOf('claude') },
     other: { relayFlow: flow, customAgents: providers.cleanCustomAgents([custom('rev', 'レビュアー', 'gemini')]) },
   });
   const [c] = agents.createTask({ prompt: '作業', agent: 'relay', repoPath: other });
@@ -173,8 +173,8 @@ test('Pipeline の工程のカスタムエージェントも、そのリポジ�
 
 test('競争は、そのリポジトリの顔ぶれ（カスタムエージェント）で、そのリポジトリにカードを作る', () => {
   const { agents, other, store } = setup({
-    current: { orchestration: 'compete', competeAgents: ['claude'] },
-    other: { customAgents: providers.cleanCustomAgents([custom('rev', 'レビュアー', 'gemini')]), competeCustomAgents: ['rev'] },
+    current: { competes: [{ id: 'default', name: '競争', agents: ['claude'], customAgents: [] }] },
+    other: { customAgents: providers.cleanCustomAgents([custom('rev', 'レビュアー', 'gemini')]), competes: [{ id: 'default', name: '競争', agents: ['claude'], customAgents: ['rev'] }] },
   });
   assert.strictEqual(agents.competeEntries().length, 1); // 今のリポジトリは claude だけ
   const cards = agents.createTask({ title: '競争', prompt: '作業', agent: 'compete', repoPath: other });
@@ -184,13 +184,14 @@ test('競争は、そのリポジトリの顔ぶれ（カスタムエージェ�
 });
 
 test('競争の顔ぶれが足りないリポジトリではエラーで、カードは作らない', () => {
-  const { agents, other, store } = setup({ current: { orchestration: 'compete', competeAgents: ['claude'], customAgents: providers.cleanCustomAgents([custom('rev', 'R', 'gemini')]), competeCustomAgents: ['rev'] } });
+  // 今のリポジトリでは2つそろっていても、作る先のリポジトリの競争が1つだけならエラー
+  const { agents, other, store } = setup({ current: { customAgents: providers.cleanCustomAgents([custom('rev', 'R', 'gemini')]), competes: [{ id: 'default', name: '競争', agents: ['claude'], customAgents: ['rev'] }] }, other: { competes: [{ id: 'default', name: '競争', agents: ['claude'], customAgents: [] }] } });
   assert.throws(() => agents.createTask({ prompt: '作業', agent: 'compete', repoPath: other }), /2つ以上/);
   assert.strictEqual(store.cards.length, 0);
 });
 
 test('git で管理していないフォルダかどうかは、指定したリポジトリで判断する', () => {
-  const { agents, other, current, store } = setup({ current: { orchestration: 'compete', competeAgents: ['claude', 'codex'] } });
+  const { agents, other, current, store } = setup({ current: { competes: [{ id: 'default', name: '競争', agents: ['claude', 'codex'], customAgents: [] }] } });
   store.settings.noGitRepos = [other];
   const [c] = agents.createTask({ prompt: '作業', agent: 'claude', repoPath: other });
   assert.ok(isNoGit(c));
@@ -213,7 +214,7 @@ test('並列のある Pipeline は、指定したリポジトリが git で管�
     ],
     edges: [['start', 'first'], ['first', 'par'], ['par', 'a'], ['par', 'b'], ['a', 'join'], ['b', 'join'], ['join', 'end']].map(([from, to], i) => ({ id: `e${i}`, from, to })),
   };
-  const { agents, other, store } = setup({ current: { orchestration: 'relay', relayFlow: flowOf('claude') }, other: { relayFlow: flow } });
+  const { agents, other, store } = setup({ current: { relayFlow: flowOf('claude') }, other: { relayFlow: flow } });
   store.settings.noGitRepos = [other];
   const [c] = agents.createTask({ prompt: '作業', agent: 'relay', repoPath: other });
   assert.ok(c.noGit && c.relay);
@@ -261,12 +262,11 @@ test('指示が空・使わない設定のエージェント・知らないカ�
 
 test('skipSpecCheck を付けると、仕様の確認をしない（ふつうのタスク・Pipeline・競争）', () => {
   const { agents, other } = setup({
-    current: { specCheck: true, orchestration: 'relay', competeAgents: ['claude', 'codex'] },
+    current: { specCheck: true, competes: [{ id: 'default', name: '競争', agents: ['claude', 'codex'], customAgents: [] }] },
     other: { specCheck: true, relayFlow: flowOf('claude') },
   });
   const [plain] = agents.createTask({ prompt: '作業', agent: 'claude', repoPath: other, skipSpecCheck: true });
   const [relay] = agents.createTask({ prompt: '作業', agent: 'relay', repoPath: other, skipSpecCheck: true });
-  agents.store.settings.orchestration = 'compete';
   const cards = agents.createTask({ prompt: '作業', agent: 'compete', repoPath: other, skipSpecCheck: true });
   for (const c of [plain, relay, ...cards]) assert.ok(!c.specState, `${c.title} は仕様の確認をしない`);
   assert.strictEqual(cards.length, 2);
@@ -305,7 +305,7 @@ test('scheduleId がなければ scheduleTitle だけを渡しても項目は付
 });
 
 test('競争の各カードの scheduleTitle は、エージェント名を付ける前の名前にする', () => {
-  const { agents, other } = setup({ current: { orchestration: 'compete', competeAgents: ['claude', 'codex'] } });
+  const { agents, other } = setup({ current: { competes: [{ id: 'default', name: '競争', agents: ['claude', 'codex'], customAgents: [] }] } });
   const cards = agents.createTask({ title: '毎朝の点検', prompt: '作業', agent: 'compete', repoPath: other, scheduleId: 'sch1', skipSpecCheck: true });
   assert.strictEqual(cards.length, 2);
   for (const c of cards) {
@@ -316,7 +316,7 @@ test('競争の各カードの scheduleTitle は、エージェント名を付�
 });
 
 test('Pipeline のカードにもスケジュールの印を付ける', () => {
-  const { agents, other } = setup({ current: { orchestration: 'relay' }, other: { relayFlow: flowOf('claude') } });
+  const { agents, other } = setup({ current: {  }, other: { relayFlow: flowOf('claude') } });
   const [c] = agents.createTask({ title: 't', prompt: '作業', agent: 'relay', repoPath: other, scheduleId: 'sch1' });
   assert.strictEqual(c.scheduleId, 'sch1');
   assert.strictEqual(c.scheduleTitle, 't');

@@ -1159,7 +1159,7 @@ app.whenReady().then(async () => {
     return { branches, current, hasOrigin };
   });
   handle('settings:update', (patch) => {
-    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
+    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
     if (patch && 'branchNamingRule' in patch) patch = { ...patch, branchNamingRule: String(patch.branchNamingRule || '').trim() };
     for (const k of ['setupScript', 'teardownScript', 'runScript']) if (patch && k in patch) patch = { ...patch, [k]: cleanScript(patch[k]) };
     if (patch && 'integration' in patch && !['merge', 'pr'].includes(patch.integration)) patch = { ...patch, integration: 'merge' };
@@ -1182,7 +1182,8 @@ app.whenReady().then(async () => {
       patch = { ...patch, enabledAgents: providers.cleanEnabledAgents(patch.enabledAgents) };
       delete store.settings.agentsUnset; // ユーザーが決めたので、起動したときに選び直さない
     }
-    if (patch && 'defaultAgent' in patch && !providers.isAgent(patch.defaultAgent) && !providers.isCustomRef(patch.defaultAgent)) patch = { ...patch, defaultAgent: 'claude' };
+    // 最初から選んでおくもの: 1つのエージェント・カスタムエージェント・Pipeline「relay:<ID>」・競争「compete:<ID>」（あるかどうかは保存の最後に確かめる）
+    if (patch && 'defaultAgent' in patch && !providers.isAgent(patch.defaultAgent) && !providers.isCustomRef(patch.defaultAgent) && !(providers.isRelayRef(patch.defaultAgent) && patch.defaultAgent !== 'relay') && !(providers.isCompeteRef(patch.defaultAgent) && patch.defaultAgent !== 'compete')) patch = { ...patch, defaultAgent: 'claude' };
     for (const k of ['codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel']) if (patch && k in patch) patch = { ...patch, [k]: String(patch[k] || '').trim() };
     if (patch && 'relaySteps' in patch) patch = { ...patch, relaySteps: providers.cleanRelaySteps(patch.relaySteps) };
     // Pipeline（複数）: 一覧・既定の Pipeline・既定のフローを、そろえて保存する
@@ -1195,6 +1196,10 @@ app.whenReady().then(async () => {
       const ids = new Set(((patch.customAgents || store.settings.customAgents) || []).map((x) => x.id));
       patch = { ...patch, competeCustomAgents: [...new Set((Array.isArray(patch.competeCustomAgents) ? patch.competeCustomAgents : []).map((v) => String(v || '').replace(/^custom:/, '')))].filter((id) => ids.has(id)) };
     }
+    // 競争の一覧（プロジェクトごと）。カスタムエージェントは、あるものだけ
+    if (patch && 'competes' in patch) patch = { ...patch, competes: providers.cleanCompetes(patch.competes, patch.customAgents || store.settings.customAgents) };
+    // カスタムエージェントを消したら、競争からも外す
+    else if (patch && 'customAgents' in patch) patch = { ...patch, competes: providers.cleanCompetes(store.settings.competes, patch.customAgents) };
     if (patch && 'cycleView' in patch) patch = { ...patch, cycleView: require('./renderer/cycle-model').cleanCycleView(patch.cycleView) };
     if (patch && 'statusFieldName' in patch) patch = { ...patch, statusFieldName: String(patch.statusFieldName || '').trim() };
     if (patch && 'statusMapping' in patch) {
@@ -1203,8 +1208,8 @@ app.whenReady().then(async () => {
       patch = { ...patch, statusMapping: { inProgress: str(m.inProgress), inReview: str(m.inReview), done: str(m.done) } };
     }
     for (const k of allowed) if (patch && k in patch) store.settings[k] = patch[k];
-    // 最初から選んでおくエージェントは、使うエージェントとこのプロジェクトのカスタムエージェントの中から（消えた・使わない設定にしたら、使うものの先頭にする）
-    store.settings.defaultAgent = providers.defaultAgentRefOf(store.settings);
+    // 最初から選んでおくものは、使うエージェントとこのプロジェクトのカスタムエージェント・Pipeline・競争の中から（消えた・使わない設定にしたら、使うものの先頭にする）
+    store.settings.defaultAgent = providers.defaultTaskRefOf(store.settings);
     store.settings.maxParallel = Math.min(10, Math.max(1, parseInt(store.settings.maxParallel, 10) || 1));
     store.save();
     agents.pump();

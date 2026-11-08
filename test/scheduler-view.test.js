@@ -83,6 +83,9 @@ function setup({ schedules = [], settings = { repoPath: '/repo' }, cards = [], a
     },
     RELAY_PREFIX: 'relay:',
     CUSTOM_PREFIX: 'custom:',
+    COMPETE_PREFIX: 'compete:',
+    isCompeteRef: (v) => v === 'compete' || (typeof v === 'string' && v.startsWith('compete:')),
+    competeOfRef: (v) => (v === 'compete' || v === 'compete:k1' ? { id: 'k1', name: '二人で' } : null),
     isRelayRef: (v) => typeof v === 'string' && v.startsWith('relay:'),
     isCustomRef: (v) => typeof v === 'string' && v.startsWith('custom:'),
     pipelineOfRef: (v) => (v === 'relay:p1' ? { id: 'p1', name: '標準', flow: { pars: 0 } } : v === 'relay:par' ? { id: 'par', name: '並列', flow: { pars: 1 } } : null),
@@ -91,7 +94,7 @@ function setup({ schedules = [], settings = { repoPath: '/repo' }, cards = [], a
     agentLabel: (a) => ({ claude: 'Claude Code', codex: 'Codex CLI' })[a] || 'Claude Code',
     // 実物と同じく、選べない指定なら先頭のエージェントになる
     agentFieldHtml: (idp, v) => {
-      const list = ['claude', 'codex', 'relay:p1', 'relay:par', 'compete', 'custom:ca1'];
+      const list = ['claude', 'codex', 'relay:p1', 'relay:par', 'compete', 'compete:k1', 'custom:ca1'];
       return `<select id="${idp}Agent">${list.map((x) => `<option value="${x}" ${x === v ? 'selected' : ''}></option>`).join('')}</select>`;
     },
     bindAgentField: () => {},
@@ -204,7 +207,7 @@ test('詳細: スケジュール・指示・エージェント・スキル・履
 });
 
 test('詳細: 消えた Pipeline・カスタムエージェントは見つからないと出す', () => {
-  for (const [agent, want] of [['relay:gone', 'Pipeline（見つかりません）'], ['custom:gone', 'カスタムエージェント（見つかりません）'], ['custom:ca1', 'レビュー係'], ['compete', '競争'], ['', '設定の既定']]) {
+  for (const [agent, want] of [['relay:gone', 'Pipeline（見つかりません）'], ['custom:gone', 'カスタムエージェント（見つかりません）'], ['custom:ca1', 'レビュー係'], ['compete', '競争「二人で」'], ['compete:k1', '競争「二人で」'], ['compete:gone', '競争（見つかりません）'], ['', '設定の既定']]) {
     const { view, box, click, el } = setup({ schedules: [sched({ agent })] });
     view.render();
     click(box, { schedId: 's1' });
@@ -387,7 +390,7 @@ test('作成: 保存に失敗したら入力を残したまま理由を出す', 
 });
 
 test('作成: ソースを変更しないタスクで使えない組み合わせを止める', async () => {
-  for (const agent of ['compete', 'relay:par']) {
+  for (const agent of ['compete', 'compete:k1', 'relay:par']) {
     const { view, el, calls, toasts } = setup();
     view.openEditor();
     el('schedPrompt').value = '指示';
@@ -411,6 +414,7 @@ test('タスクから登録: Pipeline・競争・カスタムエージェント�
   assert.strictEqual(view.agentRefOfCard({ agent: 'claude', relay: { pipeline: { id: 'p1' } } }), 'relay:p1');
   assert.strictEqual(view.agentRefOfCard({ agent: 'claude', relay: {} }), 'relay');
   assert.strictEqual(view.agentRefOfCard({ agent: 'codex', compete: { group: 'g', title: 'x' } }), 'compete');
+  assert.strictEqual(view.agentRefOfCard({ agent: 'codex', compete: { group: 'g', title: 'x', set: { id: 'k1', name: '二人で' } } }), 'compete:k1');
   assert.strictEqual(view.agentRefOfCard({ agent: 'claude', persona: { id: 'ca1' } }), 'custom:ca1');
   assert.strictEqual(view.agentRefOfCard({ agent: 'codex' }), 'codex');
   assert.strictEqual(view.agentRefOfCard({}), '');

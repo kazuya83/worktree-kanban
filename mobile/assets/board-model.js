@@ -153,16 +153,20 @@
     const list = enabledAgents(s);
     return s && list.includes(s.defaultAgent) ? s.defaultAgent : list[0];
   }
-  const orchestrationOf = (s) => (s && (s.orchestration === 'compete' || s.orchestration === 'none') ? s.orchestration : 'relay');
   function pipelines(s) {
     if (s && Array.isArray(s.relayFlows) && s.relayFlows.length) return s.relayFlows;
     return s && s.relayFlow ? [{ id: 'default', name: 'Pipeline', flow: s.relayFlow }] : [];
   }
-  function competeNames(s) {
+  // 競争の一覧（プロジェクトごとに複数）
+  function competes(s) {
+    return s && Array.isArray(s.competes) ? s.competes.filter((x) => x && x.id) : [];
+  }
+  function competeNames(s, set) {
+    if (!set) return [];
     const on = enabledAgents(s);
     const custom = Array.isArray(s && s.customAgents) ? s.customAgents : [];
-    const plain = ((s && s.competeAgents) || []).filter((a) => on.includes(a)).map(agentShort);
-    const named = ((s && s.competeCustomAgents) || []).map((id) => custom.find((x) => x && x.id === id)).filter((ca) => ca && on.includes(ca.agent)).map((ca) => ca.name);
+    const plain = (set.agents || []).filter((a) => on.includes(a)).map(agentShort);
+    const named = (set.customAgents || []).map((id) => custom.find((x) => x && x.id === id)).filter((ca) => ca && on.includes(ca.agent)).map((ca) => ca.name);
     return [...plain, ...named];
   }
   // フローに工程があるか（細かい確かめはアプリ側。作るときにエラーなら知らせる）
@@ -187,21 +191,22 @@
         })),
       });
     }
-    const orch = orchestrationOf(settings);
     const pipes = pipelines(settings);
-    const comp = competeNames(settings);
-    let value = defaultAgent(settings);
-    if (orch === 'relay' && pipes.length) {
-      groups.push({ label: pipes.length > 1 ? 'Pipeline' : tr('オーケストレーション'), options: pipes.map((p) => ({ value: `relay:${p.id}`, label: String(p.name || 'Pipeline'), disabled: !pipelineUsable(p) })) });
-      const def = pipes.find((p) => p.id === settings.relayFlowId) || pipes[0];
-      if (def && pipelineUsable(def)) value = `relay:${def.id}`;
-    } else if (orch === 'compete') {
+    if (pipes.length) groups.push({ label: 'Pipeline', options: pipes.map((p) => ({ value: `relay:${p.id}`, label: String(p.name || 'Pipeline'), disabled: !pipelineUsable(p) })) });
+    const comps = competes(settings).map((x) => ({ x, names: competeNames(settings, x) }));
+    if (comps.length) {
       groups.push({
-        label: tr('オーケストレーション'),
-        options: [{ value: 'compete', label: comp.length >= 2 ? tr('競争: {names} で同じタスクを解いて比べる', { names: comp.join(tr('・')) }) : tr('競争（設定で使うエージェントを2つ以上選んでください）'), disabled: comp.length < 2 }],
+        label: tr('競争'),
+        options: comps.map(({ x, names }) => ({
+          value: `compete:${x.id}`,
+          label: names.length >= 2 ? tr('{name}: {names}', { name: x.name, names: names.join(tr('・')) }) : tr('{name}（設定で使うエージェントを2つ以上選んでください）', { name: x.name }),
+          disabled: names.length < 2,
+        })),
       });
-      if (comp.length >= 2) value = 'compete';
     }
+    // 最初から選んでおくもの（設定で決めたもの。Pipeline・競争・カスタムエージェントも選べる。使えなければ1つのエージェント）
+    const pick = settings.defaultAgent;
+    const value = groups.some((g) => g.options.some((o) => o.value === pick && !o.disabled)) ? pick : defaultAgent(settings);
     return { groups, value };
   }
 
