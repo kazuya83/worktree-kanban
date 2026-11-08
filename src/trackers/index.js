@@ -40,6 +40,8 @@
 //   コードのホスト（origin が matchesRemote に合うリポジトリの MR を、gh の代わりに扱う）は次を持つ
 //   createMergeRequest(ctx, { head, base, title, body }) → { url, number, created }   開いている MR があれば created: false で返す
 //   mergeRequestState(ctx, { url }) → gh.pullRequestState と同じ形
+//   mergeRequestComments(ctx, { url }) → gh.pullRequestComments と同じ形（無ければレビューコメントは扱わない）
+//   replyMergeRequestComments(ctx, { url, threads, comment }) → gh.replyPullRequestComments と同じ形
 //
 // 上の ref には、カードの c.issue（renderer/issue-ref.js の形）もそのまま渡る。
 // チャットサービス（parseRefs・fetchIssue を持たない）は、configFields と testConnection で「連携」の欄にだけ出る。

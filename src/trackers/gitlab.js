@@ -6,6 +6,7 @@
 const git = require('../git');
 const { tr } = require('../../renderer/i18n');
 const { HttpError, request, joinUrl, redact } = require('./http');
+const ReviewComments = require('../review-comments');
 
 const LABEL = 'GitLab';
 const DEFAULT_URL = 'https://gitlab.com';
@@ -84,6 +85,13 @@ function parseIssueToken(text, baseUrl) {
 function parseMergeRequestUrl(url, baseUrl) {
   const m = String(webPath(url, baseUrl) || '').match(/^(.+)\/-\/merge_requests\/(\d+)$/);
   return m ? { project: m[1], iid: Number(m[2]) } : null;
+}
+
+// MR の API のパス。別のサーバーの URL にはトークンを送らない
+function mrRoot(ctx, url) {
+  const mr = parseMergeRequestUrl(url, ctx.config.baseUrl);
+  if (!mr) throw new Error(tr('この MR は、設定の「連携」の接続先のものではありません: {url}', { url }));
+  return `projects/${projectId(mr.project)}/merge_requests/${mr.iid}`;
 }
 
 function tokenOf(ctx) {
@@ -404,6 +412,46 @@ module.exports = {
       mergeable: mergeableOf(d),
       checks: state === 'OPEN' ? await pipelineChecks(ctx, mr.project, d.head_pipeline, d.sha) : null,
     };
+  },
+
+  /** MR のレビューコメント（解決していないディスカッション・ノート）。形は gh.pullRequestComments と同じ */
+  async mergeRequestComments(ctx, { url }) {
+    const root = mrRoot(ctx, url);
+    const all = [];
+    // 1ページ 100 件。長い MR でも 5 ページまでで止める
+    for (let page = 1; page <= 5; page++) {
+      const list = await api(ctx, `${root}/discussions`, { query: { per_page: 100, page } });
+      if (!Array.isArray(list)) break;
+      all.push(...list);
+      if (list.length < 100) break;
+    }
+    return { items: ReviewComments.fromGitlab(all, url) };
+  },
+
+  /** 直したあとの書き戻し。形は gh.replyPullRequestComments と同じ（threads の id はディスカッションの ID） */
+  async replyMergeRequestComments(ctx, { url, threads = [], comment = null }) {
+    const root = mrRoot(ctx, url);
+    const out = { replied: 0, resolved: 0, commented: false, errors: [] };
+    for (const t of threads) {
+      const at = `${root}/discussions/${encodeURIComponent(t.id)}`;
+      try {
+        await api(ctx, `${at}/notes`, { method: 'POST', json: { body: String(t.body || '') } });
+        out.replied++;
+        await api(ctx, at, { method: 'PUT', query: { resolved: true } });
+        out.resolved++;
+      } catch (err) {
+        out.errors.push(err.message);
+      }
+    }
+    if (comment) {
+      try {
+        await api(ctx, `${root}/notes`, { method: 'POST', json: { body: String(comment) } });
+        out.commented = true;
+      } catch (err) {
+        out.errors.push(err.message);
+      }
+    }
+    return out;
   },
 
   // テストで使う

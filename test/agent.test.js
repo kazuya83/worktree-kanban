@@ -297,6 +297,8 @@ async function setupPr(title) {
   await agents.createPullRequest(c.id);
   let pr = { state: 'OPEN', mergedAt: null, headRefOid: g('rev-parse', c.branch).toString().trim(), baseRefName: 'main' };
   agents.pullRequestState = async () => pr;
+  // レビューコメントは、確かめるテストで差し替える（gh を動かさない）
+  agents.reviewComments = async () => ({ items: [] });
   return { ...ctx, c, setPr: (p) => (pr = { ...pr, ...p }) };
 }
 
@@ -520,6 +522,73 @@ test('CI が失敗したら、エージェントが直して push し、通っ�
   await agents.checkPullRequests();
   assert.strictEqual(c.ciFix, null);
   assert.throws(() => agents.fixCi(c.id), /CI は失敗していません/);
+});
+
+test('PR のレビューコメント: カードに載せ、直してもらって push し、返信して解決する。自動は設定で、続けて 3 回まで', async () => {
+  const { agents, store, c, setPr } = await setupPr('review fix');
+  const head = () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: c.worktreePath }).toString().trim();
+  const logText = () => agents.logs(c.id).map((l) => l.text).join('\n');
+  const thread = (id, last = 'x1') => ({ key: `t:${id}:${last}`, kind: 'thread', id, author: 'alice', url: `https://github.com/o/r/pull/9#${id}`, path: 'README.md', line: 1, outdated: false, at: '2026-11-01T00:00:00Z', comments: [{ author: 'alice', body: 'ここを直して' }] });
+  const comment = { key: 'c:C1', kind: 'comment', id: 'C1', author: 'coderabbitai[bot]', url: 'https://github.com/o/r/pull/9#c1', path: null, line: null, outdated: false, at: '2026-11-01T00:00:00Z', comments: [{ author: 'coderabbitai[bot]', body: '名前を変えてください' }] };
+  let items = [];
+  const replies = [];
+  agents.reviewComments = async () => ({ items });
+  agents.replyReviewComments = async (_c, payload) => {
+    replies.push(payload);
+    return { replied: payload.threads.length, resolved: payload.threads.length, commented: !!payload.comment, errors: [] };
+  };
+  agents.opts.reviewSettleMs = 0;
+  setPr({ headRefOid: head() });
+
+  // 付いたらカードに載せて知らせる。自動は最初は切っている
+  assert.strictEqual(store.repoSettings(c.repoPath).reviewAutoFix, false);
+  items = [thread('T1'), comment];
+  await agents.checkPullRequests();
+  assert.deepStrictEqual(c.prReview.items.map((i) => i.key), ['t:T1:x1', 'c:C1']);
+  assert.strictEqual(c.status, 'review');
+  assert.match(logText(), /PR にレビューコメントが 2 件付きました（alice, coderabbitai\[bot\]）/);
+  await agents.checkPullRequests();
+  assert.strictEqual(agents.logs(c.id).filter((l) => /レビューコメントが 2 件/.test(l.text)).length, 1, '同じコメントで何度も知らせない');
+
+  // 「直してもらう」: コメントを渡して動かし、終わったら push して返信・解決する
+  const before = head();
+  await agents.fixReviewComments(c.id);
+  assert.match(logText(), /## 1\. 行コメント `README\.md:1`（alice）/);
+  assert.match(logText(), /> 名前を変えてください/);
+  await waitFor(() => replies.length === 1);
+  assert.notStrictEqual(head(), before);
+  const remoteRepo = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: c.worktreePath }).toString().trim();
+  assert.strictEqual(execFileSync('git', ['rev-parse', c.branch], { cwd: remoteRepo }).toString().trim(), head());
+  assert.deepStrictEqual(replies[0].threads.map((t) => t.id), ['T1']);
+  assert.match(replies[0].threads[0].body, new RegExp(head().slice(0, 7)));
+  assert.match(replies[0].comment, /coderabbitai\[bot\]/);
+  assert.strictEqual(c.prReview, null);
+  assert.match(logText(), /レビューのスレッドに返信して、1\/1 件を解決しました/);
+
+  // 扱ったコメントは、まだ GitHub に残っていても取り込まない
+  await agents.checkPullRequests();
+  assert.strictEqual(c.prReview, null);
+  await assert.rejects(agents.fixReviewComments(c.id), /直していないレビューコメントはありません/);
+
+  // 自動にすると、新しいコメントが付いたら直す
+  store.setRepoSettings(c.repoPath, { reviewAutoFix: true });
+  setPr({ headRefOid: head() });
+  items = [thread('T1', 'x2')];
+  await agents.checkPullRequests();
+  assert.ok(['queued', 'running'].includes(c.status));
+  assert.strictEqual(c.reviewFix.attempts, 1);
+  await waitFor(() => replies.length === 2);
+
+  // 上限に達したら、もう自動では直さず知らせる。手で頼むと数え直す
+  c.reviewFix.attempts = 3;
+  setPr({ headRefOid: head() });
+  items = [thread('T2')];
+  await agents.checkPullRequests();
+  assert.strictEqual(c.status, 'review');
+  assert.match(agents.logs(c.id).at(-1).text, /続けて 3 回行ったので/);
+  await agents.fixReviewComments(c.id);
+  assert.strictEqual(c.reviewFix.attempts, 0);
+  await waitFor(() => replies.length === 3);
 });
 
 test('PR がコンフリクトしたら、Claude に解消してもらえる', async () => {

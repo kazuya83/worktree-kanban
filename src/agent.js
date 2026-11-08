@@ -12,6 +12,7 @@ const trackers = require('./trackers');
 const { buildIssuePrompt } = require('./trackers/prompt');
 const IssueRef = require('../renderer/issue-ref');
 const ghCli = require('./gh');
+const ReviewComments = require('./review-comments');
 const { withSkill } = require('./skills');
 const providers = require('./providers');
 const AgentRpc = require('./agent-rpc');
@@ -150,6 +151,10 @@ const AFTER_DONE_NOTE = [
 // 完了したタスクで最初に話すときの指示。worktree はもうないので新しい会話で始め、元のタスクの中身を渡す
 // CI の失敗を続けて自動で直す回数の上限（通ったら数え直す）
 const CI_FIX_MAX_ATTEMPTS = 3;
+// レビューコメントを続けて自動で直す回数の上限（「直してもらう」で頼むと数え直す）。bot が push のたびにコメントするときに、繰り返し続けないように
+const REVIEW_FIX_MAX_ATTEMPTS = 3;
+// 最後のコメントからこれだけ待ってから自動で直す（続けて付くコメントをまとめて渡すため）
+const REVIEW_SETTLE_MS = 90000;
 
 function buildCiFixPrompt(c, ch) {
   const gitlab = IssueRef.reviewHostOf(c.prUrl) === 'gitlab';
@@ -2695,6 +2700,10 @@ class AgentManager extends EventEmitter {
       c.prMergeable = null;
       c.prChecks = null;
       c.ciFix = null;
+      c.prReview = null;
+      c.prReviewError = null;
+      c.reviewFix = null;
+      c.reviewHandled = null;
       c.finalDiff = null;
       delete c.reopenBase;
       delete c.reopenFrom;
@@ -3629,6 +3638,7 @@ class AgentManager extends EventEmitter {
       // 停止・失敗したときは、予約した btw を勝手に送らない（停止したのにまた動き出さないように）
       const keepFollow = !c.stopRequested && c.status !== 'failed';
       if (!keepFollow && c.ciFix?.running) c.ciFix.running = false;
+      if (!keepFollow && c.reviewFix?.running) c.reviewFix.running = false;
       // 会話の返事（またはエラー）が来たら、開いて読むまで「未読」にする（自分で止めたときは除く）
       if (isChat(c) && !c.stopRequested) c.unread = true;
       c.stopRequested = false;
@@ -3639,6 +3649,10 @@ class AgentManager extends EventEmitter {
       if (c.ciFix?.running) {
         c.ciFix.running = false;
         if (!c.awaitingReply) this.pushCiFix(c);
+      }
+      if (c.reviewFix?.running) {
+        c.reviewFix.running = false;
+        if (!c.awaitingReply) this.pushReviewFix(c);
       }
       if (relayNext) return relayTo.parallel ? this.forkParallel(c, relayTo.parallel) : this.advanceRelay(c, relayTo.to);
       if (c.relay && c.relay.waiting) this.tryJoin(c.id);
@@ -4433,6 +4447,8 @@ class AgentManager extends EventEmitter {
       if (this.updatePrChecks(c, pr)) changed = true;
       if (changed) this.changed(c);
       await this.handleCiFailure(c);
+      await this.updatePrReview(c, pr);
+      await this.handleReviewComments(c, pr);
       return false;
     }
 
@@ -4559,15 +4575,20 @@ class AgentManager extends EventEmitter {
   async ciAutoFixBlock(c, ch) {
     if (this.store.repoSettings(c.repoPath).ciAutoFix === false) return 'off';
     if ((c.ciFix?.attempts || 0) >= CI_FIX_MAX_ATTEMPTS) return 'limit';
-    if (!c.worktreePath || c.status !== 'review' || c.awaitingReply || c.conflict || c.prMergeable === 'CONFLICTING') return 'busy';
-    if (this.merging?.has(c.id) || c.relay?.waiting || c.subtasks?.phase === 'run') return 'busy';
+    return (await this.prBusy(c, ch.sha)) ? 'busy' : null;
+  }
+
+  // PR を自動で直してはいけない状態か（動いている・コンフリクト・手元に PR に入っていない作業があるなど）
+  async prBusy(c, sha) {
+    if (!c.worktreePath || c.status !== 'review' || c.awaitingReply || c.conflict || c.prMergeable === 'CONFLICTING') return true;
+    if (this.merging?.has(c.id) || c.relay?.waiting || c.subtasks?.phase === 'run') return true;
     try {
       // 手元に PR に入っていない作業があるときは、勝手に混ぜて push しない
-      if ((await git.revParse(c.worktreePath, 'HEAD')) !== ch.sha || (await git.isDirty(c.worktreePath))) return 'busy';
+      if (!sha || (await git.revParse(c.worktreePath, 'HEAD')) !== sha || (await git.isDirty(c.worktreePath))) return true;
     } catch {
-      return 'busy';
+      return true;
     }
-    return null;
+    return false;
   }
 
   startCiFix(c) {
@@ -4611,6 +4632,168 @@ class AgentManager extends EventEmitter {
       this.notify(c, 'failed', tr('CI の修正を push できませんでした: {title}', { title: c.title }), err.message);
     } finally {
       this.merging.delete(c.id);
+    }
+  }
+
+  // ---------- PR のレビューコメント ----------
+
+  // テストで差し替えられるようにメソッドにしておく
+  reviewComments(c) {
+    const host = IssueRef.reviewHostOf(c.prUrl);
+    if (host) return this.trackers.call(host, 'mergeRequestComments', { repoPath: c.repoPath }, { url: c.prUrl });
+    return ghCli.pullRequestComments({ url: c.prUrl, cwd: c.worktreePath || c.repoPath, gh: this.opts.ghPath });
+  }
+
+  replyReviewComments(c, payload) {
+    const host = IssueRef.reviewHostOf(c.prUrl);
+    if (host) return this.trackers.call(host, 'replyMergeRequestComments', { repoPath: c.repoPath }, { url: c.prUrl, ...payload });
+    return ghCli.replyPullRequestComments({ url: c.prUrl, cwd: c.worktreePath || c.repoPath, gh: this.opts.ghPath, ...payload });
+  }
+
+  /**
+   * まだ扱っていないレビューコメントをカードに載せる。新しく付いたら知らせる
+   * （worktree がない・PR が開いていないときは、直せないので読まない）
+   */
+  async updatePrReview(c, pr) {
+    if (pr.state !== 'OPEN' || !c.worktreePath) {
+      if (c.prReview) {
+        c.prReview = null;
+        this.changed(c);
+      }
+      return;
+    }
+    const url = c.prUrl;
+    let items;
+    try {
+      items = (await this.reviewComments(c)).items || [];
+    } catch (err) {
+      // 読めなくても（gh が古い・トークンの権限が足りないなど）、PR の見張りは止めない
+      if (this.store.card(c.id) && c.prUrl === url) c.prReviewError = err.message;
+      return;
+    }
+    if (!this.store.card(c.id) || c.prUrl !== url || c.prMergedAt) return;
+    c.prReviewError = null;
+    const pending = ReviewComments.pendingOf(items, c.reviewHandled);
+    const before = new Set((c.prReview?.items || []).map((i) => i.key));
+    const fresh = pending.filter((i) => !before.has(i.key));
+    const now = pending.length ? { items: pending } : null;
+    if (JSON.stringify(c.prReview || null) === JSON.stringify(now)) return;
+    c.prReview = now;
+    if (fresh.length) {
+      const who = [...new Set(fresh.map((i) => i.author))].join(', ');
+      this.log(c, 'system', this.prText(c, tr('PR にレビューコメントが {n} 件付きました（{who}）: {url}'), { n: fresh.length, who, url }));
+      this.notify(c, 'review', this.prText(c, tr('PR にレビューコメントが付きました: {title}'), { title: c.title }), who);
+    }
+    this.changed(c);
+  }
+
+  // 設定で自動にしているときだけ、レビューコメントを直してもらう
+  async handleReviewComments(c, pr) {
+    const rv = c.prReview;
+    if (!rv || !rv.items.length || c.reviewFix?.running) return;
+    if (this.store.repoSettings(c.repoPath).reviewAutoFix !== true) return;
+    // コメントは続けて付くことが多いので、最後のコメントから少し待ってまとめて渡す
+    const settle = this.opts.reviewSettleMs ?? REVIEW_SETTLE_MS;
+    const newest = Math.max(0, ...rv.items.map((i) => Date.parse(i.at) || 0));
+    if (Date.now() - newest < settle) return;
+    if ((c.reviewFix?.attempts || 0) >= REVIEW_FIX_MAX_ATTEMPTS) {
+      const sig = rv.items.map((i) => i.key).join(',');
+      if (c.reviewFix.limitSig === sig) return;
+      c.reviewFix.limitSig = sig;
+      this.log(c, 'error', tr('レビューコメントの自動修正を続けて {max} 回行ったので、ここで止めます。「直してもらう」で頼むと数え直します: {url}', { max: REVIEW_FIX_MAX_ATTEMPTS, url: c.prUrl }));
+      this.notify(c, 'review', this.prText(c, tr('PR のレビューコメントが残っています: {title}'), { title: c.title }), c.prUrl);
+      this.changed(c);
+      return;
+    }
+    if (await this.prBusy(c, pr.headRefOid)) return;
+    if (!this.store.card(c.id) || c.prReview !== rv || c.reviewFix?.running) return;
+    this.log(c, 'system', tr('レビューコメントが付いたので、自動で直します（{n}/{max} 回目）', { n: (c.reviewFix?.attempts || 0) + 1, max: REVIEW_FIX_MAX_ATTEMPTS }));
+    await this.startReviewFix(c, true);
+  }
+
+  async startReviewFix(c, auto) {
+    const items = c.prReview?.items || [];
+    const sha = await git.revParse(c.worktreePath, 'HEAD');
+    if (!this.store.card(c.id) || !items.length || !['review', 'failed'].includes(c.status)) return;
+    c.reviewFix = {
+      running: true,
+      sha,
+      // 自動のときだけ数える。手で頼んだら数え直す
+      attempts: auto ? (c.reviewFix?.attempts || 0) + 1 : 0,
+      items: items.map(({ key, kind, id, author, url }) => ({ key, kind, id, author, url })),
+    };
+    const prompt = ReviewComments.buildFixPrompt({ url: c.prUrl, noun: prNoun(c.prUrl) }, items);
+    this.log(c, 'user', prompt);
+    this.enqueue(c, prompt);
+  }
+
+  // 「直してもらう」ボタン。自動にしていないときも、ここから頼める
+  async fixReviewComments(id) {
+    const c = this.must(id);
+    if (!c.prUrl || c.prState !== 'OPEN' || !c.prReview?.items?.length) throw new Error(tr('直していないレビューコメントはありません'));
+    if (!c.worktreePath) throw new Error(this.prText(c, tr('worktree がないので、アプリの中では直せません。GitHub 上で直してください')));
+    if (!['review', 'failed'].includes(c.status)) throw new Error(tr('実行中は直し始められません'));
+    if (c.conflict) throw new Error(tr('コンフリクトを解消してから直してください'));
+    if (this.merging?.has(id)) throw new Error(tr('処理中です'));
+    this.assertNotInRelayJoin(c);
+    await this.startReviewFix(c, false);
+  }
+
+  // 直したコメントは、次から取り込まない
+  markReviewHandled(c, items) {
+    const handled = { ...(c.reviewHandled || {}) };
+    for (const i of items) handled[i.key] = true;
+    c.reviewHandled = handled;
+    const rest = (c.prReview?.items || []).filter((i) => !handled[i.key]);
+    c.prReview = rest.length ? { items: rest } : null;
+  }
+
+  // レビューコメントを直す実行が終わったら、PR のブランチに push して、コメントに返信する
+  async pushReviewFix(c) {
+    const fix = c.reviewFix;
+    if (!fix || !c.worktreePath || !c.prUrl || this.merging?.has(c.id)) return;
+    this.merging = this.merging || new Set();
+    this.merging.add(c.id);
+    let pushed = null;
+    try {
+      const head = await git.revParse(c.worktreePath, 'HEAD');
+      if (head === fix.sha) {
+        this.markReviewHandled(c, fix.items);
+        this.log(c, 'system', tr('レビューコメントを直す変更はありませんでした。エージェントの返事を確かめてください: {url}', { url: c.prUrl }));
+        this.notify(c, 'review', tr('レビューコメントで直すところはありませんでした: {title}', { title: c.title }), c.lastText || c.prUrl);
+        this.changed(c);
+        return;
+      }
+      await git.push(c.worktreePath, 'origin', c.branch, true);
+      this.markReviewHandled(c, fix.items);
+      this.log(c, 'system', tr('レビューコメントの修正を push しました: {url}', { url: c.prUrl }));
+      c.prChecks = null;
+      c.prMergeable = null;
+      this.changed(c);
+      pushed = head;
+    } catch (err) {
+      this.log(c, 'error', tr('レビューコメントの修正を push できませんでした: {message}', { message: err.message }));
+      this.notify(c, 'failed', tr('レビューコメントの修正を push できませんでした: {title}', { title: c.title }), err.message);
+    } finally {
+      this.merging.delete(c.id);
+    }
+    if (pushed) await this.replyAfterReviewFix(c, fix, pushed);
+  }
+
+  // 行コメントのスレッドには返信して解決し、ほかのコメントにはまとめて1回だけ返信する
+  async replyAfterReviewFix(c, fix, sha) {
+    const threads = fix.items.filter((i) => i.kind === 'thread').map((i) => ({ id: i.id, body: ReviewComments.threadReply(sha) }));
+    const others = fix.items.filter((i) => i.kind !== 'thread');
+    const comment = others.length ? ReviewComments.summaryReply(sha, others, c.lastText) : null;
+    if (!threads.length && !comment) return;
+    try {
+      const r = await this.replyReviewComments(c, { threads, comment });
+      if (!this.store.card(c.id)) return;
+      if (threads.length) this.log(c, 'system', tr('レビューのスレッドに返信して、{resolved}/{total} 件を解決しました', { resolved: r.resolved, total: threads.length }));
+      if (comment && r.commented) this.log(c, 'system', this.prText(c, tr('PR にレビューへの返信を書きました')));
+      if (r.errors.length) this.log(c, 'error', tr('レビューへの返信で、うまくいかなかったものがあります: {message}', { message: r.errors[0] }));
+    } catch (err) {
+      if (this.store.card(c.id)) this.log(c, 'error', tr('レビューに返信できませんでした: {message}', { message: err.message }));
     }
   }
 

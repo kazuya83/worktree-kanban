@@ -2,6 +2,7 @@
 const { spawn, execFile } = require('child_process');
 const { resolveCommand, isWin } = require('./env');
 const { tr } = require('../renderer/i18n');
+const ReviewComments = require('./review-comments');
 
 const DOWNLOAD_URL = 'https://cli.github.com/';
 const DEVICE_URL = 'https://github.com/login/device';
@@ -252,9 +253,90 @@ async function pullRequestState({ url, cwd, gh: ghPath }) {
   };
 }
 
+// PR の URL から、ホスト・リポジトリ・番号を読む（GitHub Enterprise のホストもそのまま使う）
+function parsePullUrl(url) {
+  const m = String(url || '').match(/^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+  return m ? { host: m[1].toLowerCase(), owner: m[2], name: m[3], number: Number(m[4]) } : null;
+}
+
+// gh api graphql を動かして data を返す。vars の数は -F、文字は -f で渡す
+async function graphql(gh, host, query, vars, cwd) {
+  const args = ['api', 'graphql', ...(host && host !== 'github.com' ? ['--hostname', host] : []), '-f', `query=${query}`];
+  for (const [k, v] of Object.entries(vars || {})) args.push(typeof v === 'number' ? '-F' : '-f', `${k}=${v}`);
+  const r = await run(gh, args, { cwd, timeout: 30000, maxBuffer: 32 * 1024 * 1024 });
+  let d = null;
+  try {
+    d = JSON.parse(r.stdout);
+  } catch {
+    /* 下でエラーにする */
+  }
+  const err = d && Array.isArray(d.errors) && d.errors.length ? d.errors.map((e) => e && e.message).filter(Boolean).join('; ') : '';
+  if (r.code !== 0 || !d || err) {
+    const msg = err || (r.stderr || r.stdout).trim();
+    if (/auth login|not logged/i.test(msg)) throw new Error(tr('GitHub にログインしていません'));
+    throw new Error(msg || tr('GitHub の API を呼べませんでした'));
+  }
+  return d.data;
+}
+
+const REVIEW_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) { nodes { id isResolved isOutdated path line originalLine comments(first: 50) { nodes { id body createdAt url author { login } } } } }
+      reviews(last: 50) { nodes { id state body submittedAt url author { login } } }
+      comments(last: 100) { nodes { id body createdAt url author { login } } }
+    }
+  }
+}`;
+
+/**
+ * PR のレビューコメント（解決していない行コメント・レビューの本文・会話欄のコメント）を読む
+ * @returns {Promise<{ items: ReturnType<typeof ReviewComments.fromGithub> }>}
+ */
+async function pullRequestComments({ url, cwd, gh: ghPath }) {
+  const gh = ghPath || resolveCommand('gh');
+  if (!gh) throw new Error(tr('PR の状態を確かめるには GitHub CLI（gh）が必要です'));
+  const p = parsePullUrl(url);
+  if (!p) throw new Error(tr('PR の URL として読めません: {url}', { url }));
+  const d = await graphql(gh, p.host, REVIEW_QUERY, { owner: p.owner, name: p.name, number: p.number }, cwd);
+  const pr = d && d.repository && d.repository.pullRequest;
+  if (!pr) throw new Error(tr('PR が見つかりません: {url}', { url }));
+  return { items: ReviewComments.fromGithub(pr) };
+}
+
+/**
+ * 直したあとの書き戻し: 行コメントのスレッドに返信して解決し、ほかのコメントにはまとめて1回だけ返信する
+ * 1つ失敗しても残りは続け、失敗したものは errors に入れる
+ * @param {{ url: string, cwd?: string, gh?: string, threads: Array<{ id: string, body: string }>, comment?: string|null }} p
+ * @returns {Promise<{ replied: number, resolved: number, commented: boolean, errors: string[] }>}
+ */
+async function replyPullRequestComments({ url, cwd, gh: ghPath, threads = [], comment = null }) {
+  const gh = ghPath || resolveCommand('gh');
+  if (!gh) throw new Error(tr('PR の状態を確かめるには GitHub CLI（gh）が必要です'));
+  const p = parsePullUrl(url);
+  if (!p) throw new Error(tr('PR の URL として読めません: {url}', { url }));
+  const out = { replied: 0, resolved: 0, commented: false, errors: [] };
+  for (const t of threads) {
+    try {
+      await graphql(gh, p.host, 'mutation($id: ID!, $body: String!) { addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $id, body: $body }) { comment { id } } }', { id: t.id, body: t.body }, cwd);
+      out.replied++;
+      await graphql(gh, p.host, 'mutation($id: ID!) { resolveReviewThread(input: { threadId: $id }) { thread { id } } }', { id: t.id }, cwd);
+      out.resolved++;
+    } catch (err) {
+      out.errors.push(err.message);
+    }
+  }
+  if (comment) {
+    const r = await run(gh, ['pr', 'comment', url, '--body', comment], { cwd, timeout: 30000 });
+    if (r.code === 0) out.commented = true;
+    else out.errors.push((r.stderr || r.stdout).trim() || tr('PR にコメントできませんでした'));
+  }
+  return out;
+}
+
 function cancel() {
   const c = stream.current;
   if (c && c.exitCode === null) c.kill();
 }
 
-module.exports = { status, install, login, addProjectScope, cancel, createPullRequest, pullRequestState, summarizeChecks, DOWNLOAD_URL, DEVICE_URL };
+module.exports = { status, install, login, addProjectScope, cancel, createPullRequest, pullRequestState, pullRequestComments, replyPullRequestComments, summarizeChecks, DOWNLOAD_URL, DEVICE_URL };
