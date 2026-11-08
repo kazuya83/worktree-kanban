@@ -204,6 +204,10 @@ In "Chat" you can ask the agent about the repository without creating a task (wo
 
 </details>
 
+### Terminal
+
+Open a shell inside the app. The "Terminal" tab of a task opens in that task's worktree, and the "Terminal" button at the top (Ctrl + `) opens a panel at the bottom where you can open as many shells as you like, separate from any task. Shells keep running when you switch tabs or hide the panel, until you close them. During remote control the shell runs on the host, and you can also allow it from your phone.
+
 ### Notifications
 
 Waiting for approval, questions, waiting for an answer, waiting for review, and completion collect on the bell icon at the top right, and a desktop notification is shown. Clicking a notification opens that task. They can also go to Slack (see "Integrations" above).

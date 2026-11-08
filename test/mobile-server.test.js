@@ -132,7 +132,7 @@ test('ペアリング: 成功するとトークンを出し、保存するのは
   // セッション
   const s = await api(ctx.base, '/api/v1/session', { token });
   assert.strictEqual(s.status, 200);
-  assert.deepStrictEqual({ ...s.json.data, channels: undefined }, { deviceId, deviceName: 'My iPhone', expiresAt: r.json.data.expiresAt, appVersion: '9.9.9', language: 'fr', channels: undefined });
+  assert.deepStrictEqual({ ...s.json.data, channels: undefined }, { deviceId, deviceName: 'My iPhone', expiresAt: r.json.data.expiresAt, appVersion: '9.9.9', language: 'fr', channels: undefined, terminal: false });
   assert.deepStrictEqual(s.json.data.channels, [...MOBILE_CHANNELS]);
 });
 

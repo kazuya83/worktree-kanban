@@ -4426,11 +4426,14 @@ function openMobileSettings() {
           <div><b>${tr('つないだスマホ')}</b></div>
           ${deviceRows}
           ${devices.length ? `<div class="row"><button class="btn small" type="button" id="mbRevokeAll">${tr('すべて無効にする')}</button></div>` : ''}
+          <label class="check"><input type="checkbox" id="mbTerminal" ${st.terminalEnabled ? 'checked' : ''} /> ${tr('スマホからターミナルを使えるようにする')}</label>
+          <small class="muted">${tr('つないだスマホから、このパソコンでシェルを開いてコマンドを打てるようになります（パソコンを丸ごと操作できるのと同じです）。使うときだけオンにしてください。')}</small>
           <small class="muted">${tr('外のネットワークに公開されます。ペアリングしたスマホのトークンは 30 日で切れます（切れたら、もう一度つなぎます）。なくしたスマホは、ここで無効にしてください。マージ・PR・設定の変更は、スマホからはできません。')}</small>`;
         const busy = (label, fn) => runBusy(label, fn).then((r) => { if (r !== undefined) draw(r && r.server ? r : undefined); return r; });
         box.querySelectorAll('[data-copy]').forEach((b) => {
           b.onclick = () => navigator.clipboard.writeText($(b.dataset.copy).textContent).then(() => toast(tr('コピーしました'), 'ok'), () => toast(tr('コピーできませんでした')));
         });
+        $('mbTerminal').onchange = (e) => busy(tr('保存しています…'), () => api.mobileSetTerminal(e.target.checked));
         if ($('mbCfDocs')) $('mbCfDocs').onclick = () => api.openExternal(cf.hint?.url || '');
         if ($('mbCfRecheck')) $('mbCfRecheck').onclick = () => busy(tr('確かめています…'), () => api.mobileRecheck());
         if ($('mbStart')) $('mbStart').onclick = () => busy(tr('スマホ用のサーバーとトンネルを起動しています…'), () => api.mobileStart());

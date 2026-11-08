@@ -204,6 +204,10 @@ En «Conversación» puedes preguntar al agente sobre el repositorio sin crear u
 
 </details>
 
+### Terminal
+
+Abra una shell dentro de la aplicación. La pestaña «Terminal» de una tarea se abre en el worktree de esa tarea, y el botón «Terminal» de arriba (Ctrl + `) abre un panel en la parte inferior donde puede abrir tantas shells como quiera, sin relación con ninguna tarea. Las shells siguen en ejecución al cambiar de pestaña u ocultar el panel, hasta que las cierre. Durante el control remoto la shell se ejecuta en el host, y también puede permitirla desde el teléfono.
+
 ### Notificaciones
 
 La espera de aprobación, las preguntas, la espera de respuesta, la espera de revisión y la finalización se acumulan en el icono de la campana, arriba a la derecha, y también sale una notificación de escritorio. Al pulsar una notificación se abre esa tarea. También pueden ir a Slack (consulta «Integraciones» más arriba).

@@ -447,6 +447,7 @@ async function startMobile() {
       },
       appVersion: app.getVersion(),
       getLanguage: () => store.settings.language,
+      getTerminalEnabled: () => !!store.settings.mobileTerminalEnabled,
       invoke: (channel, arg, who) => {
         const fn = localHandlers.get(channel);
         if (!fn) throw new Error(tr('未対応の操作です: {channel}', { channel }));
@@ -857,6 +858,7 @@ app.whenReady().then(async () => {
     store.settings.mobileTerminalEnabled = !!on;
     store.save();
     // 許可をやめたら、スマホが開いたものも含めて、スマホへは出力を送らない（ターミナル自体はパソコンで使い続けられる）
+    mobileServer?.broadcast('session:changed', { terminal: !!on });
     notifyMobile();
     return mobileStatus();
   });

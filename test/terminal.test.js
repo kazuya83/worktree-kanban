@@ -236,3 +236,53 @@ test('python3 の PTY（node-pty が無い Mac・Linux 用）で、実際にシ�
   assert.match(out, /22 77/);
   assert.match(out, /OK_42/);
 });
+
+test('遠隔操作: 操作側から開いたターミナルはホストで動き、入出力と終了が中継される。切れてもホストに残る', async () => {
+  const { RemoteHost, RemoteClient } = require('../src/remote');
+  const { m, pty } = manager();
+  const host = new RemoteHost({
+    port: 0,
+    tokens: [],
+    onTokens: () => {},
+    // main.js と同じ: 転送してよいチャンネルだけを、ホストの TerminalManager で動かす
+    invoke: async (channel, arg) => {
+      if (!isProxyChannel(channel)) throw new Error(`blocked ${channel}`);
+      if (channel === 'terminal:open') return m.open({ ...arg, cwd: os.tmpdir() });
+      if (channel === 'terminal:write') return m.write(arg.id, arg.data);
+      if (channel === 'terminal:resize') return m.resize(arg.id, arg.cols, arg.rows);
+      if (channel === 'terminal:attach') return m.attach(arg.id);
+      if (channel === 'terminal:list') return m.list();
+      if (channel === 'terminal:close') return m.close(arg.id);
+      throw new Error(`unknown ${channel}`);
+    },
+  });
+  m.on('data', (id, data) => host.broadcast('terminal:data', { id, data }));
+  m.on('exit', (id, code) => host.broadcast('terminal:exit', { id, code }));
+  await host.start(0);
+  try {
+    const client = new RemoteClient();
+    const paired = await client.connect({ host: '127.0.0.1', port: host.port, code: host.status().pairCode });
+    const t = await client.invoke('terminal:open', { kind: 'free', cols: 90, rows: 20 });
+    // 操作側の id の印とは違うので、続きの操作はホストへ送る
+    assert.strictEqual(terminalSide('terminal:write', { id: t.id }, 'zzzzzz'), 'host');
+    await client.invoke('terminal:write', { id: t.id, data: 'ls\r' });
+    assert.deepStrictEqual(pty.spawned[0].written, ['ls\r']);
+    const ev = new Promise((resolve) => client.on('event', (ch, p) => ch === 'terminal:data' && resolve(p)));
+    pty.spawned[0].out('file.txt\r\n');
+    assert.deepStrictEqual(await ev, { id: t.id, data: 'file.txt\r\n' });
+    client.disconnect();
+    // 切れてもホストのシェルは動いたまま。つなぎ直すと一覧とそれまでの出力が返る
+    assert.strictEqual(m.list().length, 1);
+    const again = new RemoteClient();
+    await again.connect({ host: '127.0.0.1', port: host.port, token: paired.token });
+    const list = await again.invoke('terminal:list');
+    assert.strictEqual(list[0].id, t.id);
+    assert.strictEqual((await again.invoke('terminal:attach', { id: t.id })).scrollback, 'file.txt\r\n');
+    const ex2 = new Promise((resolve) => again.on('event', (ch, p) => ch === 'terminal:exit' && resolve(p)));
+    pty.spawned[0].exit(0);
+    assert.deepStrictEqual(await ex2, { id: t.id, code: 0 });
+    again.disconnect();
+  } finally {
+    await host.stop();
+  }
+});

@@ -61,6 +61,7 @@
     edit: ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z'],
     pause: ['M8 5v14', 'M16 5v14'],
     chat: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
+    terminal: ['M3 5h18v14H3z', 'M7 10l3 2-3 2', 'M13 15h4'],
     branch: ['M6 3v12', 'M18 9a3 3 0 1 0 0-6a3 3 0 1 0 0 6', 'M6 21a3 3 0 1 0 0-6a3 3 0 1 0 0 6', 'M18 9a9 9 0 0 1-9 9'],
   };
   function icon(name, cls) {
@@ -350,6 +351,8 @@
       setBoard(data);
       afterBoardChanged();
     } else if (name === 'card:log' && data && data.id && data.entry) onLog(data.id, data.entry);
+    // パソコンのアプリで、スマホからのターミナルの許可を変えた: 入口のボタンを出し直す
+    else if (name === 'session:changed') loadSession().then(renderAll);
   }
   function afterBoardChanged() {
     if (S.screen === 'board') renderBoard();
@@ -416,6 +419,15 @@
     return m.columnCards('running').length ? 'running' : m.columnCards('review').length ? 'review' : 'todo';
   }
 
+  // パソコンのアプリで「スマホからのターミナルを許可」にしているか（ターミナルは別の画面 terminal.html）
+  function terminalAllowed() {
+    return !!(S.session && S.session.terminal);
+  }
+  // タスクのターミナルを開けるか（git のタスクは worktree ができてから）
+  function cardTerminalReady(c) {
+    return BM.isNoGit(c) || BM.isChat(c) ? !!c.repoPath : !!c.worktreePath;
+  }
+
   function renderBoard() {
     const root = $('boardScreen');
     const list = root.querySelector('.card-list');
@@ -443,6 +455,7 @@
           : h('span.muted.small', { text: tr('リポジトリがありません') }),
       ),
       h('span.conn-dot'),
+      terminalAllowed() ? h('button.icon-btn', { type: 'button', 'aria-label': tr('ターミナル'), title: tr('ターミナル'), onclick: () => (location.href = '/terminal.html') }, icon('terminal')) : null,
       bellButton(),
       h('button.icon-btn', { type: 'button', 'aria-label': tr('ログアウト'), title: tr('ログアウト'), onclick: logout }, icon('logout')),
     );
@@ -666,7 +679,7 @@
 
   function renderDetailHead(c) {
     const m = S.model;
-    const sig = JSON.stringify([I18n.getLanguage(), c.status, c.title, c.interrupted, c.afterDone, m.badge(c), m.canMove(c, 'done'), m.canMove(c, 'review'), c.worktreePath]);
+    const sig = JSON.stringify([I18n.getLanguage(), c.status, c.title, c.interrupted, c.afterDone, m.badge(c), m.canMove(c, 'done'), m.canMove(c, 'review'), c.worktreePath, terminalAllowed()]);
     if (sig === S.headSig) return;
     S.headSig = sig;
     const [bcls, blabel] = m.badge(c);
@@ -700,6 +713,7 @@
           },
         }, icon('check'), tr('完了にする')),
       );
+    if (terminalAllowed() && cardTerminalReady(c)) btns.push(h('button.btn', { type: 'button', onclick: () => (location.href = `/terminal.html#card=${encodeURIComponent(c.id)}`) }, icon('terminal'), tr('ターミナル')));
     if (m.canMove(c, 'review')) btns.push(h('button.btn', { type: 'button', onclick: (e) => run(() => invoke('card:move', { id: c.id, to: 'review' }), tr('レビューに戻しました'), e.currentTarget) }, tr('レビューに戻す')));
     const box = clear($('dActions'));
     append(box, btns);
