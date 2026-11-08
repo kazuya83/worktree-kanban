@@ -16,6 +16,7 @@
 //   detailButtonHtml(c) / openCardCycles(c)  詳細の「スプリント」ボタンと、その選択ダイアログ
 //   canDrag(c) / canDropOn(c, target) / dropOn(c, target) / canLaneDrop(c, from, to) / moveLane(c, from, to)
 // }
+// 設定「スプリントごとにブランチを作る」がオンのときは、スプリントのブランチと「ベースにマージ」「PR を作る」も出す
 /* global api, icon, esc, $, state, CycleModel, openModal, closeModal, runBusy, toast, renderBoard, cardHtml, isChat, isHiddenSubtask */
 (function (root) {
   const i18n = typeof module === 'object' && module.exports ? require('./i18n.js') : root.I18n;
@@ -108,6 +109,22 @@
     return `<button type="button" class="${cls}" data-cycle-sel="${esc(e.key)}" ${e.drop ? `data-cycle-drop="${esc(e.key)}"` : ''} title="${esc(title)}">
       <span class="cy-name">${esc(e.label)}</span>${side && period ? `<span class="cy-period">${esc(period)}</span>` : ''}<span class="cy-count">${e.count}</span></button>`;
   }
+  // スプリントごとのブランチを使う設定か（プロジェクトごと）
+  function branchMode() {
+    return !!(state.board.settings && state.board.settings.sprintBranch === true);
+  }
+  // スプリントのブランチと、マージ・PR のボタン
+  function branchHtml(cy) {
+    if (!branchMode() || !cy) return '';
+    if (!cy.branch) return `<div class="cy-branch muted small">${icon('branch')}${tr('ブランチは、このスプリントで最初にタスクを始めるときに作ります')}</div>`;
+    const base = cy.branchBase || (state.board.settings && state.board.settings.baseBranch) || '';
+    const done = [cy.mergedAt ? tr('{base} にマージ済み', { base: esc(base || tr('ベース')) }) : '', cy.prUrl ? `<a class="issue-chip" data-url="${esc(cy.prUrl)}">PR</a>` : ''].filter(Boolean).join(' ');
+    return `<div class="cy-branch">${icon('branch')}<code>${esc(cy.branch)}</code>${base ? ` <span class="muted small">← ${esc(base)}</span>` : ''} ${done ? `<span class="muted small">${done}</span>` : ''}
+      <span class="cy-current-acts">
+        <button type="button" class="btn small ghost" data-cycle-act="mergeBranch" data-id="${esc(cy.id)}" title="${esc(tr('スプリントのブランチを {base} にマージします', { base: base || tr('ベース') }))}">${tr('ベースにマージ')}</button>
+        <button type="button" class="btn small ghost" data-cycle-act="prBranch" data-id="${esc(cy.id)}" title="${esc(tr('スプリントのブランチを origin に push して、{base} への PR を作ります', { base: base || tr('ベース') }))}">${tr('PR を作る')}</button>
+      </span></div>`;
+  }
   // 選んでいるスプリントの、期間・ゴールと操作
   function currentHtml(sel) {
     const cy = findCycle(sel);
@@ -120,6 +137,7 @@
           <button type="button" class="btn small ghost" data-cycle-act="${cy.done ? 'reopen' : 'done'}" data-id="${esc(cy.id)}">${cy.done ? tr('未完了に戻す') : tr('完了にする')}</button>
         </span></div>
       ${cy.goal ? `<div class="cy-goal"><span class="muted small">${tr('ゴール')}</span> ${esc(cy.goal)}</div>` : ''}
+      ${branchHtml(cy)}
     </div>`;
   }
   function toolsHtml() {
@@ -169,6 +187,7 @@
           .join('');
         return `<div class="lane ${cy && cy.done ? 'done' : ''}" data-lane-row="${esc(l.key)}">
           <div class="lane-head">${title}<span class="count">${l.cards.length}</span><span class="lane-acts">${acts}</span></div>
+          ${branchHtml(cy)}
           <div class="lane-row">${cells}</div>
         </div>`;
       })
@@ -218,6 +237,8 @@
         if (act === 'edit') return openEditor(cy);
         if (act === 'done') return setDone(cy, true);
         if (act === 'reopen') return setDone(cy, false);
+        if (act === 'mergeBranch') return mergeBranch(cy);
+        if (act === 'prBranch') return prBranch(cy);
       };
     });
   }
@@ -225,6 +246,35 @@
   async function setDone(cy, done) {
     if (done && !confirm(tr('スプリント「{name}」を完了にしますか？\n完了したスプリントは一覧から隠れます（「完了したスプリントを表示」で見られます）。中のタスクはそのまま残ります。', { name: cy.name }))) return;
     await runBusy(done ? tr('スプリントを完了にしています…') : tr('スプリントを未完了に戻しています…'), () => api.updateCycle(cy.id, { done }), done ? tr('スプリントを完了にしました') : tr('スプリントを未完了に戻しました'));
+  }
+
+  // スプリントのブランチを、作成元（ベース）のブランチへマージする
+  function mergeBranch(cy) {
+    const base = cy.branchBase || state.board.settings.baseBranch || tr('ベース');
+    const push = state.board.settings.pushAfterMerge !== false;
+    openModal(
+      `<h2>${tr('スプリントのブランチをマージ')}</h2>
+       <p>${tr('スプリント「{name}」のブランチ <code>{branch}</code> を <code>{base}</code> にマージします。', { name: esc(cy.name), branch: esc(cy.branch), base: esc(base) })}</p>
+       <label class="check"><input type="checkbox" id="cbPush" ${push ? 'checked' : ''} /> ${tr('マージしたあと origin にも push する')}</label>
+       <div class="modal-actions"><span class="spacer"></span><button class="btn ghost" id="cbCancel">${tr('キャンセル')}</button><button class="btn primary" id="cbOk">${tr('マージ')}</button></div>`,
+      () => {
+        $('cbCancel').onclick = closeModal;
+        $('cbOk').onclick = async () => {
+          const p = $('cbPush').checked;
+          const r = await runBusy(tr('スプリントのブランチをマージしています…'), () => api.mergeSprintBranch(cy.id, p));
+          if (!r) return;
+          closeModal();
+          toast(r.merged ? tr('{target} にマージしました', { target: r.target }) : tr('{target} にはもう取り込まれているので、マージする変更はありませんでした', { target: r.target }), 'ok');
+        };
+      },
+    );
+  }
+  // スプリントのブランチから、作成元（ベース）のブランチへの PR を作る
+  async function prBranch(cy) {
+    const base = cy.branchBase || state.board.settings.baseBranch || tr('ベース');
+    if (!confirm(tr('スプリント「{name}」のブランチ {branch} を origin に push して、{base} への PR を作りますか？', { name: cy.name, branch: cy.branch, base }))) return;
+    const r = await runBusy(tr('PR を作成しています…'), () => api.sprintPullRequest(cy.id, {}));
+    if (r && r.url) toast(r.created === false ? tr('開いている PR を更新しました: {url}', { url: r.url }) : tr('PR を作成しました: {url}', { url: r.url }), 'ok');
   }
 
   // スプリントの作成・編集（cy が null なら作成）。作ったら、そのスプリントを選ぶ
@@ -311,19 +361,38 @@
     const title = names.length ? tr('入っているスプリント: {names}', { names: names.join(tr('、')) }) : tr('どのスプリントにも入っていません');
     return `<button class="btn ghost" data-act="cycles" title="${esc(title)}">${icon('flag')}${names.length ? tr('スプリント（{n}）', { n: names.length }) : tr('スプリント')}</button>`;
   }
+  // 複数のスプリントを選んだときに、ブランチを使うスプリントを選ぶ欄（設定「スプリントごとにブランチを作る」のとき）
+  function branchPickHtml(ids, chosen) {
+    const list = M().sortCycles(cycles().filter((cy) => ids.includes(cy.id) && !cy.done));
+    if (!branchMode() || list.length < 2) return '';
+    return `<label class="field"><span>${tr('ブランチを使うスプリント')}</span><select id="ccBranch">
+        <option value="">${tr('選ばない（ベースブランチから始める）')}</option>
+        ${list.map((cy) => `<option value="${esc(cy.id)}" ${cy.id === chosen ? 'selected' : ''}>${esc(cy.name)}${cy.branch ? ` (${esc(cy.branch)})` : ''}</option>`).join('')}
+      </select><small>${tr('複数のスプリントに入っているので、どのスプリントのブランチから始めて、どこへマージするかを選びます。')}</small></label>`;
+  }
   function openCardCycles(c) {
     const ids = idsOf(c);
     openModal(
       `<h2>${tr('タスクを入れるスプリント')}</h2>
        <p class="muted small">${tr('「{title}」を入れるスプリントを選びます（いくつでも。どれも選ばなければ「未割り当て」）。', { title: esc(c.title) })}</p>
        <div id="ccBox">${checksHtml('cc', ids)}</div>
+       <div id="ccBranchBox">${branchPickHtml(ids, c.branchCycleId || '')}</div>
        <div class="modal-actions"><button class="btn ghost" id="ccNew">${icon('plus')}${tr('新しいスプリント')}</button><span class="spacer"></span><button class="btn ghost" id="ccCancel">${tr('キャンセル')}</button><button class="btn primary" id="ccOk">${tr('保存')}</button></div>`,
       () => {
         $('ccCancel').onclick = closeModal;
         $('ccNew').onclick = () => openEditor(null, () => openCardCycles(card(c.id) || c));
+        // チェックを変えたら、ブランチを使うスプリントの欄を作り直す（選んでいたものは残す）
+        const box = $('ccCycles');
+        if (box) {
+          box.onchange = () => {
+            const prev = $('ccBranch') ? $('ccBranch').value : c.branchCycleId || '';
+            $('ccBranchBox').innerHTML = branchPickHtml(readField('cc') || [], prev);
+          };
+        }
         $('ccOk').onclick = async () => {
           const next = readField('cc') || [];
-          const r = await runBusy(tr('スプリントを保存しています…'), () => api.setCardCycles(c.id, next), tr('スプリントを保存しました'));
+          const branchCycleId = $('ccBranch') ? $('ccBranch').value : undefined;
+          const r = await runBusy(tr('スプリントを保存しています…'), () => api.setCardCycles(c.id, next, branchCycleId), tr('スプリントを保存しました'));
           if (r) closeModal();
         };
       },

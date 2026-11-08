@@ -4521,6 +4521,8 @@ function renderSettingsView() {
           <option value="pr" ${s.integration === 'pr' ? 'selected' : ''}>${s.codeHost === 'gitlab' ? tr('MR を作成する（origin に push して GitLab の API で作る）') : tr('PR を作成する（origin に push して gh pr create）')}</option>
         </select>
         <small>${s.codeHost === 'gitlab' ? tr('レビュー中のタスクに出るボタンが「マージ」か「MR を作成」に変わります。MR の作成には、設定の「連携」で入れた GitLab のトークンを使います。') : tr('レビュー中のタスクに出るボタンが「マージ」か「PR を作成」に変わります。PR の作成には gh のインストールとログインが必要です。')}</small></label>
+      <label class="check"><input type="checkbox" id="sSprintBranch" ${s.sprintBranch === true ? 'checked' : ''} /> ${tr('スプリントごとにブランチを作り、スプリントのタスクはそこから始めて、そこへマージする')}</label>
+      <small class="muted s-note">${tr('スプリントのブランチ（sprint/<名前>-<ID>）は、そのスプリントで最初にタスクを始めるときに、ベースブランチから作ります。スプリントのブランチをベースブランチへ取り込むのは、スプリントの「ベースにマージ」「PR を作る」から行います。')}</small>
       <label class="field">${tr('<span>ブランチの命名規則（自然言語で書けます）</span>')}
         <textarea id="sBranchRule" rows="2" placeholder="${tr('例: feature/<Issue番号>-<内容を表す短い英語> にする。Issue がないときは feature/<内容を表す短い英語>')}">${esc(s.branchNamingRule || '')}</textarea>
         <small>${tr('書いておくと、タスクの開始時にそのタスクのエージェントがこの規則に従ってブランチ名を考えます。空なら agent/issue-12-xxxx のような名前になります。決められなかったときも、この名前になります。')}</small></label>
@@ -5075,6 +5077,8 @@ ${tr('読めなかったファイル: {v1}', { v1: (parsed.skipped.join(tr('、'
         baseBranch: $('sBase').value,
         integration: $('sIntegration').value,
         branchNamingRule: $('sBranchRule').value.trim(),
+        // 変えたときだけ送る（古い版のホストは知らない設定を受け取らないので、変えていなければエラーにしない）
+        ...($('sSprintBranch').checked !== (s.sprintBranch === true) ? { sprintBranch: $('sSprintBranch').checked } : {}),
         setupScript: $('sSetupScript').value,
         teardownScript: $('sTeardownScript').value,
         runScript: $('sRunScript').value,

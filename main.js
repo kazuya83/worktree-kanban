@@ -1159,7 +1159,7 @@ app.whenReady().then(async () => {
     return { branches, current, hasOrigin };
   });
   handle('settings:update', (patch) => {
-    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
+    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
     if (patch && 'branchNamingRule' in patch) patch = { ...patch, branchNamingRule: String(patch.branchNamingRule || '').trim() };
     for (const k of ['setupScript', 'teardownScript', 'runScript']) if (patch && k in patch) patch = { ...patch, [k]: cleanScript(patch[k]) };
     if (patch && 'integration' in patch && !['merge', 'pr'].includes(patch.integration)) patch = { ...patch, integration: 'merge' };
@@ -1167,6 +1167,7 @@ app.whenReady().then(async () => {
     if (patch && 'deleteSessionsOnMerge' in patch) patch = { ...patch, deleteSessionsOnMerge: !!patch.deleteSessionsOnMerge };
     if (patch && 'specCheck' in patch) patch = { ...patch, specCheck: !!patch.specCheck };
     if (patch && 'ciAutoFix' in patch) patch = { ...patch, ciAutoFix: !!patch.ciAutoFix };
+    if (patch && 'sprintBranch' in patch) patch = { ...patch, sprintBranch: !!patch.sprintBranch };
     if (patch && 'weeklyResetDay' in patch) patch = { ...patch, weeklyResetDay: /^[0-6]$/.test(String(patch.weeklyResetDay)) ? String(patch.weeklyResetDay) : '' };
     if (patch && 'weeklyResetTime' in patch) patch = { ...patch, weeklyResetTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(patch.weeklyResetTime)) ? String(patch.weeklyResetTime) : '00:00' };
     if (patch && 'issueStatusSync' in patch) patch = { ...patch, issueStatusSync: !!patch.issueStatusSync };
@@ -1339,6 +1340,21 @@ app.whenReady().then(async () => {
   handle('cycles:update', (p) => cycleApi.update(p));
   handle('cycles:delete', (p) => cycleApi.delete(p));
   handle('cycles:setCard', (p) => cycleApi.setCard(p));
+  // スプリントのブランチを、作成元（ベース）のブランチへマージする / PR を作る
+  handle('cycles:merge', async (p) => {
+    try {
+      return await agents.mergeSprintBranch(p && p.id, { push: !!(p && p.push) });
+    } finally {
+      notifyBoard();
+    }
+  });
+  handle('cycles:pr', async (p) => {
+    try {
+      return await agents.sprintPullRequest(p && p.id, { title: p && p.title, body: p && p.body });
+    } finally {
+      notifyBoard();
+    }
+  });
   handle('skills:list', async () => require('./src/skills').listSkills(store.settings.repoPath, { configDir: await claudeConfigFor(store.settings.repoPath) }));
   handle('card:btw', ({ id, text }) => agents.btw(id, text));
   handle('card:setSession', ({ id, session }) => agents.setSession(id, session));

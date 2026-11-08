@@ -170,6 +170,8 @@ const PROXY_CHANNELS = new Set([
   'cycles:update',
   'cycles:delete',
   'cycles:setCard',
+  'cycles:merge',
+  'cycles:pr',
   'skills:list',
   'card:btw',
   'card:setSession',
