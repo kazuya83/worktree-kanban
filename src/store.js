@@ -4,6 +4,7 @@ const path = require('path');
 const { DEFAULT_RELAY_STEPS, defaultRelaySteps, DEFAULT_COMPETE_AGENTS, DEFAULT_ENABLED_AGENTS, isAgent, isCustomRef, cleanEnabledAgents, cleanOrchestration, cleanRelaySteps, cleanCustomAgents, defaultAgentOf, defaultAgentRefOf } = require('./providers');
 const FlowModel = require('../renderer/flow-model');
 const { cleanSchedules } = require('../renderer/schedule-model');
+const { cleanCycles, cleanCycleView } = require('../renderer/cycle-model');
 const I18n = require('../renderer/i18n');
 const { tr } = I18n;
 
@@ -299,6 +300,8 @@ const DEFAULT_SETTINGS = {
   mobileTunnelMode: 'quick', // 'quick' = Quick Tunnel（URL が起動ごとに変わる） / 'named' = 名前付きトンネル
   mobileNamedHostname: '', // 名前付きトンネルで公開するホスト名（トークンは secrets.json）
   cloudflaredPath: '', // cloudflared のパス（空なら探す）
+  // ---- サイクル（期間とゴールを持つ、タスクのまとまり） ----
+  cycleView: 'top', // 'top' = ボードの上のタブ / 'sidebar' = 左のサイドバー / 'lanes' = 列の中をサイクルごとの段に分ける
 };
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -503,7 +506,7 @@ class Store {
     this.file = file;
     // 言語は main.js が setLanguage したあとに new Store する。ここでは setLanguage しない
     // 読めないときの初期 language は、その時点の表示言語（欠けたファイルは en、壊れたファイルは ja）
-    this.data = { settings: { ...DEFAULT_SETTINGS, language: I18n.getLanguage(), relaySteps: defaultRelaySteps(), relayFlow: cloneFlow(defaultRelayFlow()), agentsUnset: true }, cards: [], removedCost: {}, costLog: [], weeklyResetAt: 0, notifications: [], schedules: [] };
+    this.data = { settings: { ...DEFAULT_SETTINGS, language: I18n.getLanguage(), relaySteps: defaultRelaySteps(), relayFlow: cloneFlow(defaultRelayFlow()), agentsUnset: true }, cards: [], removedCost: {}, costLog: [], weeklyResetAt: 0, notifications: [], schedules: [], cycles: [] };
     this.timer = null;
     this.load();
   }
@@ -519,7 +522,9 @@ class Store {
       this.data.costLog = Array.isArray(raw.costLog) ? raw.costLog : [];
       this.data.weeklyResetAt = Number(raw.weeklyResetAt) || 0;
       this.data.schedules = cleanSchedules(raw.schedules);
+      this.data.cycles = cleanCycles(raw.cycles);
       migrateSettings(this.data.settings, raw.settings || {}, this.data.cards);
+      this.data.settings.cycleView = cleanCycleView(this.data.settings.cycleView);
     } catch {
       /* ファイルが無い、または壊れている。language はコンストラクタで入れた表示言語のまま */
     }
@@ -611,6 +616,29 @@ class Store {
 
   removeSchedule(id) {
     this.data.schedules = this.data.schedules.filter((s) => s.id !== id);
+  }
+
+  // サイクル（全リポジトリの分）
+  get cycles() {
+    return this.data.cycles;
+  }
+
+  // そのリポジトリのサイクル（画面に渡す分）
+  cyclesOf(repoPath) {
+    return this.data.cycles.filter((c) => c.repoPath === repoPath);
+  }
+
+  cycle(id) {
+    return this.data.cycles.find((c) => c.id === id);
+  }
+
+  addCycle(c) {
+    this.data.cycles.push(c);
+    return c;
+  }
+
+  removeCycle(id) {
+    this.data.cycles = this.data.cycles.filter((c) => c.id !== id);
   }
 
   // 削除したタスクで使った金額も合計に残すため、リポジトリごとに足し込んでおく

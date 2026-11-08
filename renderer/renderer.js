@@ -1,4 +1,4 @@
-/* global api, icon, agentIcon, NOTIF_ICON, AppView, tr, I18n */
+/* global api, icon, agentIcon, NOTIF_ICON, AppView, tr, I18n, CycleView, CycleModel */
 // 言語の土台（i18n.js）が先に tr を置く。まだ無いときは原文のまま返す
 if (typeof tr !== 'function') {
   var tr = (key, vars) => (vars ? String(key ?? '').replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : key);
@@ -455,7 +455,7 @@ function cardHtml(c) {
   const [bcls, blabel] = badgeFor(c);
   const since = c.status === 'running' ? c.startedAt : null;
   return `
-    <div class="card s-${c.status} ${isChat(c) ? 'chat' : ''} ${waiting ? (bcls === 'waiting' ? 'waiting' : bcls === 'conflict' ? 'conflicting' : 'asking') : ''} ${state.selected === c.id ? 'selected' : ''}" draggable="${canDragCard(c)}" data-id="${c.id}">
+    <div class="card s-${c.status} ${isChat(c) ? 'chat' : ''} ${waiting ? (bcls === 'waiting' ? 'waiting' : bcls === 'conflict' ? 'conflicting' : 'asking') : ''} ${state.selected === c.id ? 'selected' : ''}" draggable="${canDragCard(c) || CycleView.canDrag(c)}" data-id="${c.id}">
       <div class="card-top">
         <span class="badge b-${bcls}">${blabel}</span>
         ${isUnreadChat(c) ? tr('<span class="unread-chip" title="まだ読んでいない返事があります">未読</span>') : ''}
@@ -463,6 +463,7 @@ function cardHtml(c) {
       </div>
       <div class="card-title">${c.issue ? tr('<a class="issue-chip" data-url="{url}" title="Issue を開く">{key}</a> {v}', { url: (esc(c.issue.url)), key: (esc(IssueRef.keyOf(c.issue))), v: (esc(IssueRef.stripKey(c.title, c.issue))) }) : esc(c.title)}</div>
       ${orchChipsHtml(c)}
+      ${CycleView.chipsHtml(c)}
       ${c.readOnly ? tr('<div class="card-skill-row"><span class="readonly-chip" title="ソースを変更しないタスク: worktree を作らず、ファイルを書き換えるツールを止めて動かします。確かめたら「完了にする」で完了にします">{v}ソース変更なし</span></div>', { v: (icon('lock')) }) : ''}
       ${c.skill ? tr('<div class="card-skill-row"><span class="skill-chip small" title="最初の指示で使うスキル">{v}/{skill}</span></div>', { v: (icon('zap')), skill: (esc(c.skill)) }) : ''}
       ${c.error && c.status === 'failed' ? `<div class="card-err">${esc(c.error)}</div>` : ''}
@@ -714,6 +715,7 @@ function renderBoard() {
   if (state.view === 'settings') return renderSettingsViewIfStale();
 
   if (!settings.repoPath) {
+    $('board').className = 'board';
     $('board').innerHTML = viewingHost()
       ? tr('<div class="empty-state"><h2>接続先（{v}）でリポジトリを選んでください</h2><p>遠隔操作中は、ホストのリポジトリでエージェントが動きます。ホストの最近開いたリポジトリや、ホストのフォルダから選べます。</p><button class="btn primary" id="emptyRepo">ホストのリポジトリを選ぶ</button></div>', { v: (esc(remoteHostLabel())) })
       : tr('<div class="empty-state"><h2>まずリポジトリを選んでください</h2><p>タスクごとにこのリポジトリの git worktree を作って、エージェント（Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI）を並列に動かします。</p><button class="btn primary" id="emptyRepo">リポジトリを選ぶ・クローン・新規作成</button></div>');
@@ -724,27 +726,40 @@ function renderBoard() {
   const boardEl = $('board');
   const boardScroll = [boardEl.scrollLeft, boardEl.scrollTop];
   const colScroll = {};
+  const scrollKey = (sec) => `${sec.dataset.col}|${sec.dataset.lane || ''}`;
   boardEl.querySelectorAll('.column[data-col]').forEach((sec) => {
     const list = sec.querySelector('.cards');
-    if (list) colScroll[sec.dataset.col] = list.scrollTop;
+    if (list) colScroll[scrollKey(sec)] = list.scrollTop;
   });
-  boardEl.innerHTML = COLUMNS.map((col) => {
-    // サブタスクは親のカードにまとめて出す。サブタスクを動かしている親は「実行中」に置く
-    const list = cards
-      .filter((c) => !isChat(c) && !isHiddenSubtask(c) && col.statuses.includes(subtasksRunning(c) && (c.status === 'review' || c.status === 'failed') ? 'running' : c.status))
-      .sort(byAttention);
-    return `
+  // サブタスクは親のカードにまとめて出す
+  const boardCards = cards.filter((c) => !isChat(c) && !isHiddenSubtask(c));
+  // スプリント: 上のタブ・左のサイドバーでは選んだスプリントのタスクだけ、スイムレーンではスプリントごとの段に分ける
+  const cv = CycleView.mode();
+  boardEl.className = `board cv-${cv}`;
+  if (cv === 'lanes') boardEl.innerHTML = CycleView.chromeHtml(boardCards) + CycleView.lanesHtml(boardCards, COLUMNS, columnCards);
+  else {
+    const shown = boardCards.filter(CycleView.inView);
+    boardEl.innerHTML = CycleView.chromeHtml(boardCards) + COLUMNS.map((col) => {
+      const list = columnCards(shown, col);
+      return `
       <section class="column" data-col="${col.key}">
         <header><span>${col.label}</span><span class="count">${list.length}</span></header>
         <div class="cards">${list.map(cardHtml).join('') || `<div class="col-empty">${col.key === 'todo' ? tr('「＋ 新しいタスク」から追加') : tr('なし')}</div>`}</div>
       </section>`;
-  }).join('');
+    }).join('');
+  }
+  CycleView.bindChrome();
   boardEl.querySelectorAll('.column[data-col]').forEach((sec) => {
-    const top = colScroll[sec.dataset.col];
+    const top = colScroll[scrollKey(sec)];
     const list = sec.querySelector('.cards');
     if (top && list) list.scrollTop = top;
   });
   [boardEl.scrollLeft, boardEl.scrollTop] = boardScroll;
+}
+
+// その列に出すカード。サブタスクを動かしている親は「実行中」に置く
+function columnCards(list, col) {
+  return list.filter((c) => col.statuses.includes(subtasksRunning(c) && (c.status === 'review' || c.status === 'failed') ? 'running' : c.status)).sort(byAttention);
 }
 
 // 対応が必要なものを上に、あとは新しい順
@@ -867,37 +882,70 @@ function canDropCard(c, to) {
   return false;
 }
 let boardDragId = null;
+let boardDragLane = null; // スイムレーンで、ドラッグを始めた段（スプリントの ID か 'none'）
 $('board').addEventListener('dragstart', (e) => {
   const el = e.target.closest('.card');
   if (!el) return;
   boardDragId = el.dataset.id;
+  boardDragLane = el.closest('[data-lane]')?.dataset.lane || null;
   e.dataTransfer.setData('text/plain', el.dataset.id);
 });
 $('board').addEventListener('dragend', () => {
   boardDragId = null;
-  $('board').querySelectorAll('.column.drop').forEach((x) => x.classList.remove('drop'));
+  boardDragLane = null;
+  $('board').querySelectorAll('.column.drop, [data-cycle-drop].drop').forEach((x) => x.classList.remove('drop'));
 });
+// 落とす先の列（スイムレーンでは段も）に動かせるか: 列の移動・段の移動のどちらかがあり、どちらも動かせること
+function boardDropPlan(c, col) {
+  if (!c || !col) return null;
+  const to = col.dataset.col;
+  const lane = col.dataset.lane;
+  const moveCol = boardColOf(c) !== to;
+  const moveLane = !!lane && lane !== boardDragLane;
+  if (moveCol && !canDropCard(c, to)) return null;
+  if (moveLane && !CycleView.canLaneDrop(c, boardDragLane, lane)) return null;
+  return moveCol || moveLane ? { moveCol, moveLane, to, lane } : null;
+}
 $('board').addEventListener('dragover', (e) => {
+  const c = card(boardDragId);
+  // タブ・サイドバーのスプリントへ落とすと、そのスプリントに入れる（「未割り当て」なら外す）
+  const cy = e.target.closest('[data-cycle-drop]');
+  if (cy) {
+    if (CycleView.canDropOn(c, cy.dataset.cycleDrop)) {
+      e.preventDefault();
+      cy.classList.add('drop');
+    }
+    return;
+  }
   const col = e.target.closest('.column[data-col]');
-  if (col && canDropCard(card(boardDragId), col.dataset.col)) {
+  if (col && boardDropPlan(c, col)) {
     e.preventDefault();
     col.classList.add('drop');
   }
 });
 $('board').addEventListener('dragleave', (e) => {
-  const col = e.target.closest('.column');
+  const col = e.target.closest('.column, [data-cycle-drop]');
   if (col && !col.contains(e.relatedTarget)) col.classList.remove('drop');
 });
-$('board').addEventListener('drop', (e) => {
+$('board').addEventListener('drop', async (e) => {
+  const c = card(e.dataTransfer.getData('text/plain'));
+  const cy = e.target.closest('[data-cycle-drop]');
+  if (cy) {
+    e.preventDefault();
+    cy.classList.remove('drop');
+    boardDragId = null;
+    return CycleView.dropOn(c, cy.dataset.cycleDrop);
+  }
   const col = e.target.closest('.column[data-col]');
   if (!col) return;
   e.preventDefault();
   col.classList.remove('drop');
-  const c = card(e.dataTransfer.getData('text/plain'));
+  const plan = boardDropPlan(c, col);
+  const from = boardDragLane;
   boardDragId = null;
-  const to = col.dataset.col;
-  if (!canDropCard(c, to)) return;
-  moveCardTo(c, to);
+  if (!plan) return;
+  if (plan.moveLane) await CycleView.moveLane(c, from, plan.lane);
+  if (plan.moveCol) moveCardTo(c, plan.to);
 });
 async function moveCardTo(c, to) {
   if (to === 'running' && c.status === 'todo') return runBusy(tr('タスクを開始しています…'), () => api.start(c.id));
@@ -1973,7 +2021,7 @@ function competeBoxHtml(c) {
 function renderDetailHead() {
   const c = card(state.selected);
   if (!c) return closeDetailOrBack();
-  const sig = JSON.stringify([c.conflict, c.conflictResolved, c.status, c.title, c.error, c.branch, c.worktreePath, c.costUsd, c.permissions, c.alwaysAllow, c.mergedInto, c.pushedTo, c.prUrl, c.prBase, c.prState, c.prMergeable, c.prChecks, c.ciFix, state.board.settings.integration, c.sessionId, c.forkNext, c.sessions, c.questions, c.awaitingReply, c.specState, c.specQuestions, c.interrupted, c.agent, c.relay, c.compete, competitors(c).map((x) => [x.id, x.status, x.branch]), relayKidsSig(c), c.subtasks, c.subtaskProposal, c.subtaskOf, subKidsSig(c)]);
+  const sig = JSON.stringify([c.conflict, c.conflictResolved, c.status, c.title, c.error, c.branch, c.worktreePath, c.costUsd, c.permissions, c.alwaysAllow, c.mergedInto, c.pushedTo, c.prUrl, c.prBase, c.prState, c.prMergeable, c.prChecks, c.ciFix, state.board.settings.integration, c.sessionId, c.forkNext, c.sessions, c.questions, c.awaitingReply, c.specState, c.specQuestions, c.interrupted, c.agent, c.relay, c.compete, competitors(c).map((x) => [x.id, x.status, x.branch]), relayKidsSig(c), c.subtasks, c.subtaskProposal, c.subtaskOf, subKidsSig(c), c.cycleIds, state.board.cycles]);
   if (sig === state.headSig) return;
   state.headSig = sig;
   const s = c.status;
@@ -1997,6 +2045,7 @@ function renderDetailHead() {
     // 完了したタスクは開き直さない。修正は別のタスクにする（このタスクのやりとりを引き継ぐ）
     s === 'done' && tr('<button class="btn" data-act="fixTask" title="このタスクのやりとり（完了後の会話も含む）を引き継いで、修正のための新しいタスクを作ります">{v}修正タスクを作る</button>', { v: (icon('wrench')) }),
     (c.worktreePath || isNoGit(c)) && tr('<button class="btn ghost" data-act="open">フォルダを開く</button>'),
+    CycleView.detailButtonHtml(c),
     AppView.canSchedule(c) && tr('<button class="btn ghost" data-act="schedule" title="このタスクの内容をコピーして、スケジュールに登録します（添付ファイルはコピーしません）">{v}スケジュール登録</button>', { v: (icon('calendar')) }),
     // 完了したタスク（完了後の会話の途中も含む）は削除できない
     s !== 'done' && !c.afterDone && tr('<button class="btn danger" data-act="discard">破棄</button>'),
@@ -2185,6 +2234,7 @@ async function detailAction(e) {
     return;
   }
   if (act === 'schedule') return openScheduleEditor(c);
+  if (act === 'cycles') return CycleView.openCardCycles(c);
   if (act === 'discard' && isChat(c)) {
     if (confirm(tr('会話「{title}」をボードから削除しますか？\n{v}', { title: (c.title), v: (agentOf(c) === 'claude' ? tr('（Claude Code の会話の記録は残るので、あとで「既存の会話」から引き継げます）') : '') }))) {
       await runBusy(tr('削除しています…'), () => api.discard(c.id), tr('削除しました'));
@@ -3434,6 +3484,7 @@ function newTask(opts = {}) {
      ${modelFieldHtml('n', from && enabledAgents().includes(agentOf(from)) ? from.model || '' : '')}
      <div class="field"><span>${tr('エージェントへの指示')}</span><div id="nSkill" class="skill-slot"></div><textarea id="nPrompt" rows="10" placeholder="${esc(tr('やってほしいことを具体的に書いてください。テストの実行方法なども書いておくと確実です。画像やファイルは貼り付け・ドラッグ＆ドロップでも添付できます。'))}"></textarea><div id="nAttach" class="attach-bar"></div></div>
      ${sessionFieldHtml('n')}
+     ${CycleView.fieldHtml('n', fromDone ? CycleModel.cardCycleIds(from, state.board.cards) : CycleView.newTaskIds())}
      <label class="check" title="${esc(tr('SQL を作るだけ・調べるだけなど、ソースコードを変えないタスクにします。worktree とブランチは作らず、リポジトリのフォルダでファイルを書き換えるツールを止めて動かします。作ったものはチャットの返事に出るので、確かめてから「完了にする」を押します'))}"><input type="checkbox" id="nReadOnly" /> ${tr('ソースを変更しない（調べもの・SQL などの生成だけ）')}</label>
      <label class="check"><input type="checkbox" id="nStart" checked /> ${tr('作成したらすぐに開始する')}</label>
      <div class="modal-actions"><button class="btn ghost" id="nCancel">${tr('キャンセル')}</button><button class="btn primary" id="nOk">${tr('作成（Ctrl/⌘ + Enter）')}</button></div>`,
@@ -3455,7 +3506,7 @@ function newTask(opts = {}) {
       const att = attachField({ box: $('nAttach'), input: $('nPrompt'), drop: $('nPrompt').closest('.field') });
       const submit = async () => {
         const files = att.list();
-        const id = await runBusy(tr('タスクを作成しています…'), () => api.createCard({ title: $('nTitle').value, prompt: $('nPrompt').value, autoStart: $('nStart').checked, session: readSessionField('n'), skill, agent: $('nAgent').value, model: readModelField('n', $('nAgent').value), fromChat: from ? from.id : undefined, attachments: files.length ? files : undefined, readOnly: $('nReadOnly').checked || undefined }));
+        const id = await runBusy(tr('タスクを作成しています…'), () => api.createCard({ title: $('nTitle').value, prompt: $('nPrompt').value, autoStart: $('nStart').checked, session: readSessionField('n'), skill, agent: $('nAgent').value, model: readModelField('n', $('nAgent').value), fromChat: from ? from.id : undefined, attachments: files.length ? files : undefined, readOnly: $('nReadOnly').checked || undefined, cycleIds: CycleView.readField('n') }));
         if (id) {
           closeModal();
           selectNew(id);
@@ -3796,7 +3847,7 @@ function openSessionManager() {
 
 // Issue 番号からカードを作る（上部の枠と、詳細ダイアログの両方から使う）
 async function createFromIssues(numbers, extra, autoStart, session, skill, agent, model) {
-  const r = await runBusy(tr('Issue を読み込んでタスクを作成しています…'), () => api.createFromIssues({ numbers, extra, autoStart, session, skill, agent, model }));
+  const r = await runBusy(tr('Issue を読み込んでタスクを作成しています…'), () => api.createFromIssues({ numbers, extra, autoStart, session, skill, agent, model, cycleIds: CycleView.newTaskIds() }));
   if (!r) return false;
   if (r.errors.length) toast(r.errors.join('\n'));
   else toast(tr('{n} 件のタスクを Issue から作りました', { n: r.ids.length }), 'ok');
@@ -4453,6 +4504,9 @@ function renderSettingsView() {
         <select id="sLanguage">${I18n.LANGUAGES.map((l) => `<option value="${l.code}" ${l.code === I18n.getLanguage() ? 'selected' : ''}>${esc(l.label)}</option>`).join('')}</select>
         <small>${tr('表示の言語です。選ぶとすぐに保存して、画面を読み直します。')}</small></label>
       <label class="field">${tr('<span>同時に動かす数</span>')}<input id="sMax" type="number" min="1" max="10" value="${esc(s.maxParallel)}" /></label>
+      <label class="field"><span>${tr('スプリントの表示')}</span>
+        <select id="sCycleView">${[['top', tr('ボードの上にタブで並べて切り替える')], ['sidebar', tr('ボードの左のサイドバーで切り替える')], ['lanes', tr('切り替えずに、列の中をスプリントごとの段（スイムレーン）に分ける')]].map(([v, l]) => `<option value="${v}" ${CycleModel.cleanCycleView(s.cycleView) === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+        <small>${tr('スプリントは、期間とゴールを持つタスクのまとまりです（プロジェクトごと）。ボードの「＋ スプリント」から作れます。')}</small></label>
       <label class="check"><input type="checkbox" id="sSuggestSkills" ${s.suggestSkillsOnDone !== false ? 'checked' : ''} /> ${tr('タスクが完了したとき、前に完了したタスクと似た作業が続いていたら、スキルにしないか通知で聞く（右上のベル）')}</label>
       <label class="check"><input type="checkbox" id="sDeleteSessions" ${s.deleteSessionsOnMerge !== false ? 'checked' : ''} /> ${tr('マージして完了したら、そのタスクの作業に使った Claude Code の会話（セッション）を消す（引き継いだ元の会話は残します）')}</label>`,
     update: `<div id="updPanel" class="gh-panel upd-panel">${updatePanelHtml(state.update)}</div>`,
@@ -5027,6 +5081,8 @@ ${tr('読めなかったファイル: {v1}', { v1: (parsed.skipped.join(tr('、'
         permissionMode: $('sMode').value,
         allowedTools: $('sAllowed').value,
         maxParallel: $('sMax').value,
+        // 変えたときだけ送る（古い版のホストは知らない設定を受け取らないので、変えていなければエラーにしない）
+        ...($('sCycleView').value !== CycleModel.cleanCycleView(s.cycleView) ? { cycleView: $('sCycleView').value } : {}),
         model: $('sModel').value.trim(),
         claudePath: $('sClaude').value.trim() || 'claude',
         codexPath: $('sCodex').value.trim() || 'codex',

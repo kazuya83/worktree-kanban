@@ -165,6 +165,11 @@ const PROXY_CHANNELS = new Set([
   'schedules:update',
   'schedules:delete',
   'schedules:run',
+  // サイクルもホストのボードのもの
+  'cycles:create',
+  'cycles:update',
+  'cycles:delete',
+  'cycles:setCard',
   'skills:list',
   'card:btw',
   'card:setSession',
