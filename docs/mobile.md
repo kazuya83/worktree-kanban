@@ -88,6 +88,7 @@ The code works **once, for 10 minutes**. To connect a second phone, click "Conne
 | "Tunnel: Error" stays | Some networks, such as office networks, block outgoing connections (port 7844). Try another network, or use a named tunnel. The app keeps reconnecting with increasing intervals |
 | A named tunnel does not connect | Check the token, and that the Public Hostname URL is `127.0.0.1:17832` |
 | The phone says the token is invalid and returns to pairing | It expired or was revoked on the PC. Connect again with a QR code |
+| Opening the Quick Tunnel URL says the server cannot be found | The URL does not open for about 30 seconds after it appears. Opening it during that time makes the phone's DNS remember "not found", and it fails for 1–2 minutes. Wait a little and open it again |
 | The Quick Tunnel URL stopped opening | The URL changes when the app or tunnel restarts. Click "Connect a phone" on the PC and scan the new QR code |
 | Port 17832 is used by another app | Stop the other app, or change `mobilePort` in `board.json`. Use the same port in the named tunnel's Public Hostname |
 
@@ -99,6 +100,7 @@ The phone page uses only the app's HTTP API (`/api/v1/…`). The calls are colle
 - `GET /api/v1/session` → device information and the list of allowed operations
 - `POST /api/v1/invoke` `{channel, arg}` → an operation (channels are `MOBILE_CHANNELS` in `src/mobile-server.js`)
 - `GET /api/v1/events` → Server-Sent Events (`board:changed`, `card:log`, and so on)
+- `GET /api/v1/poll?after=<seq>&epoch=<epoch>` → the same events by long polling (waits up to 25 seconds). Quick Tunnel does not pass the body of Server-Sent Events, so the phone page switches to this when no `hello` arrives over SSE within a few seconds
 - `POST /api/v1/logout`
 
 Authentication is `Authorization: Bearer <token>`.

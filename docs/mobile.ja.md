@@ -88,6 +88,7 @@ Quick Tunnel は Cloudflare が試用向けに出しているもので、動き�
 | 「トンネル: エラー」のまま | 社内のネットワークなどで、外への接続（ポート 7844）が止められていることがあります。別のネットワークで試すか、名前付きトンネルにします。アプリは間隔を空けながら、つなぎ直し続けます |
 | 名前付きトンネルでつながらない | トークンが正しいか、Public Hostname の URL が `127.0.0.1:17832` になっているかを確かめます |
 | スマホで「トークンが無効です」と出てペアリングの画面に戻る | 期限が切れたか、PC で無効にされました。QR コードでつなぎ直します |
+| Quick Tunnel の URL を開くと「サーバーが見つかりません」と出る | URL が出てから 30 秒ほどは、まだ開けません。その間に開くと、スマホの DNS が「無い」という答えを覚えてしまい、1〜2 分開けなくなります。少し待ってから開き直してください |
 | Quick Tunnel の URL が開けなくなった | アプリかトンネルを起動し直すと URL が変わります。PC の「スマホをつなぐ」で、新しい QR コードを読み取ってください |
 | ポート 17832 がほかのアプリで使われている | ほかのアプリを止めるか、`board.json` の `mobilePort` を変えます。名前付きトンネルの Public Hostname も同じポートにします |
 
@@ -99,6 +100,7 @@ Quick Tunnel は Cloudflare が試用向けに出しているもので、動き�
 - `GET /api/v1/session` → 端末の情報と、使える操作の一覧
 - `POST /api/v1/invoke` `{channel, arg}` → 操作（チャンネルは `src/mobile-server.js` の `MOBILE_CHANNELS`）
 - `GET /api/v1/events` → Server-Sent Events（`board:changed`・`card:log` など）
+- `GET /api/v1/poll?after=<seq>&epoch=<epoch>` → 同じイベントを、待ち受け型のポーリングで受け取る（最大 25 秒待つ）。Quick Tunnel は Server-Sent Events の本文を通さないので、スマホの画面は SSE で数秒たっても `hello` が届かなければ、こちらに切り替えます
 - `POST /api/v1/logout`
 
 認証は `Authorization: Bearer <token>` です。

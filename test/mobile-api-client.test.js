@@ -296,7 +296,7 @@ test('subscribe: しばらく何も来なければ切れたものとして繋ぎ
     return { ok: true, status: 200, body: s.body };
   });
   const timers = fakeTimers();
-  const client = createClient({ fetch, storage: paired(), setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, backoffMinMs: 100, idleTimeoutMs: 5000 });
+  const client = createClient({ fetch, storage: paired(), setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, backoffMinMs: 100, idleTimeoutMs: 5000, sseHelloTimeoutMs: 0 });
   let opened = 0;
   const off = client.subscribe(() => {}, { onOpen: () => opened++ });
   await tick();
@@ -331,4 +331,69 @@ test('端末の名前は userAgent から作る', () => {
   assert.strictEqual(deviceNameFromUA(ua.ipad), 'iPad Safari');
   assert.strictEqual(deviceNameFromUA(''), 'Browser');
   assert.strictEqual(deviceNameFromUA(undefined), 'Browser');
+});
+
+test('subscribe: SSE の本文が届かない経路（Quick Tunnel）では、hello を待って poll に切り替える', async () => {
+  const streams = [];
+  const polls = [];
+  const fetch = fakeFetch((call) => {
+    if (call.url.includes('/api/v1/events')) {
+      const s = stream();
+      streams.push(s);
+      return { ok: true, status: 200, body: s.body };
+    }
+    polls.push(call.url);
+    // 1 回目: 番号だけ。2 回目: イベント。3 回目: 取りこぼし（reset）。4 回目: 返事をしないまま
+    if (polls.length === 1) return res(200, { ok: true, data: { epoch: 'e1', seq: 3, reset: true, events: [] } });
+    if (polls.length === 2) return res(200, { ok: true, data: { epoch: 'e1', seq: 5, reset: false, events: [{ channel: 'card:log', data: { id: 'c1' } }, { channel: 'board:changed', data: { cards: [] } }] } });
+    if (polls.length === 3) return res(200, { ok: true, data: { epoch: 'e2', seq: 1, reset: true, events: [] } });
+    return new Promise(() => {});
+  });
+  const timers = fakeTimers();
+  const client = createClient({ fetch, storage: paired(), setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, sseHelloTimeoutMs: 6000, idleTimeoutMs: 0 });
+  const got = [];
+  let opened = 0;
+  const off = client.subscribe((name, data) => got.push([name, data]), { onOpen: () => opened++ });
+  await tick();
+  assert.strictEqual(off.transport(), 'sse');
+  await timers.fire(6000); // hello が来ない
+  await tick(20);
+  assert.strictEqual(off.transport(), 'poll');
+  assert.deepStrictEqual(polls.slice(0, 4).map((u) => u.replace(/^.*\/api\/v1\/poll/, '')), ['', '?after=3&epoch=e1', '?after=5&epoch=e1', '?after=1&epoch=e2']);
+  assert.deepStrictEqual(got, [['card:log', { id: 'c1' }], ['board:changed', { cards: [] }]]);
+  // 最初の SSE・poll の最初・reset で、ボードを読み直してもらう
+  assert.strictEqual(opened, 3);
+  assert.strictEqual(fetch.calls.at(-1).headers.Authorization, 'Bearer tok-1');
+  off();
+});
+
+test('subscribe: SSE で hello が届けば、poll には切り替えない', async () => {
+  const streams = [];
+  const fetch = fakeFetch(() => {
+    const s = stream();
+    streams.push(s);
+    return { ok: true, status: 200, body: s.body };
+  });
+  const timers = fakeTimers();
+  const client = createClient({ fetch, storage: paired(), setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, sseHelloTimeoutMs: 6000, idleTimeoutMs: 0 });
+  const off = client.subscribe(() => {});
+  await tick();
+  streams[0].push('event: hello\ndata: {}\n\n');
+  await tick();
+  assert.deepStrictEqual(timers.pending(), [], 'hello が来たら見張りは止める');
+  assert.strictEqual(off.transport(), 'sse');
+  off();
+});
+
+test('subscribe: poll で 401 なら止めて、ペアリングし直してもらう', async () => {
+  const fetch = fakeFetch(() => res(401, { ok: false, error: 'expired' }));
+  const client = createClient({ fetch, storage: paired(), transport: 'poll' });
+  const errors = [];
+  client.onUnauthorized((e) => errors.push(e.message));
+  const off = client.subscribe(() => {});
+  await tick(20);
+  assert.deepStrictEqual(errors, ['expired']);
+  assert.strictEqual(fetch.calls.length, 1);
+  assert.strictEqual(client.hasToken(), false);
+  off();
 });

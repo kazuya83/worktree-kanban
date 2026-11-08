@@ -12,6 +12,11 @@
   const BACKOFF_MAX_MS = 30000;
   // サーバーは 25 秒ごとに「: ping」を送る。これより長く何も来なければ、切れたものとして繋ぎ直す
   const IDLE_TIMEOUT_MS = 70000;
+  // SSE が開いてから、これだけ待っても何も届かなければ、途中で溜められている（Cloudflare の Quick Tunnel は
+  // SSE の本文を通さない）ので、待ち受け型のポーリング（/api/v1/poll）に切り替える
+  const SSE_HELLO_TIMEOUT_MS = 6000;
+  // poll はサーバーが最大 25 秒待って返す。これより長く返事がなければ切れたものとする
+  const POLL_TIMEOUT_MS = 45000;
 
   class ApiError extends Error {
     constructor(message, status, code) {
@@ -119,6 +124,8 @@
     const backoffMin = opts.backoffMinMs || BACKOFF_MIN_MS;
     const backoffMax = opts.backoffMaxMs || BACKOFF_MAX_MS;
     const idleTimeout = opts.idleTimeoutMs === 0 ? 0 : opts.idleTimeoutMs || IDLE_TIMEOUT_MS;
+    const helloTimeout = opts.sseHelloTimeoutMs === 0 ? 0 : opts.sseHelloTimeoutMs || SSE_HELLO_TIMEOUT_MS;
+    const pollTimeout = opts.pollTimeoutMs || POLL_TIMEOUT_MS;
     const Decoder = opts.TextDecoder || (typeof TextDecoder !== 'undefined' ? TextDecoder : null);
     const unauthorized = new Set();
 
@@ -233,10 +240,17 @@
       let idleTimer = null;
       let ctrl = null;
       let gen = 0;
+      // 'sse' で始め、SSE の本文が届かない経路なら 'poll' にする（opts.transport で最初から選べる）
+      let mode = opts.transport === 'poll' ? 'poll' : 'sse';
+      let pollSeq = null; // poll で最後に受け取った番号（null なら最初から）
+      let pollEpoch = '';
+      let helloTimer = null;
 
       const clearIdle = () => {
         if (idleTimer) clearT(idleTimer);
         idleTimer = null;
+        if (helloTimer) clearT(helloTimer);
+        helloTimer = null;
       };
       const abort = () => {
         try {
@@ -256,6 +270,79 @@
         }, delay);
       };
 
+      const deliver = (my, name, data) => {
+        if (my !== gen || stopped) return;
+        try {
+          onEvent(name, data);
+        } catch {
+          /* 画面側の失敗で読み取りを止めない */
+        }
+      };
+
+      // 待ち受け型のポーリング: 新しいイベントがあればすぐ、無ければサーバーが最大 25 秒待って返す
+      async function pollLoop(my, a) {
+        let closeErr;
+        try {
+          for (;;) {
+            ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const c = ctrl;
+            idleTimer = setT(() => {
+              idleTimer = null;
+              try {
+                if (c) c.abort();
+              } catch {
+                /* 無視 */
+              }
+            }, pollTimeout);
+            const q = pollSeq === null ? '' : `?after=${pollSeq}&epoch=${encodeURIComponent(pollEpoch)}`;
+            const res = await fetchFn(`${baseUrl}/api/v1/poll${q}`, {
+              method: 'GET',
+              headers: { Accept: 'application/json', Authorization: `Bearer ${a.token}` },
+              cache: 'no-store',
+              signal: c ? c.signal : undefined,
+            });
+            clearIdle();
+            if (my !== gen || stopped) return;
+            let json = null;
+            try {
+              json = await res.json();
+            } catch {
+              json = null;
+            }
+            if (my !== gen || stopped) return;
+            if (res.status === 401) {
+              stopped = true;
+              fireUnauthorized(new ApiError((json && json.error) || 'unauthorized', 401));
+              return;
+            }
+            if (!res.ok || !json || !json.ok || !json.data) throw new ApiError((json && json.error) || `HTTP ${res.status}`, res.status);
+            const d = json.data;
+            attempt = 0;
+            // 最初・取りこぼし・アプリの起動し直し: 画面にボードを読み直してもらう（SSE で繋がったときと同じ）
+            if (pollSeq === null || d.reset) {
+              if (hooks.onOpen) hooks.onOpen();
+            }
+            for (const ev of Array.isArray(d.events) ? d.events : []) deliver(my, ev.channel, ev.data);
+            pollSeq = Number(d.seq) || 0;
+            pollEpoch = String(d.epoch || '');
+          }
+        } catch (e) {
+          closeErr = e;
+        } finally {
+          if (my === gen) clearIdle();
+        }
+        if (my !== gen || stopped) return;
+        ctrl = null;
+        if (hooks.onClose) {
+          try {
+            hooks.onClose(closeErr);
+          } catch {
+            /* 無視 */
+          }
+        }
+        schedule();
+      }
+
       async function connect() {
         if (stopped) return;
         const my = ++gen;
@@ -265,9 +352,11 @@
           fireUnauthorized(new ApiError('not paired', 401, 'no_token'));
           return;
         }
+        if (mode === 'poll') return pollLoop(my, a);
         ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
         let closeErr;
         let reader = null;
+        let switchToPoll = false;
         const kick = () => {
           // しばらく何も来ない: 回線が黙って切れている（スマホのスリープ明けなど）
           clearIdle();
@@ -277,7 +366,7 @@
             if (my !== gen) return;
             abort();
             try {
-              if (reader && reader.cancel) reader.cancel();
+              if (reader && reader.cancel) Promise.resolve(reader.cancel()).catch(() => {});
             } catch {
               /* 無視 */
             }
@@ -306,17 +395,24 @@
           if (!res.body || typeof res.body.getReader !== 'function' || !Decoder) throw new ApiError('streaming is not supported', 0, 'no_stream');
           reader = res.body.getReader();
           const decoder = new Decoder('utf-8');
-          const parser = createSseParser((name, data) => {
-            if (my !== gen || stopped) return;
-            try {
-              onEvent(name, data);
-            } catch {
-              /* 画面側の失敗で読み取りを止めない */
-            }
-          });
+          const parser = createSseParser((name, data) => deliver(my, name, data));
           kick();
           if (hooks.onOpen) hooks.onOpen();
           let got = false;
+          // サーバーはつながるとすぐ hello を送る。届かなければ、途中で溜められているので poll に切り替える
+          if (helloTimeout) {
+            helloTimer = setT(() => {
+              helloTimer = null;
+              if (my !== gen || got) return;
+              switchToPoll = true;
+              abort();
+              try {
+                if (reader && reader.cancel) Promise.resolve(reader.cancel()).catch(() => {});
+              } catch {
+                /* 無視 */
+              }
+            }, helloTimeout);
+          }
           for (;;) {
             const { value, done } = await reader.read();
             if (my !== gen || stopped) return;
@@ -326,6 +422,8 @@
             if (!got) {
               got = true;
               attempt = 0;
+              if (helloTimer) clearT(helloTimer);
+              helloTimer = null;
             }
             parser.push(typeof value === 'string' ? value : decoder.decode(value, { stream: true }));
           }
@@ -337,6 +435,11 @@
         }
         if (my !== gen || stopped) return;
         ctrl = null;
+        if (switchToPoll) {
+          mode = 'poll';
+          connect();
+          return;
+        }
         if (hooks.onClose) {
           try {
             hooks.onClose(closeErr);
@@ -365,6 +468,8 @@
         attempt = 0;
         connect();
       };
+      // いまの受け取り方（'sse' / 'poll'）。画面やテストで見る
+      unsubscribe.transport = () => mode;
       connect();
       return unsubscribe;
     }
@@ -382,5 +487,5 @@
     };
   }
 
-  return { createClient, createSseParser, deviceNameFromUA, ApiError, DEFAULT_STORAGE_KEY, BACKOFF_MIN_MS, BACKOFF_MAX_MS, IDLE_TIMEOUT_MS };
+  return { createClient, createSseParser, deviceNameFromUA, ApiError, DEFAULT_STORAGE_KEY, BACKOFF_MIN_MS, BACKOFF_MAX_MS, IDLE_TIMEOUT_MS, SSE_HELLO_TIMEOUT_MS, POLL_TIMEOUT_MS };
 });

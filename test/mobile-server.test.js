@@ -513,3 +513,46 @@ test('start(0) は空いているポートを 127.0.0.1 で待ち受け、二重
   await server.stop();
   assert.strictEqual(server.listening(), false);
 });
+
+test('poll: Quick Tunnel 用。after が無ければ番号だけ、あれば新しいイベントを返し、無ければ待つ', async (t) => {
+  const ctx = await startServer({ pollWaitMs: 200 });
+  t.after(() => ctx.server.stop());
+  const { token } = await pair(ctx);
+  const first = await api(ctx.base, '/api/v1/poll', { token });
+  assert.strictEqual(first.status, 200);
+  const { epoch, seq } = first.json.data;
+  assert.strictEqual(first.json.data.reset, true);
+  // 待っている間に broadcast が来たら、すぐに返す。秘密は外す
+  const waiting = api(ctx.base, `/api/v1/poll?after=${seq}&epoch=${epoch}`, { token });
+  await new Promise((r) => setTimeout(r, 30));
+  ctx.server.broadcast('card:log', { id: 'c1', entry: { text: 'hi' } });
+  const got = (await waiting).json.data;
+  assert.strictEqual(got.reset, false);
+  assert.deepStrictEqual(got.events, [{ channel: 'card:log', data: { id: 'c1', entry: { text: 'hi' } } }]);
+  // ボードは最新の 1 つだけ残し、秘密は外す
+  ctx.server.broadcast('board:changed', { settings: { remotePairTokens: ['secret'] }, n: 1 });
+  ctx.server.broadcast('board:changed', { settings: { remotePairTokens: ['secret'] }, n: 2 });
+  const boards = (await api(ctx.base, `/api/v1/poll?after=${got.seq}&epoch=${epoch}`, { token })).json.data;
+  assert.deepStrictEqual(boards.events.map((e) => e.data.n), [2]);
+  assert.doesNotMatch(JSON.stringify(boards), /secret/);
+  // 何も無ければ pollWaitMs だけ待って、空で返す
+  const t0 = Date.now();
+  const empty = (await api(ctx.base, `/api/v1/poll?after=${boards.seq}&epoch=${epoch}`, { token })).json.data;
+  assert.deepStrictEqual(empty.events, []);
+  assert.ok(Date.now() - t0 >= 150);
+  // アプリを起動し直した（epoch が違う）・番号が先に進んでいるときは、読み直してもらう
+  assert.strictEqual((await api(ctx.base, `/api/v1/poll?after=1&epoch=other`, { token })).json.data.reset, true);
+  assert.strictEqual((await api(ctx.base, `/api/v1/poll?after=999&epoch=${epoch}`, { token })).json.data.reset, true);
+});
+
+test('poll: トークンが要り、revoke したら待っている poll も 401 で返す', async (t) => {
+  const ctx = await startServer({ pollWaitMs: 5000 });
+  t.after(() => ctx.server.stop());
+  assert.strictEqual((await api(ctx.base, '/api/v1/poll')).status, 401);
+  const dev = await pair(ctx);
+  const { seq, epoch } = (await api(ctx.base, '/api/v1/poll', { token: dev.token })).json.data;
+  const waiting = api(ctx.base, `/api/v1/poll?after=${seq}&epoch=${epoch}`, { token: dev.token });
+  await new Promise((r) => setTimeout(r, 30));
+  ctx.server.revokeDevice(dev.deviceId);
+  assert.strictEqual((await waiting).status, 401);
+});

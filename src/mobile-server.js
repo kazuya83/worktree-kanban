@@ -22,6 +22,10 @@ const MAX_BODY = 1024 * 1024;
 const MAX_DRAIN = 16 * MAX_BODY;
 // SSE の接続を保つための空行（コメント）の間隔
 const PING_INTERVAL_MS = 25 * 1000;
+// poll で新しいイベントを待つ長さ（Cloudflare は 100 秒で切るので、それより十分短く）
+const POLL_WAIT_MS = 25 * 1000;
+// poll のために覚えておくイベントの数
+const RECENT_LIMIT = 300;
 // lastSeenAt は毎回変わるので、保存（onDevices）はこの間隔に 1 回まで
 const LAST_SEEN_SAVE_MS = 60 * 60 * 1000;
 // pair の回数制限（IP ごと）
@@ -150,7 +154,7 @@ class MobileServer extends EventEmitter {
   // devices: 保存してある端末 [{id, name, tokenHash, createdAt, expiresAt, lastSeenAt}]
   // onDevices(devices): 端末が増えた・消えた・lastSeenAt を保存するときに呼ぶ（tokenHash 付き。保存用）
   // getLanguage(): スマホの画面に出す言語（session で返す）
-  constructor({ invoke, port = 0, devices = [], onDevices, appVersion = '', getLanguage, staticRoot, rendererRoot, now = Date.now, tokenTtlMs = TOKEN_TTL_MS, pingIntervalMs = PING_INTERVAL_MS } = {}) {
+  constructor({ invoke, port = 0, devices = [], onDevices, appVersion = '', getLanguage, staticRoot, rendererRoot, now = Date.now, tokenTtlMs = TOKEN_TTL_MS, pingIntervalMs = PING_INTERVAL_MS, pollWaitMs = POLL_WAIT_MS } = {}) {
     super();
     this.invoke = invoke;
     this.port = port;
@@ -165,6 +169,13 @@ class MobileServer extends EventEmitter {
     this.pingIntervalMs = pingIntervalMs;
     this.server = null;
     this.streams = new Set(); // { res, deviceId, timer }
+    // 待ち受け型のポーリング（/api/v1/poll）。Cloudflare の Quick Tunnel は SSE の本文を通さないので、その代わりに使う
+    this.seq = 0; // broadcast ごとに 1 ずつ増える番号
+    this.droppedUpTo = 0; // 数の上限で捨てたイベントの、いちばん新しい番号
+    this.epoch = crypto.randomBytes(6).toString('hex'); // 起動ごとの印。変わったら番号の続きは無いので、読み直してもらう
+    this.recent = []; // 最近のイベント [{ seq, channel, data }]（古いものから捨てる。board:changed は最新の 1 つだけ残す）
+    this.waiters = new Set(); // 待っている poll { res, deviceId, after, timer }
+    this.pollWaitMs = pollWaitMs;
     this.pairCode = null;
     this.pairExpiresAt = 0;
     this.pairFailures = 0;
@@ -221,6 +232,7 @@ class MobileServer extends EventEmitter {
     this.devices = this.devices.filter((d) => !drop.has(d.id));
     for (const id of drop) this.savedSeenAt.delete(id);
     for (const s of [...this.streams]) if (drop.has(s.deviceId)) this.closeStream(s);
+    for (const w of [...this.waiters]) if (drop.has(w.deviceId)) this.closeWaiter(w);
     if (this.devices.length === before) return false;
     this.saveDevices();
     this.emit('changed');
@@ -266,6 +278,7 @@ class MobileServer extends EventEmitter {
 
   stop() {
     for (const s of [...this.streams]) this.closeStream(s);
+    for (const w of [...this.waiters]) this.answerPoll(w, true);
     this.clearPairCode();
     const s = this.server;
     this.server = null;
@@ -281,10 +294,38 @@ class MobileServer extends EventEmitter {
 
   // 全部の SSE 接続へイベントを流す（秘密は外す）
   broadcast(channel, payload) {
+    if (!this.server) return;
+    const name = String(channel).replace(/[\r\n]/g, '');
+    const value = redactForRemote(payload) ?? null;
+    // poll のために覚えておく。ボードは全体を送るので、古いボードは要らない
+    this.seq += 1;
+    if (name === 'board:changed') this.recent = this.recent.filter((e) => e.channel !== 'board:changed');
+    this.recent.push({ seq: this.seq, channel: name, data: value });
+    if (this.recent.length > RECENT_LIMIT) {
+      const dropped = this.recent.splice(0, this.recent.length - RECENT_LIMIT);
+      this.droppedUpTo = dropped[dropped.length - 1].seq; // ここまでのイベントは、もう渡せない
+    }
+    for (const w of [...this.waiters]) this.answerPoll(w);
     if (!this.streams.size) return;
-    const data = JSON.stringify(redactForRemote(payload) ?? null);
-    const chunk = `event: ${String(channel).replace(/[\r\n]/g, '')}\ndata: ${data}\n\n`;
+    const chunk = `event: ${name}\ndata: ${JSON.stringify(value)}\n\n`;
     for (const s of this.streams) this.writeStream(s, chunk);
+  }
+
+  // after より新しいイベント。取りこぼしがあれば reset（ボードを読み直してもらう）
+  eventsAfter(after, epoch = this.epoch) {
+    const events = this.recent.filter((e) => e.seq > after).map(({ channel, data }) => ({ channel, data }));
+    // 捨てたイベントより前から欲しい・番号がこちらより先（アプリを起動し直した）ときは、ボードを読み直してもらう
+    const reset = epoch !== this.epoch || after > this.seq || after < this.droppedUpTo;
+    return { reset, events };
+  }
+
+  answerPoll(w, force = false) {
+    const { reset, events } = this.eventsAfter(w.after, w.epoch);
+    if (!force && !reset && !events.length) return false;
+    clearTimeout(w.timer);
+    this.waiters.delete(w);
+    if (!w.res.destroyed && !w.res.writableEnded) this.sendJson(w.res, 200, { ok: true, data: { epoch: this.epoch, seq: this.seq, reset, events } });
+    return true;
   }
 
   writeStream(s, chunk) {
@@ -294,6 +335,33 @@ class MobileServer extends EventEmitter {
     } catch {
       /* 切断済み */
     }
+  }
+
+  // GET /api/v1/poll?after=<seq>&epoch=<前に受け取った epoch>: 新しいイベントがあればすぐ、無ければ最大 pollWaitMs 待って返す。
+  // after が無いときは、いまの番号だけを返す（reset: true。最初にボードを読んでもらう）
+  handlePoll(req, res, device, url) {
+    const raw = url.searchParams.get('after');
+    const after = raw != null && /^\d+$/.test(raw) ? Number(raw) : null;
+    if (after === null) return this.sendJson(res, 200, { ok: true, data: { epoch: this.epoch, seq: this.seq, reset: true, events: [] } });
+    const w = { res, deviceId: device.id, after, epoch: url.searchParams.get('epoch') || this.epoch, timer: null };
+    if (this.answerPoll(w)) return undefined;
+    w.timer = setTimeout(() => this.answerPoll(w, true), this.pollWaitMs);
+    w.timer.unref?.();
+    this.waiters.add(w);
+    const done = () => {
+      clearTimeout(w.timer);
+      this.waiters.delete(w);
+    };
+    req.on('close', done);
+    res.on('close', done);
+    return undefined;
+  }
+
+  closeWaiter(w) {
+    clearTimeout(w.timer);
+    this.waiters.delete(w);
+    if (!w.res.headersSent) this.sendJson(w.res, 401, { ok: false, error: tr('ログインしてください。アプリに出ているペアリングコードを入れてください') });
+    else w.res.destroy();
   }
 
   closeStream(s) {
@@ -414,6 +482,7 @@ class MobileServer extends EventEmitter {
       '/api/v1/session': 'GET',
       '/api/v1/invoke': 'POST',
       '/api/v1/events': 'GET',
+      '/api/v1/poll': 'GET',
       '/api/v1/logout': 'POST',
     }[p];
     if (!route) throw new HttpError(404, tr('見つかりません'));
@@ -437,6 +506,7 @@ class MobileServer extends EventEmitter {
       });
     }
     if (p === '/api/v1/events') return this.handleEvents(req, res, device);
+    if (p === '/api/v1/poll') return this.handlePoll(req, res, device, new URL(req.url || '/', 'http://localhost'));
     if (p === '/api/v1/logout') {
       this.removeDevices([device.id]);
       return this.sendJson(res, 200, { ok: true, data: null });

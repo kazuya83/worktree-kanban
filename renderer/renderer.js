@@ -4344,7 +4344,8 @@ function openMobileSettings() {
               <div><div>${tr('スマホのカメラで QR コードを読み取ってください。読み取れないときは、URL を開いて、このコードを入れます。')}</div>
                 <div class="pair-code">${esc(pair.code)}</div>
                 ${pair.url ? `<div class="remote-key-row"><div class="remote-ssh" id="mbUrl">${esc(pair.url.split('#')[0])}</div><button class="btn small" type="button" data-copy="mbUrl">${tr('コピー')}</button></div>` : ''}
-                <small class="muted">${tr('このコードは {v1} まで、1 回だけ使えます。', { v1: esc(new Date(pair.expiresAt).toLocaleTimeString(I18n.locale())) })}</small></div></div>`;
+                <small class="muted">${tr('このコードは {v1} まで、1 回だけ使えます。', { v1: esc(new Date(pair.expiresAt).toLocaleTimeString(I18n.locale())) })}</small>
+                ${st.mode === 'named' ? '' : `<small class="muted">${tr('Quick Tunnel は、URL が出てから 30 秒ほどは開けません。その間に開くと、1〜2 分開けなくなることがあります。そのときは少し待ってから開き直してください。')}</small>`}</div></div>`;
         }
         const on = st.enabled;
         box.innerHTML = `
