@@ -8,6 +8,8 @@ Each release that changes the app raises the last number of the version. There i
 
 ### Added
 
+- The agent selected by default for new tasks and conversations can now be one of the project's custom agents, and it is remembered per project. Existing projects keep the value used so far. If the chosen custom agent is deleted or its base agent is unchecked, the first of the agents to use is selected.
+
 - A guide for moving from Conductor, with the steps to export Conductor Cloud data first (English and Japanese).
 
 ### Security
