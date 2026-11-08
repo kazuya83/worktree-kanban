@@ -59,7 +59,29 @@ const MOBILE_CHANNELS = new Set([
   'subtasks:startOne',
   'skills:list',
   'sessions:list',
+  // アプリの中のターミナル。パソコンのアプリで「スマホからのターミナルを許可」にしたときだけ使える（main.js で断る）
+  'terminal:available',
+  'terminal:list',
+  'terminal:open',
+  'terminal:read',
+  'terminal:write',
+  'terminal:resize',
+  'terminal:close',
 ]);
+
+// ターミナルの画面で使う xterm.js のファイル（URL → パッケージの中の場所）
+const VENDOR_FILES = {
+  '/vendor/xterm.js': ['@xterm/xterm', 'lib/xterm.js'],
+  '/vendor/xterm.css': ['@xterm/xterm', 'css/xterm.css'],
+  '/vendor/addon-fit.js': ['@xterm/addon-fit', 'lib/addon-fit.js'],
+};
+function vendorFile([pkg, rel]) {
+  try {
+    return path.join(path.dirname(require.resolve(`${pkg}/package.json`)), rel);
+  } catch {
+    return null;
+  }
+}
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -86,6 +108,7 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
 };
+const TERMINAL_CSP = SECURITY_HEADERS['Content-Security-Policy'].replace("style-src 'self'", "style-src 'self' 'unsafe-inline'");
 
 function genMobilePairCode() {
   let s = '';
@@ -154,7 +177,7 @@ class MobileServer extends EventEmitter {
   // devices: 保存してある端末 [{id, name, tokenHash, createdAt, expiresAt, lastSeenAt}]
   // onDevices(devices): 端末が増えた・消えた・lastSeenAt を保存するときに呼ぶ（tokenHash 付き。保存用）
   // getLanguage(): スマホの画面に出す言語（session で返す）
-  constructor({ invoke, port = 0, devices = [], onDevices, appVersion = '', getLanguage, staticRoot, rendererRoot, now = Date.now, tokenTtlMs = TOKEN_TTL_MS, pingIntervalMs = PING_INTERVAL_MS, pollWaitMs = POLL_WAIT_MS } = {}) {
+  constructor({ invoke, port = 0, devices = [], onDevices, appVersion = '', getLanguage, getTerminalEnabled, staticRoot, rendererRoot, now = Date.now, tokenTtlMs = TOKEN_TTL_MS, pingIntervalMs = PING_INTERVAL_MS, pollWaitMs = POLL_WAIT_MS } = {}) {
     super();
     this.invoke = invoke;
     this.port = port;
@@ -162,6 +185,7 @@ class MobileServer extends EventEmitter {
     this.onDevices = onDevices;
     this.appVersion = appVersion;
     this.getLanguage = getLanguage;
+    this.getTerminalEnabled = getTerminalEnabled; // スマホからターミナルを使ってよいか（パソコンのアプリの設定）
     this.staticRoot = staticRoot || path.join(__dirname, '..', 'mobile');
     this.rendererRoot = rendererRoot || path.join(__dirname, '..', 'renderer');
     this.now = now;
@@ -502,6 +526,7 @@ class MobileServer extends EventEmitter {
           appVersion: this.appVersion,
           language: typeof this.getLanguage === 'function' ? this.getLanguage() : undefined,
           channels: [...MOBILE_CHANNELS],
+          terminal: typeof this.getTerminalEnabled === 'function' ? !!this.getTerminalEnabled() : false,
         },
       });
     }
@@ -593,6 +618,9 @@ class MobileServer extends EventEmitter {
     if (p === '/manifest.webmanifest') return path.join(this.staticRoot, 'manifest.webmanifest');
     if (p === '/i18n.js') return path.join(this.rendererRoot, 'i18n.js');
     if (p.startsWith('/assets/')) return safeJoin(path.join(this.staticRoot, 'assets'), p.slice('/assets/'.length));
+    // ターミナルの画面（xterm.js は node_modules から、決まったファイルだけ返す）
+    if (p === '/terminal.html') return path.join(this.staticRoot, 'terminal.html');
+    if (Object.prototype.hasOwnProperty.call(VENDOR_FILES, p)) return vendorFile(VENDOR_FILES[p]);
     if (p.startsWith('/locales/')) {
       const full = safeJoin(path.join(this.rendererRoot, 'locales'), p.slice('/locales/'.length));
       return full && full.endsWith('.js') ? full : null;
@@ -616,6 +644,8 @@ class MobileServer extends EventEmitter {
     if (!st.isFile()) throw new HttpError(404, tr('見つかりません'));
     const body = await fs.promises.readFile(file);
     this.setCommonHeaders(res);
+    // xterm.js は色や大きさを <style> 要素で入れるので、ターミナルの画面だけインラインのスタイルを許す（スクリプトは self のまま）
+    if (p === '/terminal.html') res.setHeader('Content-Security-Policy', TERMINAL_CSP);
     res.writeHead(200, {
       'Content-Type': CONTENT_TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
       'Content-Length': body.length,

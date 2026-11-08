@@ -76,9 +76,16 @@ The code works **once, for 10 minutes**. To connect a second phone, click "Conne
 - Paired phones are listed under "Connected phones". If a phone is lost or given away, click **Revoke**. It stops working at once, and any open page is disconnected
 - After 5 wrong codes, the code stops working. Too many attempts from the same place are also blocked
 - The phone can only do the operations listed above. It cannot merge, create PRs, change settings, or read tokens
+- The terminal (a shell on the PC) can be used from a phone only while "Allow the terminal from phones" is on in the desktop app (off by default)
 - Secrets such as remote-control tokens are removed from the board sent to the phone
 - Anyone with the URL can open the pairing page, but seeing or operating the board needs the code shown on the PC or a token. With a named tunnel, you can also put a login in front of it with Cloudflare Access
 - Click **Stop** when you are not using it, and nothing can reach it from outside
+
+## Terminal
+
+If you turn on "Allow the terminal from phones" in "Use from your phone" in the desktop app, the phone can open a shell on the PC. A terminal button appears at the top of the board, and a "Terminal" button appears in a task's details once its worktree exists. Keys that are hard to type on a phone keyboard (Esc, Tab, Ctrl, arrows, ^C) are in a row at the bottom.
+
+This means **full control of the PC** from the phone, so it is off by default. Turn it on only when you need it. While it is off, the PC also refuses terminal requests from phones. The shells keep running on the PC until they are closed, even if you leave the page on the phone.
 
 ## Troubleshooting
 

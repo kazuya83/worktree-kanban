@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="scheduler.css" />
     <link rel="stylesheet" href="settings.css" />
+    <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
   </head>
   <body>
     <header class="topbar">
@@ -25,6 +26,7 @@
       <span id="runInfo" class="pill"></span>
       <button id="rcBtn" class="btn ghost" title="遠隔操作（RC）: ホストの開始・別の PC への接続・SSH の鍵"><span data-icon="monitor"></span><span class="btn-label">RC設定</span></button>
       <button id="mobileBtn" class="btn ghost" title="スマホから使う: 外からスマホのブラウザでボードを見て、指示・承認・回答をします"><span data-icon="phone"></span><span class="btn-label">スマホ</span></button>
+      <button id="termBtn" class="btn ghost" title="ターミナル: タスクと関係なく使えるシェルを、画面の下に開きます（Ctrl + `）"><span data-icon="terminal"></span><span class="btn-label">ターミナル</span></button>
       <button id="sessionsBtn" class="btn ghost" title="Claude Code の会話（セッション）を一覧して消します（タスクとは別に管理できます）"><span data-icon="clock"></span><span class="btn-label">セッション</span></button>
       <button id="chatBtn" class="btn chat-btn" title="タスクを作らずに、このリポジトリについてエージェントと話します"><span data-icon="chat"></span><span class="btn-label">会話</span><span id="chatCount" class="chat-count hidden"></span></button>
       <button id="newBtn" class="btn primary" title="新しいタスク"><span data-icon="plus"></span><span class="btn-label">新しいタスク</span></button>
@@ -53,6 +55,7 @@
           <button data-tab="progress" class="tab" id="progressTab" title="全体の進み具合（エージェントの TODO・Pipelineのどの工程まで終わったか・サブタスクがいくつ終わったか）を見ます">進捗</button>
           <button data-tab="subtasks" class="tab hidden" id="subtasksTab" title="サブタスクごとの状態を見ます。開始・取り込み・状態の変更もここでできます">サブタスク</button>
           <button data-tab="btw" class="tab" id="btwTab" title="実行中のエージェントに、作業を止めずにメッセージを送ります">btw</button>
+          <button data-tab="terminal" class="tab" id="terminalTab" title="このタスクの worktree でシェルを開き、自分でコマンドを打ちます">ターミナル</button>
           <button data-tab="info" class="tab" title="エージェント・会話・ブランチ・worktree などの情報を見ます">情報</button>
         </nav>
         <div id="detailBody" class="d-body"></div>
@@ -68,6 +71,17 @@
         </div>
       </aside>
     </div>
+    <section id="termPanel" class="term-panel hidden" aria-label="ターミナル">
+      <div id="termResizer" class="term-resizer" title="ドラッグで高さを変えられます（ダブルクリックで元の高さに戻します）"></div>
+      <div class="term-bar">
+        <div id="termTabs" class="term-tabs" role="tablist"></div>
+        <button id="termNew" class="btn ghost term-btn" type="button" title="新しいターミナル（今のリポジトリのフォルダで開きます）" aria-label="新しいターミナル"><span data-icon="plus"></span></button>
+        <button id="termCardBtn" class="btn ghost term-btn hidden" type="button" title="開いているタスクの worktree のターミナルを、ここに出します">このタスク</button>
+        <div class="spacer"></div>
+        <button id="termHide" class="btn ghost term-btn" type="button" title="パネルを隠します（シェルは動いたままです）" aria-label="パネルを隠す"><span data-icon="x"></span></button>
+      </div>
+      <div id="termBody" class="term-body"></div>
+    </section>
     <div id="modal" class="modal hidden"><div class="modal-box" id="modalBox"></div></div>
     <div id="skillPicker" class="modal picker hidden"><div class="modal-box wide" id="skillPickerBox"></div></div>
     <div id="flowModal" class="modal flow hidden"><div class="modal-box flow-box" id="flowModalBox"></div></div>
@@ -98,6 +112,10 @@
     <script src="cycles-view.js"></script>
     <script src="flow-editor.js"></script>
     <script src="flow-view.js"></script>
+    <script src="locales/terminal.js"></script>
+    <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+    <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <script src="terminal-view.js"></script>
     <script src="browser-view.js"></script>
     <script src="renderer.js"></script>
     <script src="scheduler-view.js"></script>

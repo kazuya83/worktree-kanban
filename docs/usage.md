@@ -272,6 +272,19 @@ How the conversation is restored differs by agent.
 - Claude Code: if no other card is using that conversation, the conversation file is at least as large as it was at that point, and the boundary is a line break, the file is truncated to that size and the same conversation continues. If those conditions are not met, a new conversation starts, as in the next case
 - Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid (and Claude Code when the conditions are not met): a new conversation starts, and a handoff built from the instructions and replies in the log (up to 8,000 characters) is placed before the instruction
 
+## Terminal (type commands yourself)
+
+You can open a shell inside the app and type commands yourself. Agents still run in the background as before; this is a separate shell.
+
+- **Task terminal**: the "Terminal" tab in the task details opens a shell in that task's worktree (one per task). For a git task it can be opened once the task has started and its worktree exists. For a folder not managed by git, and for conversations, it opens in that folder
+- **Terminal panel**: the "Terminal" button at the top (or Ctrl + `) opens a panel at the bottom of the window. "+" opens a new shell in the current repository's folder (or your home folder), and you can open as many as you like. "This task" shows the open task's terminal in the panel. Drag the top edge to change the height
+- A terminal can be shown in one place at a time. If you show it in the panel, the task tab shows "Show here" to bring it back
+- Shells keep running when you switch tabs, close the task details, or hide the panel. "×" on a panel tab ends the shell. Deleting a task also ends its terminal, and so does quitting the app
+- The shell is your login shell (`$SHELL`) on Mac and Linux, and PowerShell 7 (`pwsh`) on Windows, or Windows PowerShell if it is not installed. For a repository inside WSL, it opens that distribution's shell
+- Copy with ⌘C (Ctrl+C on Windows and Linux while text is selected, or Ctrl+Shift+C) and paste with ⌘V / Ctrl+V
+- If the built-in terminal cannot start on that PC (neither the bundled node-pty nor python3 can be used), "Open in external terminal" opens the OS terminal in the same folder instead
+- During remote control, terminals opened on host tabs run on the host. The panel lists both the host's terminals and this machine's. From a phone, it can be used only after you allow it (see [Use from your phone](mobile.md))
+
 ## btw (send a message while running)
 From the "btw" tab of a running card, you can send a message to Claude without stopping its work. Once received, it shows "Delivered".
 

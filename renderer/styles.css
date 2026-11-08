@@ -1200,6 +1200,42 @@ body.resizing-row { cursor: row-resize; user-select: none; }
 .mobile-qr { width: 200px; height: 200px; flex: none; background: #fff; border-radius: 8px; padding: 4px; }
 .mobile-qr svg { width: 100%; height: 100%; display: block; }
 
+/* ---------------- アプリの中のターミナル（renderer/terminal-view.js） ---------------- */
+:root { --term-bg: #0b0d12; --term-fg: #e6e8ee; }
+@media (prefers-color-scheme: light) {
+  :root { --term-bg: #fbfbfd; --term-fg: #1b1e27; }
+}
+.term-panel { position: relative; flex: none; height: 280px; min-height: 120px; display: flex; flex-direction: column; background: var(--panel); border-top: 1px solid var(--line); }
+.term-resizer { position: absolute; left: 0; right: 0; top: -3px; height: 6px; cursor: ns-resize; z-index: 2; }
+body.term-resizing { cursor: ns-resize; user-select: none; }
+.term-bar { display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-bottom: 1px solid var(--line); min-height: 32px; }
+.term-bar .spacer { flex: 1; }
+.term-btn { padding: 3px 7px; font-size: 12px; }
+.term-tabs { display: flex; gap: 2px; overflow-x: auto; min-width: 0; scrollbar-width: thin; }
+.term-tabbtn { display: inline-flex; align-items: center; gap: 5px; padding: 3px 4px 3px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; color: var(--muted); font-size: 12px; border: 1px solid transparent; max-width: 240px; }
+.term-tabbtn:hover { background: var(--panel-2); color: var(--text); }
+.term-tabbtn.active { background: var(--panel-2); color: var(--text); border-color: var(--line); }
+.term-tabbtn.exited .term-name { text-decoration: line-through; opacity: 0.7; }
+.term-tabbtn .ic { width: 13px; height: 13px; flex: none; }
+.term-name { overflow: hidden; text-overflow: ellipsis; }
+.term-kind { font-size: 10px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+.term-x { background: none; border: 0; padding: 1px; border-radius: 4px; cursor: pointer; color: var(--muted); display: inline-flex; }
+.term-x:hover { background: var(--line); color: var(--text); }
+.term-x .ic { width: 12px; height: 12px; }
+.term-body { position: relative; flex: 1; min-height: 0; background: var(--term-bg); }
+.term-host { position: absolute; inset: 0; padding: 4px 0 0 8px; background: var(--term-bg); }
+.term-host .xterm { height: 100%; }
+.term-host .xterm-viewport { background: var(--term-bg) !important; }
+.term-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; height: 100%; padding: 16px; text-align: center; }
+.term-empty p { margin: 0; max-width: 520px; }
+.term-empty .btn .ic { margin-right: 4px; }
+/* タスク詳細の「ターミナル」タブ: 本文の高さいっぱいに出す */
+.term-tab { position: relative; height: 100%; min-height: 240px; background: var(--term-bg); }
+.term-reopen { position: absolute; right: 12px; bottom: 12px; z-index: 3; }
+#termBtn.active { color: var(--accent); }
+.d-body.term-mode { overflow: hidden; display: flex; flex-direction: column; }
+.d-body.term-mode > .term-tab { flex: 1; height: auto; min-height: 0; }
+
 /* 内蔵ブラウザ（詳細の「ブラウザ」タブ）。<webview> は読み込み直さないよう、タブの中身とは別の #browserPane に置いたままにする */
 .d-browser { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .detail.browser-wide:not(.as-modal) { width: calc(100vw - 240px); }

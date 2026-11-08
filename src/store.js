@@ -308,6 +308,7 @@ const DEFAULT_SETTINGS = {
   // ---- スマホから使う（外から Cloudflare Tunnel を通して、スマホのブラウザで操作する） ----
   mobileEnabled: false, // スマホ用のサーバーとトンネルを動かす（起動時にも再開する）
   mobilePort: 17832, // スマホ用のサーバーの待ち受けポート（127.0.0.1）。名前付きトンネルはここへ向ける
+  mobileTerminalEnabled: false, // スマホからアプリの中のターミナル（シェル）を使ってよいか。シェルを丸ごと渡すので既定はオフ
   mobileDevices: [], // ペアリングしたスマホ（トークンは SHA-256 だけ）
   mobileTunnelMode: 'quick', // 'quick' = Quick Tunnel（URL が起動ごとに変わる） / 'named' = 名前付きトンネル
   mobileNamedHostname: '', // 名前付きトンネルで公開するホスト名（トークンは secrets.json）

@@ -196,6 +196,7 @@ If you want to open `ssh -L 17831:127.0.0.1:17831 <user>@<host>` yourself, set t
 - While viewing a tab for this machine, "Open folder" (Finder or Explorer) and the like work as usual. When you disconnect, only the tabs for this machine remain
 - During remote control, you can also **switch to the host's repositories** from the repository area at the top left. Choose a repository recently opened on the host, or browse the host's folders on this screen with "Open a folder on the host" (you can also enter a path directly). "Choose…" under "Location" for cloning and creating new repositories also picks from the host's folders
 - "Open folder" (Finder or Explorer) is not available on host tabs, because it would open on the host's screen
+- The terminal (task "Terminal" tab and the panel at the bottom) opened from a host tab runs on the host, and its input and output are relayed. If the connection drops, the shell keeps running on the host, and you can pick it up again from the panel after reconnecting. "Open in external terminal" is not available on host tabs
 - A pairing code expires after 10 minutes and becomes invalid after 5 wrong attempts (issue a new one on the host). Secrets such as tokens are not sent to the remote side
 
 ---

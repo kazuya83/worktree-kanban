@@ -198,7 +198,34 @@ const PROXY_CHANNELS = new Set([
   // チャットを開くと画面が自動で既読にするので、転送しないと遠隔中に毎回エラーが出る
   'card:markSeen',
   // card:open（ホストの Finder を開く）も操作側では見えないので転送しない
+  // アプリの中のターミナル: ホストでシェルを動かし、入出力を中継する（terminal:data / terminal:exit は event で届く）。
+  // terminal:openExternal はホストの画面にウィンドウが出るだけなので転送しない
+  'terminal:available',
+  'terminal:list',
+  'terminal:open',
+  'terminal:attach',
+  'terminal:read',
+  'terminal:write',
+  'terminal:resize',
+  'terminal:close',
 ]);
+
+// 開いたあとのターミナルの操作（id で決まる）。開いた側（ホスト / このマシン）へ送る
+const TERMINAL_ID_CHANNELS = new Set(['terminal:attach', 'terminal:write', 'terminal:resize', 'terminal:close']);
+
+/**
+ * ターミナルの操作を、どちらで行うか。id の付いた操作は、id の印（src/terminal.js の prefix）で開いた側へ送る
+ * @param {string} channel
+ * @param {any} arg
+ * @param {string} localPrefix  このマシンの TerminalManager の prefix
+ * @returns {'host'|'local'|null}  null: id で決まらない（見ている側で行う）
+ */
+function terminalSide(channel, arg, localPrefix) {
+  if (!TERMINAL_ID_CHANNELS.has(channel)) return null;
+  const id = arg && typeof arg === 'object' ? String(arg.id || '') : '';
+  if (!id) return null;
+  return localPrefix && id.startsWith(`t-${localPrefix}-`) ? 'local' : 'host';
+}
 
 // 遠隔に接続中でも、操作側のマシンで動かすチャンネル（それ以外の非転送チャンネルは接続中は使えない）
 // mobile: はこのマシンのスマホ用の設定（スマホが見るのも、いつもこのマシンのボード）
@@ -705,6 +732,7 @@ function droppedSettingsMessage(keys) {
 }
 
 module.exports = {
+  terminalSide,
   droppedSettingKeys,
   droppedSettingsMessage,
   stripLocalSettings,

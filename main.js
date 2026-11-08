@@ -64,7 +64,7 @@ const wsl = require('./src/wsl');
 const { fixPath, resolveCommand } = require('./src/env');
 const providers = require('./src/providers');
 const { cleanScript } = require('./src/worktree-scripts');
-const { RemoteHost, RemoteClient, Reconnector, DEFAULT_PORT, isProxyChannel, isLocalChannel, routeSide, stripRouting, stripLocalSettings, droppedSettingKeys, droppedSettingsMessage, composeTabs, VIEW_CHANNELS, connectionKey, upsertConnectionHistory, removeConnectionHistory, findConnectionHistory, publicConnectionHistory, restoreLocalLanguage } = require('./src/remote');
+const { RemoteHost, RemoteClient, Reconnector, DEFAULT_PORT, isProxyChannel, isLocalChannel, routeSide, stripRouting, stripLocalSettings, droppedSettingKeys, droppedSettingsMessage, composeTabs, VIEW_CHANNELS, connectionKey, upsertConnectionHistory, removeConnectionHistory, findConnectionHistory, publicConnectionHistory, restoreLocalLanguage, terminalSide } = require('./src/remote');
 const { SshTunnel, isLoopbackHost, sshHostInfo } = require('./src/ssh-tunnel');
 const sshKey = require('./src/ssh-key');
 const dirBrowse = require('./src/dir-browse');
@@ -76,6 +76,7 @@ const { SlackBridge } = require('./src/slack');
 const { MobileServer } = require('./src/mobile-server');
 const { CloudflareTunnel, findCloudflared, installHint } = require('./src/cloudflare-tunnel');
 const { createScheduleApi, notificationClickPlan } = require('./src/schedule-wiring');
+const { TerminalManager } = require('./src/terminal');
 const fs = require('fs');
 
 // Finder やスタートメニューから起動しても claude / git / node が見つかるようにする
@@ -207,6 +208,10 @@ function setupPreviewSession() {
   ses.setPermissionCheckHandler((_wc, permission) => permission === 'clipboard-sanitized-write' || permission === 'fullscreen');
 }
 
+// アプリの中のターミナル（src/terminal.js）。スマホから使ってよい操作（設定で許可したときだけ）
+let terminals = null;
+const TERMINAL_CHANNELS = new Set(['terminal:available', 'terminal:open', 'terminal:attach', 'terminal:read', 'terminal:write', 'terminal:resize', 'terminal:close', 'terminal:list']);
+
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
@@ -293,7 +298,14 @@ function notifyRemoteOnly() {
 // ローカル処理。クライアント接続中は、見ている側（またはリポジトリの操作で選んだ側）がホストなら PROXY 対象をホストへ転送する
 async function dispatch(channel, arg) {
   if (remoteClient?.connected && !isLocalChannel(channel)) {
-    const side = routeSide(channel, arg, clientView);
+    // ターミナルの一覧は、ホストとこのマシンの両方を並べる（画面の下のパネルは、どちらのタブを見ていても両方を出す）
+    if (channel === 'terminal:list') {
+      const local = terminals ? terminals.list().map((t) => ({ ...t, remote: false })) : [];
+      const host = await remoteClient.invoke('terminal:list').catch(() => []); // 古い版のホストには無い
+      return [...(Array.isArray(host) ? host : []).map((t) => ({ ...t, remote: true })), ...local];
+    }
+    const side = terminalSide(channel, arg, terminals?.prefix) || routeSide(channel, arg, clientView);
+    if (side === 'host' && channel === 'terminal:openExternal') throw new Error(tr('ホストのタブでは、外部のターミナルでは開けません（ホスト側で開いてください）'));
     if (side === 'host') {
       // 手元のボードを触る操作（リポジトリの選択ダイアログなど）は、ホストの画面に出てしまうので止める
       if (!isProxyChannel(channel)) throw new Error(tr('ホストのタブではこの操作を使えません（このマシンのタブで行うか、ホスト側で行ってください）'));
@@ -425,6 +437,7 @@ function mobileStatus() {
   }
   return {
     enabled: !!store.settings.mobileEnabled,
+    terminalEnabled: !!store.settings.mobileTerminalEnabled,
     mode: store.settings.mobileTunnelMode === 'named' ? 'named' : 'quick',
     namedHostname: store.settings.mobileNamedHostname || '',
     hasNamedToken,
@@ -478,10 +491,14 @@ async function startMobile() {
       },
       appVersion: app.getVersion(),
       getLanguage: () => store.settings.language,
+      getTerminalEnabled: () => !!store.settings.mobileTerminalEnabled,
       invoke: (channel, arg, who) => {
         const fn = localHandlers.get(channel);
         if (!fn) throw new Error(tr('未対応の操作です: {channel}', { channel }));
-        if (!MOBILE_READ_CHANNELS.has(channel)) console.log(`[mobile] ${who?.deviceName || who?.deviceId || '?'}: ${channel}`);
+        // ターミナルはシェルを丸ごと渡すことになるので、設定で許可したときだけ（既定はオフ）
+        if (TERMINAL_CHANNELS.has(channel) && !store.settings.mobileTerminalEnabled) throw new Error(tr('スマホからのターミナルは許可されていません（パソコンのアプリの「スマホから使う」で許可できます）'));
+        // 入力・大きさの変更は多いので、記録に残すのは開く・閉じるだけ
+        if (!MOBILE_READ_CHANNELS.has(channel) && channel !== 'terminal:write' && channel !== 'terminal:resize') console.log(`[mobile] ${who?.deviceName || who?.deviceId || '?'}: ${channel}`);
         if (channel === 'board:get') return withRemoteSession(boardState());
         return fn(arg);
       },
@@ -716,6 +733,19 @@ app.whenReady().then(async () => {
   agents.setPermissionEndpoint(permServer.port, permServer.token);
 
   agents.on('changed', notifyBoard);
+  terminals = new TerminalManager({ which: resolveCommand, parseWslPath: wsl.parseWslPath, wslExe: wsl.wslExe() });
+  // 出力は、この画面と、このマシンにつないでいる操作側（遠隔）と、許可していればスマホへ送る
+  const terminalEvent = (channel, payload) => {
+    send(channel, payload);
+    remoteHost?.broadcast(channel, payload);
+    // スマホへは小さなお知らせだけ（出力は terminal:read で読む。イベントの流れを出力で埋めると、ボードの読み直しが起きる）
+    if (store.settings.mobileTerminalEnabled && channel !== 'terminal:data') mobileServer?.broadcast(channel, payload);
+  };
+  terminals.on('data', (id, data) => terminalEvent('terminal:data', { id, data }));
+  terminals.on('exit', (id, code) => terminalEvent('terminal:exit', { id, code }));
+  terminals.on('changed', () => terminalEvent('terminal:changed', terminals.list()));
+  // タスクを消したら、そのタスクのターミナルも閉じる
+  agents.on('changed', () => terminals.prune(store.cards.map((c) => c.id)));
   scheduler = new Scheduler({ store, agents });
   scheduler.on('changed', notifyBoard);
   // 作った PR がマージされたら、タスクを完了にする（1分ごとに GitHub で確かめる）
@@ -867,6 +897,15 @@ app.whenReady().then(async () => {
   handle('mobile:start', () => startMobile());
   handle('mobile:stop', () => stopMobile());
   handle('mobile:recheck', () => mobileStatus());
+  // スマホからターミナルを使ってよいか（このマシンだけの設定。遠隔の操作側からは変えられない: mobile: は転送しない）
+  handle('mobile:setTerminal', (on) => {
+    store.settings.mobileTerminalEnabled = !!on;
+    store.save();
+    // 許可をやめたら、スマホが開いたものも含めて、スマホへは出力を送らない（ターミナル自体はパソコンで使い続けられる）
+    mobileServer?.broadcast('session:changed', { terminal: !!on });
+    notifyMobile();
+    return mobileStatus();
+  });
   handle('mobile:pair', () => {
     if (!mobileServer?.listening()) throw new Error(tr('スマホ用のサーバーが動いていません。先に「使う」を押してください'));
     if (!mobilePublicUrl()) throw new Error(tr('トンネルがまだつながっていません。つながるまで待ってください'));
@@ -1440,6 +1479,44 @@ app.whenReady().then(async () => {
   handle('ci:fix', (id) => agents.fixCi(id));
   handle('card:permission', ({ id, reqId, decision, message }) => agents.answerPermission(id, reqId, decision, message));
   handle('card:answer', ({ id, reqId, answers }) => agents.answerQuestion(id, reqId, answers));
+  // ---- アプリの中のターミナル（シェルだけ。src/terminal.js） ----
+  // タスクのターミナルは worktree（git で管理していないフォルダのタスクはそのフォルダ）、自由なターミナルは今のリポジトリ（無ければホーム）で開く
+  const terminalCwd = ({ kind, cardId, cwd } = {}) => {
+    if (kind === 'card') {
+      const c = agents.must(cardId);
+      // worktree がまだ無い（開始前の）タスクでは、リポジトリ本体では開かない（タスクの作業と取り違えないように）
+      const dir = c.noGit || c.kind === 'chat' ? c.repoPath : c.worktreePath;
+      if (!dir || !(wsl.isWslPath(dir) || fs.existsSync(dir))) throw new Error(tr('worktree がありません'));
+      return dir;
+    }
+    const want = String(cwd || '').trim();
+    if (want && (wsl.isWslPath(want) || fs.existsSync(want))) return want;
+    const repo = store.settings.repoPath;
+    return repo && (wsl.isWslPath(repo) || fs.existsSync(repo)) ? repo : require('os').homedir();
+  };
+  const terminalTitle = ({ kind, cardId } = {}, dir) => {
+    if (kind === 'card') {
+      const c = store.card(cardId);
+      return (c && c.title) || tr('タスク');
+    }
+    return path.basename(String(dir).replace(/[\\/]+$/, '')) || dir;
+  };
+  handle('terminal:available', () => terminals.available());
+  handle('terminal:list', () => terminals.list());
+  handle('terminal:open', (arg = {}) => {
+    const kind = arg.kind === 'card' ? 'card' : 'free';
+    const dir = terminalCwd({ ...arg, kind });
+    return terminals.open({ kind, cardId: arg.cardId, cwd: dir, title: terminalTitle({ ...arg, kind }, dir), cols: arg.cols, rows: arg.rows });
+  });
+  handle('terminal:attach', ({ id } = {}) => terminals.attach(id));
+  // 出力を offset の続きから読む（待ち受け型。スマホが使う）
+  handle('terminal:read', ({ id, offset, wait } = {}) => terminals.read(id, offset, Math.min(20000, Math.max(0, Number(wait) || 0))));
+  handle('terminal:write', ({ id, data } = {}) => terminals.write(id, data));
+  handle('terminal:resize', ({ id, cols, rows } = {}) => terminals.resize(id, cols, rows));
+  handle('terminal:close', ({ id } = {}) => terminals.close(id));
+  // アプリの中で開けないとき（node-pty も python3 も使えない）の代わり: OS のターミナルをそのフォルダで開く
+  handle('terminal:openExternal', (arg = {}) => terminals.openExternal(terminalCwd({ ...arg, kind: arg.cardId ? 'card' : 'free' })));
+
   handle('card:open', async (id) => {
     const c = agents.must(id);
     const dir = c.noGit ? c.repoPath : c.worktreePath;
@@ -1674,6 +1751,7 @@ app.on('before-quit', (e) => {
   // 終了の確認中も含めて、ここからはスケジュールを発火させない（キャンセルされたら動かし直す）
   scheduler?.stop();
   if (quitState === 'done' || !agents) {
+    terminals?.closeAll();
     slack?.stop();
     store?.flush();
     permServer?.close();

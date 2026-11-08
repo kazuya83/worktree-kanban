@@ -149,4 +149,18 @@ contextBridge.exposeInMainWorld('api', {
   mobileSetTunnel: (p) => call('mobile:setTunnel', p || {}),
   mobileRecheck: () => call('mobile:recheck'),
   onMobile: (cb) => ipcRenderer.on('mobile:changed', (_e, d) => cb(d)),
+  mobileSetTerminal: (on) => call('mobile:setTerminal', !!on),
+  // アプリの中のターミナル（src/terminal.js）。遠隔操作中にホストのタブを見ているときは、ホストで開く
+  terminalAvailable: () => call('terminal:available'),
+  terminalList: () => call('terminal:list'),
+  // p: { kind: 'card', cardId } か { kind: 'free', cwd? }、と cols / rows
+  terminalOpen: (p) => call('terminal:open', p || {}),
+  terminalAttach: (id) => call('terminal:attach', { id }),
+  terminalWrite: (id, data) => call('terminal:write', { id, data }),
+  terminalResize: (id, cols, rows) => call('terminal:resize', { id, cols, rows }),
+  terminalClose: (id) => call('terminal:close', { id }),
+  terminalOpenExternal: (p) => call('terminal:openExternal', p || {}),
+  onTerminalData: (cb) => ipcRenderer.on('terminal:data', (_e, d) => cb(d)),
+  onTerminalExit: (cb) => ipcRenderer.on('terminal:exit', (_e, d) => cb(d)),
+  onTerminalChanged: (cb) => ipcRenderer.on('terminal:changed', (_e, d) => cb(d)),
 });

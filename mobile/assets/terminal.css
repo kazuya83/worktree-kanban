@@ -1,0 +1,115 @@
+/* スマホのターミナルの画面（terminal.html）。キーボードが出たら、その上までに縮める */
+html,
+body.term-page {
+  height: 100%;
+  overflow: hidden;
+}
+.term-app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+}
+.term-app .topbar h1 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.term-screen {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #0b0d12;
+  padding: 4px 0 0 4px;
+}
+@media (prefers-color-scheme: light) {
+  .term-screen {
+    background: #fbfbfd;
+  }
+}
+.term-screen .xterm {
+  height: 100%;
+}
+/* 行の数で割り切れない残りの高さに、xterm.css の黒い背景が見えないようにする */
+.term-screen .xterm-viewport {
+  background: #0b0d12 !important;
+}
+@media (prefers-color-scheme: light) {
+  .term-screen .xterm-viewport {
+    background: #fbfbfd !important;
+  }
+}
+.term-keys {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 6px 6px calc(6px + var(--safe-b));
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  scrollbar-width: none;
+}
+.term-keys::-webkit-scrollbar {
+  display: none;
+}
+.term-key {
+  flex: none;
+  min-width: 44px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel2);
+  color: var(--text);
+  font: 600 14px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.term-key.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.term-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.term-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  text-align: left;
+  color: var(--text);
+  font: inherit;
+  width: 100%;
+}
+.term-item .t-main {
+  flex: 1;
+  min-width: 0;
+}
+.term-item .t-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.term-item .t-cwd {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.term-msg {
+  padding: 24px 16px;
+  text-align: center;
+}

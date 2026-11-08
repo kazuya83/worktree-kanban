@@ -117,4 +117,16 @@
   "競争: {names} で同じタスクを解いて比べる": {"en":"Compete: {names} solve the same task and are compared","es":"Competencia: {names} resuelven la misma tarea y se comparan","fr":"Concours : {names} résolvent la même tâche et sont comparés","zh":"竞争：让 {names} 解决同一任务并比较"},
   "・": {"en":", ","es":", ","fr":", ","zh":"、"},
   "競争（設定で使うエージェントを2つ以上選んでください）": {"en":"Compete (choose at least two agents in settings)","es":"Competencia (elige al menos dos agentes en los ajustes)","fr":"Concours (choisissez au moins deux agents dans les réglages)","zh":"竞争（请在设置中至少选择两个代理）"},
+  // アプリの中のターミナル（mobile/terminal.html・assets/terminal.js）。renderer/locales/terminal.js と同じキーは同じ訳
+  "ターミナル": {"en":"Terminal","es":"Terminal","fr":"Terminal","zh":"终端"},
+  "タスク": {"en":"Task","es":"Tarea","fr":"Tâche","zh":"任务"},
+  "新しいターミナル": {"en":"New terminal","es":"Nueva terminal","fr":"Nouveau terminal","zh":"新建终端"},
+  "[シェルは終了しました]": {"en":"[The shell has exited]","es":"[La shell ha terminado]","fr":"[Le shell s'est terminé]","zh":"[shell 已退出]"},
+  "[シェルは終了しました（終了コード {code}）]": {"en":"[The shell has exited (exit code {code})]","es":"[La shell ha terminado (código de salida {code})]","fr":"[Le shell s'est terminé (code de sortie {code})]","zh":"[shell 已退出（退出码 {code}）]"},
+  "ターミナルを開いています…": {"en":"Opening the terminal…","es":"Abriendo la terminal…","fr":"Ouverture du terminal…","zh":"正在打开终端…"},
+  "スマホからのターミナルは許可されていません（パソコンのアプリの「スマホから使う」で許可できます）": {"en":"The terminal is not allowed from phones (you can allow it in \"Use from your phone\" in the desktop app).","es":"La terminal no está permitida desde el teléfono (puede permitirla en «Usar desde el teléfono» de la aplicación de escritorio).","fr":"Le terminal n'est pas autorisé depuis le téléphone (vous pouvez l'autoriser dans « Utiliser depuis le téléphone » de l'application de bureau).","zh":"不允许从手机使用终端（可在电脑应用的「从手机使用」中允许）。"},
+  "パソコンのアプリで動いているシェルです。閉じても、パソコンのアプリで閉じるまでは動き続けます。": {"en": "These shells run in the desktop app. Leaving this screen does not stop them; they keep running until closed.", "es": "Estas shells se ejecutan en la aplicación de escritorio. Salir de esta pantalla no las detiene; siguen en ejecución hasta que se cierran.", "fr": "Ces shells tournent dans l'application de bureau. Quitter cet écran ne les arrête pas ; ils continuent jusqu'à leur fermeture.", "zh": "这些 shell 在电脑应用中运行。离开此画面不会停止，在关闭之前会一直运行。"},
+  "終了済み": {"en": "exited", "es": "terminada", "fr": "terminé", "zh": "已退出"},
+  "このターミナルを閉じて、シェルを終わらせますか？": {"en": "Close this terminal and end the shell?", "es": "¿Cerrar esta terminal y terminar la shell?", "fr": "Fermer ce terminal et terminer le shell ?", "zh": "要关闭此终端并结束 shell 吗？"},
+  "このターミナルは閉じられました": {"en": "This terminal has been closed", "es": "Esta terminal se ha cerrado", "fr": "Ce terminal a été fermé", "zh": "此终端已关闭"},
 });
