@@ -18,9 +18,39 @@ if (require('./src/launch-mode').isMcpLaunch(process.argv)) {
   }
   return;
 }
-// アプリは1つだけ起動する。2つ目に起動されたら、すぐ終えて、今のウィンドウを前に出す（second-instance）
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
+// 常駐モード（--headless）: ウィンドウを開かずに、スケジューラ・Issue の監視・Slack・遠隔操作のホストだけを動かす（src/headless.js）
+const headlessLib = require('./src/headless');
+const headlessOpts = headlessLib.parseHeadlessOptions(process.argv, process.env);
+const HEADLESS = headlessOpts.headless;
+// エージェントやタスクのスクリプトに引き継がない（開発中のアプリを動かしたとき、常駐モードになってしまうため）
+delete process.env[headlessLib.ENV_HEADLESS];
+const appMode = HEADLESS ? 'headless' : 'desktop';
+if (HEADLESS) {
+  // 画面を描かないので GPU は使わない。Linux のサーバー（画面なし）でも起動できるようにする
+  app.disableHardwareAcceleration();
+  // GPU の子プロセスを作らない。systemd などがプロセスのグループごと SIGTERM を送ると、子が先に落ちて
+  // 本体も道連れになり、実行中のタスクをコミットする前に終わってしまうため
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('in-process-gpu');
+  if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY && !app.commandLine.hasSwitch('ozone-platform')) {
+    app.commandLine.appendSwitch('ozone-platform', 'headless');
+  }
+}
+// データの場所はパッケージ名から決まるので、Agent Kanban のころの場所に固定する（名前を変えてもボードをそのまま使う）。
+// --user-data-dir を渡したときは、そちらを使う（別のデータで動かすとき）
+const dataDir = app.commandLine.hasSwitch('user-data-dir') ? app.commandLine.getSwitchValue('user-data-dir') : path.join(app.getPath('appData'), 'agent-kanban');
+// アプリは1つだけ起動する（デスクトップ版と常駐モードも、同じボードを同時には動かさない）。
+// デスクトップ版の2つ目は、すぐ終えて今のウィンドウを前に出す（second-instance）。
+// 常駐モードが動いているときや、常駐モードの2つ目は、理由を出して終わる
+if (!app.requestSingleInstanceLock({ mode: appMode })) {
+  // 断る理由は、このマシンで選んでいる言語で出す
+  require('./renderer/i18n').setLanguage(require('./src/store').languageForBoardFile(path.join(dataDir, 'board.json')));
+  const plan = headlessLib.secondInstancePlan(appMode, headlessLib.readLockInfo(dataDir));
+  if (plan.action === 'refuse') {
+    console.error(plan.message);
+    if (!HEADLESS) dialog.showErrorBox('Worktree Kanban', plan.message);
+    app.exit(1);
+  } else app.quit();
   return;
 }
 
@@ -51,9 +81,7 @@ const fs = require('fs');
 // Finder やスタートメニューから起動しても claude / git / node が見つかるようにする
 fixPath();
 if (process.platform === 'win32') app.setAppUserModelId('dev.agentkanban.app'); // Windows の通知に必要
-// データの場所はパッケージ名から決まるので、Agent Kanban のころの場所に固定する（名前を変えてもボードをそのまま使う）。
-// --user-data-dir を渡したときは、そちらを使う（別のデータで動かすとき）
-if (!app.commandLine.hasSwitch('user-data-dir')) app.setPath('userData', path.join(app.getPath('appData'), 'agent-kanban'));
+if (!app.commandLine.hasSwitch('user-data-dir')) app.setPath('userData', dataDir);
 
 // 起動したあとにアプリの中身（app.asar）が入れ替えられたか（アップデートを起動中に入れたとき）。
 // 入れ替わったまま古いプロセスで新しいウィンドウを開くと、ファイルの位置がずれて画面が壊れるので、再起動する
@@ -364,11 +392,18 @@ function mobileStatus() {
 }
 
 let mobileNotifyTimer = null;
+let lastMobileUrl = '';
 function notifyMobile() {
   if (mobileNotifyTimer) return;
   mobileNotifyTimer = setTimeout(() => {
     mobileNotifyTimer = null;
     send('mobile:changed', mobileStatus());
+    // 常駐モード: 外からスマホで開く URL が決まったら、ログに出す
+    if (HEADLESS) {
+      const url = mobilePublicUrl();
+      if (url && url !== lastMobileUrl) headlessLib.log(`スマホ用の Web 画面: ${url}`);
+      if (url) lastMobileUrl = url;
+    }
   }, 100);
 }
 
@@ -606,13 +641,20 @@ function disconnectRemote() {
 
 app.whenReady().then(async () => {
   const userData = app.getPath('userData');
+  // ロックを持っているのがどちらか（デスクトップ版 / 常駐モード）を書いておく。後から起動した側が理由を出せるように
+  try {
+    headlessLib.writeLockInfo(userData, { mode: appMode, version: app.getVersion() });
+  } catch (err) {
+    console.error('instance.json を書けませんでした:', err.message);
+  }
+  if (HEADLESS) app.dock?.hide(); // macOS: Dock にアイコンを出さない
   const boardFile = path.join(userData, 'board.json');
   // Store のコンストラクタでは setLanguage しない。新規の既定フローを選んだ言語で作るため、先に決める
   I18n.setLanguage(languageForBoardFile(boardFile));
   store = new Store(boardFile);
   // 初めて起動したときは、インストールされているエージェントを使う設定にする
   store.adoptAgents(providers.AGENT_IDS.filter((a) => resolveCommand(providers.agentCommand(store.settings, a))));
-  secretStore = new SecretStore({ file: path.join(userData, 'secrets.json'), safeStorage });
+  secretStore = new SecretStore({ file: path.join(userData, 'secrets.json'), safeStorage, overrides: HEADLESS ? headlessSecretOverrides(userData) : null });
   trackers = new trackersRegistry.Trackers({ store, secrets: secretStore });
   trackers.on('changed', notifyBoard);
   agents = new AgentManager(store, {
@@ -643,6 +685,11 @@ app.whenReady().then(async () => {
   // 通知（右上のベルに貯まるもの）は、デスクトップ通知でも知らせる
   agents.on('notification', (n) => {
     notifyBoard();
+    // 常駐モードには画面が無いので、ログに出す（承認待ち・質問は Slack にも通知が行く）
+    if (HEADLESS) {
+      console.log(headlessLib.notificationLine(n));
+      return;
+    }
     if (Notification.isSupported()) {
       const dn = new Notification({ title: n.title, body: String(n.body || '').slice(0, 200) });
       dn.on('click', async () => {
@@ -1348,12 +1395,14 @@ app.whenReady().then(async () => {
     store.save();
   }
 
-  createWindow();
+  if (HEADLESS) await startHeadless();
+  else createWindow();
   scheduler.start();
   // 前回クライアントとして接続したまま終えていたら、その接続を裏で再開する（自分で切断していたらしない）
-  if (store.settings.remoteClientResume && !remoteHost?.listening()) resumeRemote();
+  // 常駐モードは操作される側なので、ほかのホストへはつながない
+  if (!HEADLESS && store.settings.remoteClientResume && !remoteHost?.listening()) resumeRemote();
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length > 0) return;
+    if (HEADLESS || BrowserWindow.getAllWindows().length > 0) return;
     // ウィンドウを閉じて裏で動いているあいだに新しい版が入ったら、新しい版で起動し直す
     if (appReplaced()) {
       app.relaunch();
@@ -1363,6 +1412,94 @@ app.whenReady().then(async () => {
     createWindow();
   });
 });
+
+// ---- 常駐モード（--headless） ----
+
+// トークンを環境変数と、本人しか読めないファイル（既定は userData/headless.env）から読む。
+// ファイルが本人以外も読めるときは、気づけるように起動をやめる
+function headlessSecretOverrides(userData) {
+  const file = headlessOpts.secretsFile || path.join(userData, headlessLib.DEFAULT_SECRETS_FILE);
+  try {
+    const o = headlessLib.createSecretOverrides({ env: process.env, file });
+    const known = [...trackersRegistry.list().flatMap((p) => (p.configFields || []).filter((f) => f.type === 'secret').map((f) => trackersRegistry.secretName(p.id, f.name))), MOBILE_TOKEN_SECRET];
+    const found = o.found(known);
+    headlessLib.scrubSecretEnv(process.env, known);
+    headlessLib.log(found.length ? `トークン: ${found.join(', ')} を使います（ファイル: ${file}）` : `トークン: 環境変数にも ${file} にもありません（OS の安全な保存先に保存したものを使います）`);
+    return o;
+  } catch (err) {
+    console.error(err.message);
+    headlessLib.clearLockInfo(userData);
+    process.exit(1);
+  }
+}
+
+// 画面の代わりに、状態をログに出す。シグナルで終了する。--remote-host なら遠隔操作のホストを始める
+async function startHeadless() {
+  headlessLib.log(`Worktree Kanban ${app.getVersion()} を常駐モードで起動しました（pid ${process.pid}、データ: ${app.getPath('userData')}）`);
+  let signals = 0;
+  const onSignal = (sig) => {
+    // 2回目は待たずに終わる（タスクの片付けが止まったとき）
+    if (++signals > 1) return app.exit(1);
+    headlessLib.log(`${sig} を受け取りました。終了します`);
+    app.quit();
+  };
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => onSignal(sig));
+
+  // 遠隔操作のホスト: 操作側の PC から SSH 経由でつなぎ、ボードと設定（連携など）を画面で操作する
+  if (headlessOpts.remoteHost && !remoteHost?.listening()) {
+    if (headlessOpts.remoteHost.port) store.settings.remotePort = Math.min(65535, Math.max(1024, headlessOpts.remoteHost.port));
+    cancelConnecting();
+    store.settings.remoteClientResume = false;
+    store.save();
+    try {
+      await startRemoteHost();
+    } catch (err) {
+      console.error('遠隔操作のホストを始められませんでした:', err.message);
+    }
+  }
+  let lastCode = null;
+  const logPair = () => {
+    const st = remoteHost?.status();
+    if (!st || !st.listening || !st.pairCode || st.pairCode === lastCode) return;
+    lastCode = st.pairCode;
+    headlessLib.log(`遠隔操作のホスト: 127.0.0.1:${st.port} で待ち受けています。ペアリングのコード ${st.pairCode}（${new Date(st.pairExpiresAt).toLocaleTimeString()} まで。出し直すには kill -USR2 ${process.pid}）`);
+  };
+  remoteHost?.on('changed', logPair);
+  logPair();
+  if (process.platform !== 'win32') {
+    process.on('SIGUSR2', () => {
+      if (!remoteHost?.listening()) return headlessLib.log('遠隔操作のホストが動いていないので、ペアリングのコードは出せません（--remote-host を付けて起動してください）');
+      remoteHost.refreshPairCode();
+    });
+  }
+
+  // Slack の状態。承認待ち・質問は、つながっていて通知のチャンネルがあるときだけ Slack に届く
+  let lastSlack = '';
+  const logSlack = () => {
+    const st = slack.status();
+    const line = `${st.state}${st.text ? `: ${st.text}` : ''}`;
+    if (line === lastSlack) return;
+    lastSlack = line;
+    if (st.state !== 'off') headlessLib.log(`Slack: ${line}`);
+  };
+  slack.on('status', logSlack);
+  logSlack();
+  const slackConf = trackers.configOf('slack') || {};
+  if (slack.status().state === 'off') headlessLib.log('Slack につながっていません（連携の設定か、トークンが足りません）。承認待ちと質問は、答えが来るまで待ちますが、どこにも通知されません（遠隔操作かスマホの画面で答えてください）');
+  else if (!slackConf.notifyChannel) headlessLib.log('Slack の「通知を投稿するチャンネル ID」が空です。Slack から頼んだタスク以外の承認待ちと質問は、Slack に通知されません');
+
+  // 新しい版が出たら知らせる（常駐モードは自動では入れ替えない）
+  let lastAvailable = '';
+  updater.on('changed', () => {
+    const st = updater.status();
+    if (st.state !== 'available' || st.latestVersion === lastAvailable) return;
+    lastAvailable = st.latestVersion;
+    headlessLib.log(`新しい版 ${st.latestVersion} が出ています（常駐モードでは自動で更新しません。止めてから入れ替えてください: ${st.releaseUrl}）`);
+  });
+
+  const schedules = store.schedules?.length ?? 0;
+  headlessLib.log(`スケジュール ${schedules} 件・実行中のタスクの監視を始めます。止めるには Ctrl+C か kill ${process.pid}`);
+}
 
 // ---- アプリの更新 ----
 function updateStatus() {
@@ -1385,6 +1522,8 @@ function installUpdate() {
 // 「新しい版が出たら自動で更新する」: 実行中・待機中のタスクがないときだけ入れ替える（あれば、なくなるまで待つ）
 function maybeAutoUpdate() {
   if (!store.settings.autoUpdate || quittingForUpdate || updater.status().state !== 'available') return;
+  // 常駐モードは、入れ替えたあとデスクトップ版として起動し直してしまうので、自動では入れ替えない（ログで知らせる）
+  if (HEADLESS) return;
   if (remoteClient?.connected) return; // 遠隔操作中は、勝手に切らない
   const { running, queued } = agents.activeCount();
   if (running || queued) return;
@@ -1437,7 +1576,13 @@ app.on('window-all-closed', () => {
 });
 
 // 2つ目のアプリが起動されかけたとき（そちらはすぐ終わる）は、新しいウィンドウを作らず、今のウィンドウを前に出す
-app.on('second-instance', () => {
+app.on('second-instance', (_e, _argv, _cwd, data) => {
+  if (HEADLESS) {
+    // 起動しかけた側（デスクトップ版）は、instance.json を見て自分で理由を出して終わる
+    headlessLib.log(`もう1つの Worktree Kanban（${(data && data.mode) || '?'}）の起動を断りました`);
+    return;
+  }
+  if (data && data.mode === 'headless') return; // 常駐モードを起動しかけた（そちらが理由を出して終わる）。ウィンドウは前に出さない
   if (!agents) return; // まだ起動の途中
   if (!win || win.isDestroyed()) {
     if (quitState === 'idle') createWindow();
@@ -1462,6 +1607,8 @@ app.on('before-quit', (e) => {
     sshTunnel?.close();
     remoteHost?.stop();
     stopMobile({ keepEnabled: true });
+    headlessLib.clearLockInfo(app.getPath('userData'));
+    if (HEADLESS) headlessLib.log('終了しました');
     return;
   }
   e.preventDefault();
@@ -1486,7 +1633,11 @@ app.on('before-quit', (e) => {
     quitState = 'done';
     app.quit();
   };
-  if ((!running && !queued) || quittingForUpdate) return finish();
+  // 常駐モードは聞く相手がいないので、そのまま止める（実行中のタスクはブランチにコミットし、次の起動で再開できる）
+  if ((!running && !queued) || quittingForUpdate || HEADLESS) {
+    if (HEADLESS && (running || queued)) headlessLib.log(`実行中 ${running} 件・待機中 ${queued} 件のタスクを中断して終了します（変更はタスクのブランチにコミットします）`);
+    return finish();
+  }
   quitState = 'confirming';
   const opts = {
     type: 'warning',

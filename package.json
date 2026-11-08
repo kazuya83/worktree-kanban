@@ -57,7 +57,11 @@
       "artifactName": "worktree-kanban-${version}-win-portable.${ext}"
     },
     "linux": {
-      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "tar.gz", "arch": ["x64"] }
+      ],
+      "extraFiles": [{ "from": "build/linux/worktree-kanban-headless", "to": "worktree-kanban-headless" }],
       "category": "Development"
     }
   }

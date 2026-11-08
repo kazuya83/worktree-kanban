@@ -280,6 +280,7 @@ irm https://raw.githubusercontent.com/kazuya83/worktree-kanban/main/install.ps1 
 | [連携](docs/integrations.ja.md) | GitLab・Linear・Jira・Slack の設定、できることとできないこと |
 | [遠隔操作](docs/remote.ja.md) | 別の PC から SSH トンネルでボードを操作する手順と、つながらないときの直し方 |
 | [スマホから使う](docs/mobile.ja.md) | 外からスマホのブラウザでボードを操作する手順（Cloudflare Tunnel）と、つながらないときの直し方 |
+| [常駐モード](docs/headless.ja.md) | ウィンドウを開かずに動かし続ける（Linux のサーバーでも）。スケジューラ・Slack・Issue の監視・遠隔操作のホスト |
 | [インストール](docs/install.ja.md) | インストール・アップデート・アンインストール、Windows で WSL のリポジトリを使う |
 | [開発者向け](docs/development.ja.md) | ソースから動かす・ビルド・リリース・アプリのしくみ・テスト |
 | [Vibe Kanban から移る方法](https://kazuya83.github.io/worktree-kanban/migrate-from-vibe-kanban.ja.html) | Vibe Kanban に起きたこと・引き継げるもの・移行の手順 |

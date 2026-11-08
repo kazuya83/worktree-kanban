@@ -289,6 +289,7 @@ irm https://raw.githubusercontent.com/kazuya83/worktree-kanban/main/install.ps1 
 | [集成](docs/integrations.md) (English) | 设置 GitLab、Linear、Jira 和 Slack，以及能做和不能做的事 |
 | [远程操作](docs/remote.md) (English) | 通过 SSH 隧道从另一台电脑操作看板的步骤，以及连不上时的处理方法 |
 | [从手机使用](docs/mobile.md) (English) | 从任何地方用手机浏览器操作看板的步骤（Cloudflare Tunnel），以及连不上时的处理方法 |
+| [常驻模式](docs/headless.md) (English) | 不打开窗口持续运行（也可在 Linux 服务器上）：任务调度、Slack、Issue 监视和远程控制主机 |
 | [安装](docs/install.md) (English) | 安装、更新、卸载，以及在 Windows 上使用 WSL 仓库 |
 | [面向开发者](docs/development.md) (English) | 从源码运行、构建、发布、应用的结构，以及测试 |
 | [从 Vibe Kanban 迁移](https://kazuya83.github.io/worktree-kanban/migrate-from-vibe-kanban.html) (English) | Vibe Kanban 发生了什么、可以保留什么，以及迁移步骤 |

@@ -50,7 +50,7 @@ GitHub Actions runs only the tests (`.github/workflows/build.yml`). **Builds and
 scripts/build-all.sh
 ```
 
-This runs the tests → a syntax check of install.sh / install.ps1 → the Mac (dmg), Windows (exe / zip), and Linux (AppImage) builds in one go (for reviews). On an Apple Silicon Mac, **Rosetta 2** is required (the tools that make the Windows installer and the AppImage are Intel binaries).
+This runs the tests → a syntax check of install.sh / install.ps1 → the Mac (dmg), Windows (exe / zip), and Linux (AppImage, and the tar.gz for headless mode) builds in one go (for reviews). On an Apple Silicon Mac, **Rosetta 2** is required (the tools that make the Windows installer and the AppImage are Intel binaries).
 
 ```bash
 softwareupdate --install-rosetta --agree-to-license

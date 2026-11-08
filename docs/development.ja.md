@@ -50,7 +50,7 @@ GitHub Actions はテストだけを動かします（`.github/workflows/build.y
 scripts/build-all.sh
 ```
 
-テスト → install.sh / install.ps1 の書き方の確認 → Mac（dmg）・Windows（exe / zip）・Linux（AppImage）のビルドをまとめて行います（レビューのとき）。Apple Silicon の Mac では **Rosetta 2** が必要です（Windows のインストーラーと AppImage を作る道具が Intel 用のため）。
+テスト → install.sh / install.ps1 の書き方の確認 → Mac（dmg）・Windows（exe / zip）・Linux（AppImage・常駐モード向けの tar.gz）のビルドをまとめて行います（レビューのとき）。Apple Silicon の Mac では **Rosetta 2** が必要です（Windows のインストーラーと AppImage を作る道具が Intel 用のため）。
 
 ```bash
 softwareupdate --install-rosetta --agree-to-license

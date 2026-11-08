@@ -224,7 +224,7 @@ release_built() {
 
   step "v$version を Release として公開しています"
   local assets=("$dir"/worktree-kanban-"$version"-*.dmg "$dir"/worktree-kanban-"$version"-*.exe
-    "$dir"/worktree-kanban-"$version"-*.zip "$dir"/worktree-kanban-"$version"-*.AppImage)
+    "$dir"/worktree-kanban-"$version"-*.zip "$dir"/worktree-kanban-"$version"-*.AppImage "$dir"/worktree-kanban-"$version"-*.tar.gz)
   # 改名する前の版が自分を更新できるように、前の名前のファイルも載せる（説明の一覧には出さない）
   local legacy_dir legacy=()
   legacy_dir="$(mktemp -d -t worktree-kanban-legacy)"
@@ -341,7 +341,7 @@ run_once() {
   version="$(node -e 'console.log(JSON.parse(process.argv[1]).version)' "$(node scripts/next-version.js 2>/dev/null)" 2>/dev/null)"
   [ -n "$version" ] || { fail "次の版の番号が分かりませんでした"; return 1; }
   local f missing=""
-  for f in "mac-arm64.dmg" "mac-x64.dmg" "win-setup.exe" "win-portable.exe" "win-x64.zip" "linux-x86_64.AppImage"; do
+  for f in "mac-arm64.dmg" "mac-x64.dmg" "win-setup.exe" "win-portable.exe" "win-x64.zip" "linux-x86_64.AppImage" "linux-x64.tar.gz"; do
     [ -f "dist/worktree-kanban-$version-$f" ] || missing="$missing worktree-kanban-$version-$f"
   done
   [ -z "$missing" ] || { fail "ビルドしたファイルが足りません:$missing"; return 1; }

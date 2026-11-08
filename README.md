@@ -289,6 +289,7 @@ The same commands update to the latest version. You can also update from the app
 | [Integrations](docs/integrations.md) | Setting up GitLab, Linear, Jira, and Slack, and what they can and cannot do |
 | [Remote control](docs/remote.md) | How to operate the board from another PC over an SSH tunnel, and how to fix a connection that fails |
 | [Use from your phone](docs/mobile.md) | How to operate the board from a phone browser from anywhere (Cloudflare Tunnel), and how to fix a connection that fails |
+| [Headless mode](docs/headless.md) | Keep it running without a window (also on a Linux server): the scheduler, Slack, Issue watching, and the remote control host |
 | [Install](docs/install.md) | Install, update, uninstall, and using a WSL repository on Windows |
 | [For developers](docs/development.md) | Run from source, build, release, how the app is built, and tests |
 | [Migrate from Vibe Kanban](https://kazuya83.github.io/worktree-kanban/migrate-from-vibe-kanban.html) | What changed at Vibe Kanban, what carries over, and the migration steps |

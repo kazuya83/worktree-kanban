@@ -289,6 +289,7 @@ Les mêmes commandes mettent à jour vers la dernière version. Vous pouvez auss
 | [Intégrations](docs/integrations.md) (English) | Configurer GitLab, Linear, Jira et Slack, et ce qu'ils peuvent ou non faire |
 | [Contrôle à distance](docs/remote.md) (English) | Comment piloter le tableau depuis un autre PC par un tunnel SSH, et comment réparer une connexion qui échoue |
 | [Utiliser depuis le téléphone](docs/mobile.md) (English) | Comment piloter le tableau depuis le navigateur du téléphone où que vous soyez (Cloudflare Tunnel), et comment réparer une connexion qui échoue |
+| [Mode résident](docs/headless.md) (English) | Le garder en marche sans fenêtre (aussi sur un serveur Linux) : le planificateur, Slack, la surveillance des Issues et l’hôte de contrôle à distance |
 | [Installation](docs/install.md) (English) | Installation, mise à jour, désinstallation, et utilisation d'un dépôt WSL sous Windows |
 | [Pour les développeurs](docs/development.md) (English) | Lancer depuis les sources, compiler, publier, comment l'application est faite, et les tests |
 | [Migrer depuis Vibe Kanban](https://kazuya83.github.io/worktree-kanban/migrate-from-vibe-kanban.html) (English) | Ce qui a changé chez Vibe Kanban, ce qui est conservé et les étapes de migration |
