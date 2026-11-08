@@ -445,8 +445,7 @@ test('Pipeline: 判定する工程の返事に値がなければ、「どれに�
 
 test('競争: 同じタスクを複数のエージェントで並列に解き、比べて1つを採用する', async () => {
   const { agents, store, g } = setup();
-  store.settings.orchestration = 'compete';
-  store.settings.competeAgents = ['claude', 'codex', 'gemini'];
+  store.settings.competes = [{ id: 'default', name: '競争', agents: ['claude', 'codex', 'gemini'], customAgents: [] }];
   const cards = agents.createTask({ title: 'race', prompt: '競争のタスク', agent: 'compete' });
   assert.deepStrictEqual(cards.map((c) => c.agent), ['claude', 'codex', 'gemini']);
   assert.deepStrictEqual(cards.map((c) => c.title), ['race [Claude]', 'race [Codex]', 'race [Gemini]']);
@@ -480,8 +479,7 @@ test('競争: 同じタスクを複数のエージェントで並列に解き、
 
 test('競争: 採用しても、完了した候補は削除せずに残す', async () => {
   const { agents, store } = setup();
-  store.settings.orchestration = 'compete';
-  store.settings.competeAgents = ['claude', 'codex'];
+  store.settings.competes = [{ id: 'default', name: '競争', agents: ['claude', 'codex'], customAgents: [] }];
   const [cl, cx] = agents.createTask({ title: 'race2', prompt: '競争のタスク', agent: 'compete' });
   for (const c of [cl, cx]) agents.start(c.id);
   await waitFor(() => cl.status === 'review' && cx.status === 'review');
@@ -494,10 +492,9 @@ test('競争: 採用しても、完了した候補は削除せずに残す', asy
 
 test('競争: エージェントが2つ未満ならエラー。Issue からも競争で作れる', async () => {
   const { agents, store } = setup();
-  store.settings.orchestration = 'compete';
-  store.settings.competeAgents = ['codex'];
+  store.settings.competes = [{ id: 'default', name: '競争', agents: ['codex'], customAgents: [] }];
   assert.throws(() => agents.createTask({ prompt: 'x', agent: 'compete' }), /2つ以上/);
-  store.settings.competeAgents = ['codex', 'gemini'];
+  store.settings.competes = [{ id: 'default', name: '競争', agents: ['codex', 'gemini'], customAgents: [] }];
   agents.fetchIssue = async (_r, n) => ({ number: n, title: `Issue ${n}`, body: 'body', url: `https://github.com/o/r/issues/${n}`, state: 'open', labels: [], comments: [] });
   const { cards } = await agents.createFromIssues({ numbers: '5', agent: 'compete' });
   assert.deepStrictEqual(cards.map((c) => c.agent), ['codex', 'gemini']);
@@ -515,8 +512,7 @@ test('使うエージェント: チェックを付けていないエージェン
   ]);
   assert.throws(() => agents.createTask({ prompt: 'x', agent: 'relay' }), /工程「テスト」の Gemini CLI は使わない設定/);
   // 競争は使うエージェントだけで（2つ未満ならエラー）
-  store.settings.orchestration = 'compete';
-  store.settings.competeAgents = ['claude', 'codex', 'gemini'];
+  store.settings.competes = [{ id: 'default', name: '競争', agents: ['claude', 'codex', 'gemini'], customAgents: [] }];
   assert.deepStrictEqual(agents.createTask({ prompt: 'x', agent: 'compete' }).map((c) => c.agent), ['claude', 'codex']);
   store.settings.enabledAgents = ['codex'];
   assert.throws(() => agents.createTask({ prompt: 'x', agent: 'compete' }), /2つ以上/);
@@ -526,33 +522,69 @@ test('使うエージェント: チェックを付けていないエージェン
   assert.strictEqual(agents.createChat({ message: 'y' }).agent, 'codex');
 });
 
-test('Pipelineと競争は排他: 設定で選んだ方だけ使え、もう片方ではタスクを作れない', async () => {
+test('Pipelineと競争はいつでも使え、競争はいくつでも作れる。最初から選んでおくものにも選べる', async () => {
   const { agents, store } = setup();
   useSteps(store, [{ agent: 'codex', label: '実装', instruction: '' }]);
-  store.settings.competeAgents = ['claude', 'codex'];
-  // 初期値はPipeline
-  assert.strictEqual(store.settings.orchestration, 'relay');
-  assert.strictEqual(agents.createTask({ prompt: 'x', agent: 'relay' }).length, 1);
-  assert.throws(() => agents.createTask({ prompt: 'x', agent: 'compete' }), /競争は使わない設定/);
-  // 競争に切り替えると、Pipelineは使えない
-  store.settings.orchestration = 'compete';
-  assert.strictEqual(agents.createTask({ prompt: 'x', agent: 'compete' }).length, 2);
-  assert.throws(() => agents.createTask({ prompt: 'x', agent: 'relay' }), /Pipelineは使わない設定/);
-  // 「なし」にすると、Pipelineも競争も使えない
-  store.settings.orchestration = 'none';
-  assert.throws(() => agents.createTask({ prompt: 'x', agent: 'relay' }), /Pipelineは使わない設定/);
-  assert.throws(() => agents.createTask({ prompt: 'x', agent: 'compete' }), /競争は使わない設定/);
-  // 1つのエージェントのタスクは、どれを選んでいても作れる
+  store.settings.competes = providers.cleanCompetes([
+    { id: 'two', name: '二人', agents: ['claude', 'codex'] },
+    { id: 'three', name: '三人', agents: ['claude', 'codex', 'gemini'] },
+    { id: 'one', name: '一人', agents: ['claude'] },
+  ]);
+  // 前の版の「どちらか1つ」の設定がどうなっていても、両方使える
+  for (const orch of ['relay', 'compete', 'none']) {
+    store.settings.orchestration = orch;
+    assert.strictEqual(agents.createTask({ prompt: 'x', agent: 'relay' }).length, 1, orch);
+    assert.strictEqual(agents.createTask({ prompt: 'x', agent: 'compete' }).length, 2, orch); // 「compete」だけなら先頭の競争
+  }
+  // 競争を選んで作る。カードには、どの競争で作ったかを残す
+  const three = agents.createTask({ prompt: 'x', agent: 'compete:three' });
+  assert.deepStrictEqual(three.map((c) => c.agent), ['claude', 'codex', 'gemini']);
+  assert.deepStrictEqual(three[0].compete.set, { id: 'three', name: '三人' });
+  assert.throws(() => agents.createTask({ prompt: 'x', agent: 'compete:one' }), /競争「一人」で競争させるエージェントを、設定で2つ以上/);
+  assert.throws(() => agents.createTask({ prompt: 'x', agent: 'compete:gone' }), /選んだ競争が見つかりません/);
+  // 最初から選んでおくものに、Pipeline・競争も選べる（消えたものなら、使うエージェントの先頭）
+  const pipeId = store.repoSettings(store.settings.repoPath).relayFlows[0].id;
+  assert.strictEqual(providers.defaultTaskRefOf({ ...store.settings, defaultAgent: `relay:${pipeId}` }), `relay:${pipeId}`);
+  assert.strictEqual(providers.defaultTaskRefOf({ ...store.settings, defaultAgent: 'compete:three' }), 'compete:three');
+  assert.strictEqual(providers.defaultTaskRefOf({ ...store.settings, defaultAgent: 'compete:gone' }), 'claude');
+  assert.strictEqual(providers.defaultTaskRefOf({ ...store.settings, defaultAgent: 'relay:gone' }), 'claude');
+  // 会話などの1つのエージェントには、Pipeline・競争を選んでいれば使うエージェントの先頭
+  assert.strictEqual(providers.defaultAgentRefOf({ ...store.settings, defaultAgent: 'compete:three' }), 'claude');
+  // 1つのエージェントのタスクは、そのまま作れる
   assert.strictEqual(agents.createTask({ prompt: 'x', agent: 'claude' })[0].agent, 'claude');
-  // 知らない値はPipelineに直す
+  // 知らない値はPipelineに直す（前の版の設定を読むときにそろえるだけ）
   const s1 = { orchestration: 'both', enabledAgents: ['claude'] };
   migrateSettings(s1, s1, []);
   assert.strictEqual(s1.orchestration, 'relay');
-  assert.strictEqual(providers.cleanOrchestration('compete'), 'compete');
-  assert.strictEqual(providers.cleanOrchestration('none'), 'none');
-  const s2 = { orchestration: 'none', enabledAgents: ['claude'] };
-  migrateSettings(s2, s2, []);
-  assert.strictEqual(s2.orchestration, 'none');
+});
+
+test('競争の一覧: 前の版の設定（competeAgents・competeCustomAgents）から1つ作り、整える', () => {
+  // 前の版の設定を読むと、競争の一覧を1つ作る
+  const s1 = { enabledAgents: ['claude', 'gemini'], competeAgents: ['claude', 'gemini'] };
+  migrateSettings(s1, { enabledAgents: ['claude', 'gemini'], competeAgents: ['claude', 'gemini'] }, []);
+  assert.deepStrictEqual(s1.competes, [{ id: 'default', name: '競争', agents: ['claude', 'gemini'], customAgents: [] }]);
+  // 保存してある一覧はそのまま
+  const keep = [{ id: 'a', name: 'A', agents: ['codex'], customAgents: [] }];
+  const s2 = { enabledAgents: ['claude'], competes: keep, defaultAgent: 'compete:a' };
+  migrateSettings(s2, { ...s2 }, []);
+  assert.deepStrictEqual(s2.competes, keep);
+  assert.strictEqual(s2.defaultAgent, 'compete:a');
+  // 整える: 名前・ID が重ならない、知らないエージェント・ないカスタムエージェントは外す
+  const out = providers.cleanCompetes(
+    [
+      { id: 'x', name: 'A', agents: ['claude', 'nope', 'claude'], customAgents: ['ca1', 'custom:ca1', 'zzz'] },
+      { id: 'x', name: 'A', agents: [] },
+      { id: 'bad id!', name: '' },
+      null,
+    ],
+    [{ id: 'ca1' }],
+  );
+  assert.strictEqual(out.length, 3);
+  assert.deepStrictEqual(out[0], { id: 'x', name: 'A', agents: ['claude'], customAgents: ['ca1'] });
+  assert.notStrictEqual(out[1].id, 'x');
+  assert.strictEqual(out[1].name, 'A 2');
+  assert.match(out[2].id, /^k[0-9a-f]{8}$/);
+  assert.strictEqual(out[2].name, '競争');
 });
 
 test('使うエージェント: 前のバージョンの設定は、使っていたエージェントにチェックを付け、最初のエージェントからPipeline・競争を外す', () => {
@@ -593,8 +625,7 @@ test('Claude 以外でも: 会話・ブランチの命名・競争の比較・�
   assert.ok(g('branch').toString().includes('feature/fake-codex-branch'));
   store.settings.branchNamingRule = '';
   // 競争の比較は、最初から選んでおくエージェントに頼む
-  store.settings.orchestration = 'compete';
-  store.settings.competeAgents = ['codex', 'gemini'];
+  store.settings.competes = [{ id: 'default', name: '競争', agents: ['codex', 'gemini'], customAgents: [] }];
   const cards = agents.createTask({ title: 'race', prompt: '競争', agent: 'compete' });
   for (const x of cards) agents.start(x.id);
   await waitFor(() => cards.every((x) => x.status === 'review'));
@@ -650,7 +681,7 @@ test('タスク・会話を作るときに選んだモデルで動かす（空�
   assert.throws(() => agents.createTask({ prompt: 'x', agent: 'codex', model: 'gpt; rm -rf /' }), /モデル名/);
   assert.throws(() => agents.createChat({ message: 'x', agent: 'codex', model: '$(whoami)' }), /モデル名/);
   // Pipeline・競争は、設定のモデルを使う
-  Object.assign(store.settings, { orchestration: 'compete', competeAgents: ['codex', 'gemini'] });
+  Object.assign(store.settings, { competes: [{ id: 'default', name: '競争', agents: ['codex', 'gemini'], customAgents: [] }] });
   const cards = agents.createTask({ prompt: 'くらべて', agent: 'compete', model: 'gpt-5' });
   assert.ok(cards.every((c) => !c.model));
 });

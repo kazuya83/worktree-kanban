@@ -8,7 +8,7 @@
 #
 # 1. 今の main から一時的な worktree（ブランチ build-apps/<sha>）を作る
 # 2. そこでエージェントに /build-apps review を頼む（テスト・3つの OS のビルド。落ちたら install.sh / install.ps1 などを直す）
-#    エージェントは claude → codex → agy → gemini → cursor-agent の順に、見つかったものを使う
+#    エージェントは claude → codex → agy → gemini → cursor-agent → opencode → copilot → amp → pi → droid の順に、見つかったものを使う
 # 3. 直したところがあればコミットし、scripts/build-all.sh をもう一度動かして確かめる。なければ dist/ のファイルがそろっているかを確かめる
 # 4. 通って、直したところがあれば、main にマージして origin に push する
 # 5. ビルドしたコミットが origin/main に入っていて、scripts/next-version.js が「出す」と決めたら、
@@ -260,13 +260,14 @@ agent_command() {
     codex | gemini) echo "$1" ;;
     antigravity | agy) echo agy ;;
     cursor | cursor-agent) echo cursor-agent ;;
+    opencode | copilot | amp | pi | droid) echo "$1" ;;
     *) return 1 ;;
   esac
 }
 # AFTER_MERGE_AGENT があればそれを、なければ見つかったものを使う
 pick_agent() {
   local a c
-  for a in ${AFTER_MERGE_AGENT:-claude codex antigravity gemini cursor}; do
+  for a in ${AFTER_MERGE_AGENT:-claude codex antigravity gemini cursor opencode copilot amp pi droid}; do
     c="$(agent_command "$a")" || continue
     if command -v "$c" >/dev/null 2>&1; then
       agent="$a"
@@ -291,6 +292,11 @@ run_agent() {
     codex) "$agent_bin" exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$1" ;;
     antigravity | agy) "$agent_bin" -p "$1" --dangerously-skip-permissions ;;
     gemini) "$agent_bin" -p "$1" --skip-trust --approval-mode yolo ;;
+    opencode) "$agent_bin" run --auto "$1" ;;
+    copilot) "$agent_bin" -p "$1" --allow-all --no-ask-user ;;
+    amp) "$agent_bin" -x "$1" --dangerously-allow-all ;;
+    pi) "$agent_bin" -p "$1" ;;
+    droid) "$agent_bin" exec --skip-permissions-unsafe "$1" ;;
     *) "$agent_bin" -p --trust --force "$1" ;;
   esac
 }
@@ -316,7 +322,7 @@ run_once() {
   mkdir -p "$(dirname "$wt")"
   "${G[@]}" worktree add -B "$branch" "$wt" "$sha" >>"$log" 2>&1 || { fail "worktree を作れませんでした"; return 1; }
 
-  pick_agent || { fail "エージェントが見つかりません（claude / codex / agy / gemini / cursor-agent のどれかを入れるか、AFTER_MERGE_AGENT・AFTER_MERGE_CLAUDE で指定してください）"; return 1; }
+  pick_agent || { fail "エージェントが見つかりません（claude / codex / agy / gemini / cursor-agent / opencode / copilot / amp / pi / droid のどれかを入れるか、AFTER_MERGE_AGENT・AFTER_MERGE_CLAUDE で指定してください）"; return 1; }
   say "$agent で /build-apps review"
   (
     cd "$wt" && run_agent "$(skill_line)

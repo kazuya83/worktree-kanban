@@ -27,7 +27,7 @@ You can also create tasks that end without changing source code, such as only wr
 
 - Under "New task", check "**Do not change source (lookup or generating SQL only)**". The card shows "No source changes"
 - No worktree or branch is created; the task runs in the repository folder as it is (it can read the code to look things up)
-- The agent is told not to change source and to write what it produces in a code block in its reply. Claude Code runs with its file-editing tools (Edit, Write, and so on) blocked, and commands are confirmed on the card every time regardless of the permission mode in Settings (with "Plan only", that mode applies). Codex / Antigravity / Gemini / Cursor run in a read-only plan mode
+- The agent is told not to change source and to write what it produces in a code block in its reply. Claude Code runs with its file-editing tools (Edit, Write, and so on) blocked, and commands are confirmed on the card every time regardless of the permission mode in Settings (with "Plan only", that mode applies). Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid run in a read-only plan mode
 - The SQL or other output appears in the reply on the "Chat" tab. Once you have checked it, press "Mark done" (the same as tasks in a folder not managed by git). Diff, merge, and PR do not appear
 - Competition and Pipelines with parallel paths cannot be used. The task cannot be split into subtasks either
 
@@ -80,6 +80,14 @@ API_PORT=$((WORKTREE_KANBAN_PORT + 1)) npm run api
 ```
 
 In cmd on Windows, write `%WORKTREE_KANBAN_PORT%`.
+
+### Built-in browser and Design Mode
+
+The "Browser" tab in the detail panel opens the task's development server (`http://localhost:<WORKTREE_KANBAN_PORT>/`) inside the app. If a run script is set, "Start the dev server with the run script" starts it from the tab, and the page reloads every few seconds until the server is up. The address bar also takes a bare port number (such as `3001`). Sign-ins and other state are kept across app restarts.
+
+Press "Design Mode" and click an element on the page to collect its HTML, the CSS rules that match it, its computed styles, and a screenshot (the click is not passed to the page; Esc stops). You can select up to 5 elements. Write what you want changed and send it: for a task that is waiting for review, failed, or done, it goes as a follow-up instruction with the screenshots attached. For a running task it goes as btw (screenshots cannot be sent then, only the HTML and CSS).
+
+While you are looking at a task on another machine through remote control, its development server runs on that machine, so the built-in browser cannot open it.
 
 ## Detail panel (diff and merge)
 For a card in the Review column, you can look at the diff from the base branch before merging. You can merge into any branch you choose (or create a new one).
@@ -189,7 +197,7 @@ The input boxes for "New task" and "Conversation" (both when starting and for la
 - Attached files are listed below the box (remove them with ×). Up to 10 files, 20 MB in total
 - Attachments are saved in an app folder outside the working folder (worktree or repository). The saved location is added at the end of the instruction, so any agent can read them from there
   - Claude Code receives images (PNG / JPEG / GIF / WebP, up to 3.5 MB) directly attached to the message
-  - Codex / Antigravity / Gemini / Cursor, and files other than images, are read from the saved location
+  - Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid, and files other than images, are read from the saved location
 - Files attached from a remote control client are sent to the host and saved there
 - The names of attached images and files appear in the log under your instruction. For a task that has not started, they also appear in the editor on the "Progress" tab. Discarding a task also deletes its attachments
 
@@ -207,7 +215,7 @@ The agent's replies and your instructions in the log are rendered as Markdown (h
 - No worktree or branch is created; it runs in the repository folder as it is. It does not commit, merge, or create PRs
 - Because it works on your local working files, file changes and commands are confirmed on the card every time (when the permission mode in Settings is "Plan only" or "Allow everything automatically", that mode applies)
 - It does not count toward the concurrency limit, so you get a reply right away even when tasks are backed up
-- When you want work done, press "📝 Make a task" to create a task that runs in a worktree as a continuation of the conversation (the conversation itself stays). Between Claude Code agents the conversation itself carries over. In other cases (a Codex / Antigravity / Gemini / Cursor conversation, or a task on a different agent), the exchange is passed along with the first instruction
+- When you want work done, press "📝 Make a task" to create a task that runs in a worktree as a continuation of the conversation (the conversation itself stays). Between Claude Code agents the conversation itself carries over. In other cases (a Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid conversation, or a task on a different agent), the exchange is passed along with the first instruction
 
 ## Switch conversations (sessions)
 Under "Conversation" in the detail panel, choose which conversation the next run uses. If a task continued from an existing conversation, it shows where it came from.
@@ -262,7 +270,7 @@ How the conversation is restored differs by agent.
 - When that point has no conversation: a new conversation starts. The first run of a Pipeline step is always this
 - When the run was about to continue another conversation: the source conversation is left unchanged. Only which conversation is used returns to that point
 - Claude Code: if no other card is using that conversation, the conversation file is at least as large as it was at that point, and the boundary is a line break, the file is truncated to that size and the same conversation continues. If those conditions are not met, a new conversation starts, as in the next case
-- Codex / Antigravity / Gemini / Cursor (and Claude Code when the conditions are not met): a new conversation starts, and a handoff built from the instructions and replies in the log (up to 8,000 characters) is placed before the instruction
+- Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid (and Claude Code when the conditions are not met): a new conversation starts, and a handoff built from the instructions and replies in the log (up to 8,000 characters) is placed before the instruction
 
 ## Terminal (type commands yourself)
 

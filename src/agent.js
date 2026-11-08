@@ -1,4 +1,4 @@
-// カード（タスク）ごとに worktree を作り、エージェントの CLI（Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI）を並列に動かす
+// カード（タスク）ごとに worktree を作り、エージェントの CLI（Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI / OpenCode / Copilot CLI / Amp / Pi / Droid）を並列に動かす
 const { spawn, execFile } = require('child_process');
 const { EventEmitter } = require('events');
 const fs = require('fs');
@@ -1246,6 +1246,12 @@ class AgentManager extends EventEmitter {
       pipelineId = mode.slice('relay:'.length);
       mode = 'relay';
     }
+    // 競争は「compete」（一覧の先頭）か「compete:<ID>」（そのプロジェクトの競争の1つ）
+    let competeId = '';
+    if (typeof mode === 'string' && mode.startsWith('compete:')) {
+      competeId = mode.slice('compete:'.length);
+      mode = 'compete';
+    }
     // カスタムエージェント: その CLI・モデル・プロフィールで動かす
     const custom = providers.isCustomRef(mode) ? this.customAgent(mode, repo) : null;
     if (custom) mode = custom.agent;
@@ -1254,14 +1260,8 @@ class AgentManager extends EventEmitter {
     // 会話の続き、または完了したタスクの修正として作る
     const chat = fromChat ? this.store.card(fromChat) : null;
     const from = isChat(chat) || (chat && chat.status === 'done') ? chat : null;
-    // Pipelineと競争は排他。設定で選んでいない方（「なし」ならどちらも）は使えない
-    if ((mode === 'relay' || mode === 'compete') && providers.cleanOrchestration(s.orchestration) !== mode) {
-      const name = (m) => (m === 'relay' ? 'Pipeline' : tr('競争'));
-      const why = providers.cleanOrchestration(s.orchestration) === 'none' ? tr('オーケストレーションを使わない設定') : tr('Pipelineと競争はどちらか1つだけ使えます');
-      throw new Error(tr('{name}は使わない設定になっています（{why}）。「設定」の「オーケストレーション」で{name2}を選んでください', { name: name(mode), why, name2: name(mode) }));
-    }
     if (readOnly && mode === 'compete') throw new Error(tr('ソースを変更しないタスクでは、競争は使えません。ほかのエージェントを選んでください'));
-    if (mode === 'compete') return this.createCompetition({ title, prompt, issue, session, skill, fromChat: from, parsed, ...extra });
+    if (mode === 'compete') return this.createCompetition({ title, prompt, issue, session, skill, fromChat: from, parsed, competeId, ...extra });
     if (mode === 'relay') {
       // Pipelineのフローチャートは、プロジェクトごとの設定（複数あれば、選んだもの。選んでいなければ既定の Pipeline）
       const pipe = pipelineOf(this.store.repoSettings(repo), pipelineId);
@@ -1287,25 +1287,31 @@ class AgentManager extends EventEmitter {
   }
 
   // 競争: 同じタスクを、設定のエージェントそれぞれのカードにする（使わない設定のエージェントは外す）
-  createCompetition({ title, prompt, issue, session, skill, fromChat, parsed, repoPath, skipSpecCheck, scheduleId, scheduleTitle, slack }) {
+  // competeId: そのプロジェクトの競争の ID（空なら一覧の先頭）
+  createCompetition({ title, prompt, issue, session, skill, fromChat, parsed, competeId, repoPath, skipSpecCheck, scheduleId, scheduleTitle, slack }) {
     const s = this.store.settings;
     const repo = this.targetRepo(repoPath);
     if (isNoGitRepo(s, repo)) throw new Error(tr('git で管理していないフォルダでは、競争は使えません（候補ごとに別の作業場所を作れないため）。ほかのエージェントを選んでください'));
-    const list = this.competeEntries(repo);
-    if (list.length < 2) throw new Error(tr('競争させるエージェントを、設定で2つ以上選んでください（使うエージェントにチェックを付けたものと、カスタムエージェントから選べます）'));
+    const set = providers.competeOf(this.store.repoSettings(repo).competes, competeId ? `compete:${competeId}` : 'compete');
+    if (!set) throw new Error(tr('選んだ競争が見つかりません（消されたかもしれません）。「設定」の「オーケストレーション」で競争を作るか、選び直してください'));
+    const list = this.competeEntries(repo, set.id);
+    if (list.length < 2) throw new Error(tr('競争「{name}」で競争させるエージェントを、設定で2つ以上選んでください（使うエージェントにチェックを付けたものと、カスタムエージェントから選べます）', { name: set.name }));
     const group = crypto.randomBytes(4).toString('hex');
     const base = (title && title.trim()) || truncate(String(prompt || '').trim().split('\n')[0], 40);
     return list.map((x, index) =>
-      this.createCard({ title: `${base} [${whoShort(x.agent, x.persona)}]`, prompt, issue, session, skill, agent: x.agent, model: x.model, persona: x.persona, compete: { group, index, total: list.length, title: base }, fromChat, parsed, repoPath: repo, skipSpecCheck, scheduleId, scheduleTitle: scheduleTitle || base, slack }),
+      this.createCard({ title: `${base} [${whoShort(x.agent, x.persona)}]`, prompt, issue, session, skill, agent: x.agent, model: x.model, persona: x.persona, compete: { group, index, total: list.length, title: base, set: { id: set.id, name: set.name } }, fromChat, parsed, repoPath: repo, skipSpecCheck, scheduleId, scheduleTitle: scheduleTitle || base, slack }),
     );
   }
 
-  // 競争させる顔ぶれ: 設定のふつうのエージェント（使う設定のもの）と、このプロジェクトのカスタムエージェント（元の CLI が使う設定のもの）
-  competeEntries(repoPath) {
+  // 競争させる顔ぶれ: その競争の、ふつうのエージェント（使う設定のもの）と、このプロジェクトのカスタムエージェント（元の CLI が使う設定のもの）
+  // competeId を省くと、そのプロジェクトの競争の一覧の先頭
+  competeEntries(repoPath, competeId) {
     const s = this.store.settings;
-    const plain = providers.cleanCompeteAgents(s.competeAgents).filter((a) => providers.isEnabled(s, a)).map((a) => ({ agent: a, model: '', persona: null }));
+    const set = providers.competeOf(this.store.repoSettings(repoPath).competes, competeId ? `compete:${competeId}` : 'compete');
+    if (!set) return [];
+    const plain = providers.cleanCompeteAgents(set.agents).filter((a) => providers.isEnabled(s, a)).map((a) => ({ agent: a, model: '', persona: null }));
     const cas = this.customAgents(repoPath);
-    const custom = this.store.repoSettings(repoPath).competeCustomAgents
+    const custom = set.customAgents
       .map((id) => providers.findCustomAgent(cas, id))
       .filter((ca) => ca && providers.isEnabled(s, ca.agent))
       .map((ca) => ({ agent: ca.agent, model: ca.model, persona: providers.personaOf(ca) }));
@@ -3003,7 +3009,7 @@ class AgentManager extends EventEmitter {
       args = providers.buildArgs(agent, { mode: 'plan', model: model || providers.agentModel(s, agent), prompt });
       parser = providers.createParser(agent, { summarize: summarizeInput });
     }
-    const child = await this.spawnAgent(agent, cwd, args);
+    const child = await this.spawnAgent(agent, cwd, args, agent === 'claude' ? {} : providers.agentEnv(agent, 'plan'));
     return new Promise((resolve, reject) => {
       let out = '';
       let err = '';
@@ -3055,7 +3061,7 @@ class AgentManager extends EventEmitter {
         if (code !== 0 || resultError) return reject(new Error(truncate(resultError || err.trim() || out.trim() || tr('{cmd} が終了コード {code} で終わりました', { cmd: child.agentCmd, code }), 300)));
         resolve(out);
       });
-      // 指示を引数で渡した CLI（Cursor）には、stdin は空のまま閉じる
+      // 指示を引数で渡した CLI（Cursor・Copilot）には、stdin は空のまま閉じる
       child.stdin.end(agent !== 'claude' && providers.promptViaArg(agent) ? '' : prompt);
     });
   }
@@ -3103,7 +3109,7 @@ class AgentManager extends EventEmitter {
     return this.spawnAgent('claude', cwd, args, extraEnv);
   }
 
-  // エージェントの CLI を起動する（Claude Code / Codex / Antigravity / Gemini / Cursor）。child.agentCmd に起動したコマンドの名前を入れる
+  // エージェントの CLI を起動する（Claude Code / Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid）。child.agentCmd に起動したコマンドの名前を入れる
   async spawnAgent(agent, cwd, args, extraEnv = {}) {
     const s = this.store.settings;
     const w = wsl.parseWslPath(cwd);
@@ -3125,7 +3131,8 @@ class AgentManager extends EventEmitter {
     const useShell = isWin && /\.(cmd|bat)$/i.test(resolved);
     const child = spawn(useShell ? quoteForCmd(resolved) : resolved, useShell ? args.map(quoteForCmd) : args, {
       cwd,
-      env: { ...process.env, ...extraEnv },
+      // OpenCode は作業フォルダを PWD から決めるので、cwd と合わせておく
+      env: { ...process.env, PWD: cwd, ...extraEnv },
       shell: useShell,
       windowsHide: true,
     });
@@ -3213,7 +3220,7 @@ class AgentManager extends EventEmitter {
 
   // ソースを変更しないタスクの権限モード。リポジトリのフォルダ（手元の作業中のファイル）で動くので、
   // Claude Code はファイルを書き換えるツールを止めたうえで、コマンドは毎回カードで確かめる（「計画だけ」ならそれに従う）。
-  // Codex / Antigravity / Gemini / Cursor はツールを個別に止められないので、読み取りだけの「計画」モードで動かす
+  // Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid はツールを個別に止められないので、読み取りだけの「計画」モードで動かす
   readOnlyPermissionMode(agent, mode) {
     if (agent !== 'claude') return 'plan';
     return mode === 'plan' ? 'plan' : 'default';
@@ -3417,7 +3424,7 @@ class AgentManager extends EventEmitter {
       const attachDir = this.attachDirOf(c);
       if (attachDir) args.push('--add-dir', attachDir);
     } else {
-      // Codex / Antigravity / Gemini / Cursor は、ほかの CLI の会話は引き継げないので新しい会話で始める
+      // Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid は、ほかの CLI の会話は引き継げないので新しい会話で始める
       if (c.forkNext) {
         c.sessionId = null;
         c.forkNext = false;
@@ -3441,7 +3448,9 @@ class AgentManager extends EventEmitter {
     for (const m of c.btw || []) if (m.state === 'queued') m.state = 'delivered';
     if (agent !== 'claude') this.log(c, 'system', c.sessionId ? tr('{label} で動かします（会話 {id} の続き）', { label, id: c.sessionId.slice(0, 8) }) : tr('{label} で動かします', { label }));
     // 承認待ちの MCP ツール呼び出しがタイムアウトしないようにする
-    const child = await this.spawnAgent(agent, cwd, args, { MCP_TOOL_TIMEOUT: '86400000', ...this.portEnv(c) });
+    // CLI 側の許可を環境変数で渡す CLI（OpenCode）もある
+    const permEnv = agent === 'claude' || rpcKind ? {} : providers.agentEnv(agent, mode);
+    const child = await this.spawnAgent(agent, cwd, args, { MCP_TOOL_TIMEOUT: '86400000', ...this.portEnv(c), ...permEnv });
     const cmd = child.agentCmd;
     this.procs.set(c.id, child);
     // sent: stdin に書いたメッセージ（acked = claude が受け取ったことをリプレイで確認済み）
@@ -3490,7 +3499,7 @@ class AgentManager extends EventEmitter {
       run.stdinClosed = true; // 指示は RPC で渡す。実行中の btw は、ほかの CLI と同じく終了後の追加指示にする
       run.rpc.start();
     } else {
-      // ここへ来るのは RPC を使わないとき。指示は stdin で1回だけ受け取る（Cursor は引数で受け取ったので空で閉じる）。実行中の btw は終了後の追加指示にする
+      // ここへ来るのは RPC を使わないとき。指示は stdin で1回だけ受け取る（Cursor・Copilot は引数で受け取ったので空で閉じる）。実行中の btw は終了後の追加指示にする
       run.stdinClosed = true;
       child.stdin.end(providers.promptViaArg(agent) ? '' : spoken);
     }
@@ -3774,7 +3783,7 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  // Codex / Antigravity / Gemini / Cursor の出力（providers.js で共通の形に直したもの）を、ログとカードに反映する
+  // Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid の出力（providers.js で共通の形に直したもの）を、ログとカードに反映する
   applyAction(c, a, run) {
     const who = { agent: run.agent };
     switch (a.type) {
@@ -3939,7 +3948,7 @@ class AgentManager extends EventEmitter {
       c.pendingPrompt = `${c.pendingPrompt || ''}\n\n${wrapped}`;
       entry.state = 'queued';
     } else if (c.status === 'running' && agentOf(c) !== 'claude') {
-      // Codex / Antigravity / Gemini / Cursor は実行中の stdin 追加に対応していないので、終了後の追加指示にする
+      // Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid は実行中の stdin 追加に対応していないので、終了後の追加指示にする
       entry.state = 'follow';
     } else {
       const run = this.runs && this.runs.get(id);

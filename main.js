@@ -131,6 +131,7 @@ let quittingForUpdate = false; // 更新のために終了するところ（実�
 const localHandlers = new Map();
 
 function createWindow() {
+  setupPreviewSession();
   win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -143,8 +144,11 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // 詳細の「ブラウザ」タブ（タスクの開発サーバーのプレビュー）に <webview> を使う。中身は下の will-attach-webview で縛る
+      webviewTag: true,
     },
   });
+  guardPreviewWebviews(win.webContents);
   // アプリの画面以外へは移動させない。新しいウインドウも開かせない（リンクは open:external で http(s) の URL だけをデフォルトブラウザで開く）
   const appUrl = require('url').pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
   win.webContents.on('will-navigate', (e, url) => {
@@ -162,6 +166,46 @@ function createWindow() {
     e.preventDefault();
     app.quit();
   });
+}
+
+// 内蔵ブラウザの <webview>。決まったセッション（アプリの画面とは別）で、Node もプリロードも使わせず、http(s) のページだけを開く。
+// ポップアップ（target="_blank" など）は開かず、http(s) ならデフォルトブラウザで開く。カメラ・位置情報などの許可は出さない
+const PREVIEW_PARTITION = 'persist:worktree-kanban-preview';
+function previewUrlAllowed(url) {
+  return url === 'about:blank' || !!require('./src/external-url').externalUrl(url);
+}
+function guardPreviewWebviews(contents) {
+  contents.on('will-attach-webview', (e, prefs, params) => {
+    delete prefs.preload;
+    delete prefs.preloadURL;
+    prefs.nodeIntegration = false;
+    prefs.nodeIntegrationInSubFrames = false;
+    prefs.contextIsolation = true;
+    prefs.sandbox = true;
+    prefs.webSecurity = true;
+    prefs.allowRunningInsecureContent = false;
+    if (params.partition !== PREVIEW_PARTITION || !previewUrlAllowed(params.src || 'about:blank')) e.preventDefault();
+  });
+  contents.on('did-attach-webview', (_e, guest) => {
+    guest.setWindowOpenHandler(({ url }) => {
+      if (require('./src/external-url').externalUrl(url)) shell.openExternal(url).catch(() => {});
+      return { action: 'deny' };
+    });
+    guest.on('will-navigate', (e, url) => {
+      if (!previewUrlAllowed(url)) e.preventDefault();
+    });
+    guest.on('will-redirect', (e, url) => {
+      if (!previewUrlAllowed(url)) e.preventDefault();
+    });
+  });
+}
+let previewSessionReady = false;
+function setupPreviewSession() {
+  if (previewSessionReady) return;
+  previewSessionReady = true;
+  const ses = require('electron').session.fromPartition(PREVIEW_PARTITION);
+  ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'clipboard-sanitized-write' || permission === 'fullscreen'));
+  ses.setPermissionCheckHandler((_wc, permission) => permission === 'clipboard-sanitized-write' || permission === 'fullscreen');
 }
 
 // アプリの中のターミナル（src/terminal.js）。スマホから使ってよい操作（設定で許可したときだけ）
@@ -1198,7 +1242,7 @@ app.whenReady().then(async () => {
     return { branches, current, hasOrigin };
   });
   handle('settings:update', (patch) => {
-    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
+    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
     if (patch && 'branchNamingRule' in patch) patch = { ...patch, branchNamingRule: String(patch.branchNamingRule || '').trim() };
     for (const k of ['setupScript', 'teardownScript', 'runScript']) if (patch && k in patch) patch = { ...patch, [k]: cleanScript(patch[k]) };
     if (patch && 'integration' in patch && !['merge', 'pr'].includes(patch.integration)) patch = { ...patch, integration: 'merge' };
@@ -1221,8 +1265,9 @@ app.whenReady().then(async () => {
       patch = { ...patch, enabledAgents: providers.cleanEnabledAgents(patch.enabledAgents) };
       delete store.settings.agentsUnset; // ユーザーが決めたので、起動したときに選び直さない
     }
-    if (patch && 'defaultAgent' in patch && !providers.isAgent(patch.defaultAgent) && !providers.isCustomRef(patch.defaultAgent)) patch = { ...patch, defaultAgent: 'claude' };
-    for (const k of ['codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel']) if (patch && k in patch) patch = { ...patch, [k]: String(patch[k] || '').trim() };
+    // 最初から選んでおくもの: 1つのエージェント・カスタムエージェント・Pipeline「relay:<ID>」・競争「compete:<ID>」（あるかどうかは保存の最後に確かめる）
+    if (patch && 'defaultAgent' in patch && !providers.isAgent(patch.defaultAgent) && !providers.isCustomRef(patch.defaultAgent) && !(providers.isRelayRef(patch.defaultAgent) && patch.defaultAgent !== 'relay') && !(providers.isCompeteRef(patch.defaultAgent) && patch.defaultAgent !== 'compete')) patch = { ...patch, defaultAgent: 'claude' };
+    for (const k of ['codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel']) if (patch && k in patch) patch = { ...patch, [k]: String(patch[k] || '').trim() };
     if (patch && 'relaySteps' in patch) patch = { ...patch, relaySteps: providers.cleanRelaySteps(patch.relaySteps) };
     // Pipeline（複数）: 一覧・既定の Pipeline・既定のフローを、そろえて保存する
     const relay = patch && require('./src/store').relayPatchOf(store.settings, patch);
@@ -1234,6 +1279,10 @@ app.whenReady().then(async () => {
       const ids = new Set(((patch.customAgents || store.settings.customAgents) || []).map((x) => x.id));
       patch = { ...patch, competeCustomAgents: [...new Set((Array.isArray(patch.competeCustomAgents) ? patch.competeCustomAgents : []).map((v) => String(v || '').replace(/^custom:/, '')))].filter((id) => ids.has(id)) };
     }
+    // 競争の一覧（プロジェクトごと）。カスタムエージェントは、あるものだけ
+    if (patch && 'competes' in patch) patch = { ...patch, competes: providers.cleanCompetes(patch.competes, patch.customAgents || store.settings.customAgents) };
+    // カスタムエージェントを消したら、競争からも外す
+    else if (patch && 'customAgents' in patch) patch = { ...patch, competes: providers.cleanCompetes(store.settings.competes, patch.customAgents) };
     if (patch && 'cycleView' in patch) patch = { ...patch, cycleView: require('./renderer/cycle-model').cleanCycleView(patch.cycleView) };
     if (patch && 'statusFieldName' in patch) patch = { ...patch, statusFieldName: String(patch.statusFieldName || '').trim() };
     if (patch && 'statusMapping' in patch) {
@@ -1242,8 +1291,8 @@ app.whenReady().then(async () => {
       patch = { ...patch, statusMapping: { inProgress: str(m.inProgress), inReview: str(m.inReview), done: str(m.done) } };
     }
     for (const k of allowed) if (patch && k in patch) store.settings[k] = patch[k];
-    // 最初から選んでおくエージェントは、使うエージェントとこのプロジェクトのカスタムエージェントの中から（消えた・使わない設定にしたら、使うものの先頭にする）
-    store.settings.defaultAgent = providers.defaultAgentRefOf(store.settings);
+    // 最初から選んでおくものは、使うエージェントとこのプロジェクトのカスタムエージェント・Pipeline・競争の中から（消えた・使わない設定にしたら、使うものの先頭にする）
+    store.settings.defaultAgent = providers.defaultTaskRefOf(store.settings);
     store.settings.maxParallel = Math.min(10, Math.max(1, parseInt(store.settings.maxParallel, 10) || 1));
     store.save();
     agents.pump();
@@ -1285,7 +1334,7 @@ app.whenReady().then(async () => {
     if (fs.statSync(file).size > 20 * 1024 * 1024) throw new Error(tr('ファイルが大きすぎます（20MB まで）'));
     return { name: path.basename(file), data: fs.readFileSync(file).toString('base64') };
   });
-  // agent: claude / codex / antigravity / gemini / cursor / relay（Pipeline） / compete（競争。カードが複数できる）。返すのは最初のカードの ID
+  // agent: claude / codex / antigravity / gemini / cursor / opencode / copilot / amp / pi / droid / relay（Pipeline） / compete（競争。カードが複数できる）。返すのは最初のカードの ID
   // fromChat: 会話の続きとしてタスクを作るときの、元の会話のカードの ID
   // attachments: 添付ファイル [{ name, mediaType, data(base64) }]
   // model: このタスク・会話で使うモデル（空なら設定のエージェントごとの既定）

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// テスト用の偽 Codex CLI / 偽 Antigravity CLI / 偽 Gemini CLI / 偽 Cursor CLI（1つ目の引数 codex / antigravity / gemini / cursor で切り替える）。
-// 本物と同じく、指示を stdin から（Cursor は最後の引数から）読み、cwd にファイルを書いて、JSONL のイベントを出す。
+// テスト用の偽 Codex CLI / 偽 Antigravity CLI / 偽 Gemini CLI / 偽 Cursor CLI / 偽 OpenCode / 偽 Copilot CLI / 偽 Amp / 偽 Pi / 偽 Droid
+// （1つ目の引数 codex / antigravity / gemini / cursor / opencode / copilot / amp / pi / droid で切り替える）。
+// 本物と同じく、指示を stdin から（Cursor は最後の引数から、Copilot は -p の引数から）読み、cwd にファイルを書いて、JSONL のイベントを出す。
 // 受け取った引数は FAKE_ARGS_LOG があればそこに1行ずつ追記する
 const fs = require('fs');
 
@@ -25,6 +26,7 @@ process.stdin.setEncoding('utf8');
 process.stdin.on('data', (d) => (prompt += d));
 process.stdin.on('end', async () => {
   if (kind === 'cursor') prompt = args[args.length - 1].replace(/^ (?=-)/, '');
+  if (kind === 'copilot') prompt = opt('-p').replace(/^ (?=-)/, '');
   // ブランチ名を聞かれたら、ファイルは書かずに名前だけ返す
   const branchAsk = prompt.startsWith('git のブランチ名を1つだけ考えてください');
   if (branchAsk && kind === 'codex') {
@@ -141,6 +143,105 @@ process.stdin.on('end', async () => {
     }
     out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: ask ? 'どちらにしますか？' : `cursor done: ${prompt.split('\n')[0]}` }] }, session_id: sid });
     out({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: sid });
+    process.exit(0);
+  }
+  const reply = ask ? 'どちらにしますか？' : `${kind} done: ${prompt.split('\n')[0]}`;
+  if (kind === 'opencode') {
+    // opencode run --format json ... [-s ID]（指示は stdin）。どの行にも sessionID が入り、成功の終わりの行はない
+    const sid = opt('-s') || `ses_fake${process.pid}`;
+    const base = { timestamp: Date.now(), sessionID: sid };
+    out({ type: 'step_start', ...base, part: { type: 'step-start' } });
+    out({ type: 'text', ...base, part: { type: 'text', text: 'ファイルを作ります' } });
+    const plan = opt('--agent') === 'plan';
+    if (!plan) fs.writeFileSync(file, `${prompt}\n`);
+    out({ type: 'tool_use', ...base, part: { type: 'tool', tool: 'write', state: plan ? { status: 'error', input: { filePath: file }, error: 'denied by plan agent' } : { status: 'completed', input: { filePath: file }, output: 'ok', metadata: {} } } });
+    out({ type: 'tool_use', ...base, part: { type: 'tool', tool: 'todowrite', state: { status: 'completed', input: { todos: [{ content: '作る', status: 'completed' }] }, output: '' } } });
+    if (fail) {
+      out({ type: 'error', ...base, error: { type: 'unknown', message: 'opencode boom' } });
+      process.exit(1);
+    }
+    out({ type: 'text', ...base, part: { type: 'text', text: reply } });
+    out({ type: 'step_finish', ...base, part: { type: 'step-finish', reason: 'stop' } });
+    process.exit(0);
+  }
+  if (kind === 'copilot') {
+    // copilot --output-format json ... [--resume=ID] -p PROMPT。会話の ID は最後の result の行にだけ入る
+    const resume = args.find((a) => a.startsWith('--resume='));
+    const sid = resume ? resume.slice("--resume=".length) : `copilot-sess-${process.pid}`;
+    const ev = (type, data) => out({ type, data, id: 'x', timestamp: new Date().toISOString() });
+    ev('assistant.message_delta', { messageId: 'm1', deltaContent: 'ファイルを' });
+    ev('assistant.message', { messageId: 'm1', content: 'ファイルを作ります', toolRequests: [] });
+    ev('tool.execution_start', { toolCallId: 't1', toolName: 'bash', arguments: { command: `echo > ${file}` } });
+    const allowed = args.includes('--allow-all') || args.includes('--allow-tool=write');
+    if (allowed) fs.writeFileSync(file, `${prompt}\n`);
+    ev('tool.execution_complete', allowed ? { toolCallId: 't1', success: true, shellExecution: { exitCode: 0 }, result: { content: 'ok' } } : { toolCallId: 't1', success: false, error: { message: 'Permission denied and could not request permission from user' } });
+    if (fail) {
+      ev('session.error', { errorType: 'X', message: 'copilot boom' });
+      out({ type: 'result', timestamp: new Date().toISOString(), sessionId: sid, exitCode: 1 });
+      process.exit(1);
+    }
+    ev('assistant.message', { messageId: 'm2', content: reply, toolRequests: [] });
+    out({ type: 'result', timestamp: new Date().toISOString(), sessionId: sid, exitCode: 0, usage: {} });
+    process.exit(0);
+  }
+  if (kind === 'amp') {
+    // amp [threads continue ID] -x --stream-json ...（指示は stdin）。Claude Code と同じ形
+    const sid = args[0] === 'threads' ? args[2] : `T-fake-${process.pid}`;
+    out({ type: 'system', subtype: 'init', cwd: process.cwd(), session_id: sid, tools: [] });
+    out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'ファイルを作ります' }, { type: 'tool_use', id: 'u1', name: 'create_file', input: { path: file } }] }, parent_tool_use_id: null, session_id: sid });
+    fs.writeFileSync(file, `${prompt}\n`);
+    out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u1', content: 'ok', is_error: false }] }, parent_tool_use_id: null, session_id: sid });
+    if (fail) {
+      out({ type: 'result', subtype: 'error_during_execution', is_error: true, error: 'amp boom', session_id: sid });
+      process.exit(1);
+    }
+    out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: reply }] }, parent_tool_use_id: null, session_id: sid });
+    out({ type: 'result', subtype: 'success', is_error: false, num_turns: 1, result: reply, session_id: sid });
+    process.exit(0);
+  }
+  if (kind === 'pi') {
+    // pi --mode json ... [--session-id ID]（指示は stdin）。失敗しても exit 0 で、message_end の stopReason で分かる
+    const sid = opt('--session-id') || `pi-sess-${process.pid}`;
+    out({ type: 'session', version: 3, id: sid, timestamp: new Date().toISOString(), cwd: process.cwd() });
+    out({ type: 'agent_start' });
+    out({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'ファイルを' } });
+    out({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '作ります' } });
+    out({ type: 'message_end', message: { role: 'assistant', stopReason: 'toolUse' } });
+    out({ type: 'tool_execution_start', toolCallId: 'c1', toolName: 'write', args: { path: file } });
+    fs.writeFileSync(file, `${prompt}\n`);
+    out({ type: 'tool_execution_end', toolCallId: 'c1', toolName: 'write', result: { content: [{ type: 'text', text: 'ok' }] }, isError: false });
+    if (fail) {
+      out({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: 'pi boom' } });
+      out({ type: 'agent_end', messages: [] });
+      out({ type: 'agent_settled', aborted: false });
+      process.exit(0);
+    }
+    out({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: reply } });
+    out({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop' } });
+    out({ type: 'agent_end', messages: [] });
+    out({ type: 'agent_settled', aborted: false });
+    process.exit(0);
+  }
+  if (kind === 'droid') {
+    // droid exec -o stream-json ... [-s ID]（指示は stdin）。成功したときだけ completion が出る
+    const sid = opt('-s') || `droid-sess-${process.pid}`;
+    out({ type: 'system', subtype: 'init', cwd: process.cwd(), session_id: sid, tools: [], model: opt('-m') || 'droid-fake' });
+    out({ type: 'message', role: 'user', id: 'u', text: prompt, session_id: sid });
+    out({ type: 'message', role: 'assistant', id: 'a1', text: 'ファイルを作ります', session_id: sid });
+    out({ type: 'tool_call', id: 't1', toolId: 'Create', toolName: 'Create', parameters: { file_path: file }, session_id: sid });
+    if (!args.includes('--auto') && !args.includes('--skip-permissions-unsafe')) {
+      // 何も付けなければ読み取りだけ。許されない操作でその場で終わる（本物と同じ）
+      out({ type: 'error', source: 'cli', message: 'Exec ended early: insufficient permission to proceed. Re-run with --auto low', session_id: sid });
+      process.exit(1);
+    }
+    fs.writeFileSync(file, `${prompt}\n`);
+    out({ type: 'tool_result', id: 't1', toolId: 'Create', isError: false, value: 'ok', session_id: sid });
+    if (fail) {
+      out({ type: 'error', source: 'agent_loop', message: 'droid boom', session_id: sid });
+      process.exit(1);
+    }
+    out({ type: 'message', role: 'assistant', id: 'a2', text: reply, session_id: sid });
+    out({ type: 'completion', finalText: reply, numTurns: 1, durationMs: 1, session_id: sid });
     process.exit(0);
   }
   process.stderr.write(`unknown kind ${kind}\n`);
