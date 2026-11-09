@@ -501,12 +501,12 @@ function cardHtml(c) {
       </div>
       <div class="card-title">${c.issue ? tr('<a class="issue-chip" data-url="{url}" title="Issue を開く">{key}</a> {v}', { url: (esc(c.issue.url)), key: (esc(IssueRef.keyOf(c.issue))), v: (esc(IssueRef.stripKey(c.title, c.issue))) }) : esc(c.title)}</div>
       ${orchChipsHtml(c)}
-      ${showCardSprite(c) ? spriteCanvasHtml(c, 'mini') : ''}
       ${CycleView.chipsHtml(c)}
       ${c.readOnly ? tr('<div class="card-skill-row"><span class="readonly-chip" title="ソースを変更しないタスク: worktree を作らず、ファイルを書き換えるツールを止めて動かします。確かめたら「完了にする」で完了にします">{v}ソース変更なし</span></div>', { v: (icon('lock')) }) : ''}
       ${c.skill ? tr('<div class="card-skill-row"><span class="skill-chip small" title="最初の指示で使うスキル">{v}/{skill}</span></div>', { v: (icon('zap')), skill: (esc(c.skill)) }) : ''}
       ${c.error && c.status === 'failed' ? `<div class="card-err">${esc(c.error)}</div>` : ''}
-      ${c.lastMessage && !waiting ? `<div class="card-msg">${esc(plainText(c.lastMessage))}</div>` : ''}
+      ${showCardSprite(c) ? spriteCanvasHtml(c, 'mini') : ''}
+      ${isChat(c) && c.lastMessage && !waiting ? `<div class="card-msg">${esc(plainText(c.lastMessage))}</div>` : ''}
       ${isSpecPending(c) ? tr('<div class="card-msg card-spec">{v}内容が詰まっていないので、開発を開始できません。開いて質問に答えてください</div>', { v: (icon('note')) }) : ''}
       ${hasSubtaskProposal(c) ? tr('<div class="card-msg card-spec">{v}サブタスクに分けて進めることを提案しています。開いて、サブタスクでやるかを選んでください</div>', { v: (icon('branch')) }) : ''}
       ${subtasksRunning(c) ? `<div class="card-msg card-sub">${esc(subPhaseText(c))}</div>` : ''}
@@ -552,11 +552,10 @@ function spriteInfo(c) {
   const detail = progress.now ? `▶ ${progress.now}` : c.lastMessage && mood !== 'done' ? plainText(c.lastMessage) : '';
   return { mood, tool, label, detail, progress, color: AgentSprite.colorFor(agentOf(c), c.persona) };
 }
-// ボードのカードに出すのは、動いている・待っているタスクと、TODO のあるレビュー待ち
+// ボードのカードに出すのは、始めたあとのタスク（実行中・待ち・レビュー・完了・失敗）。
+// カードではチャットの最後の一言の代わりに、このロボットを出す（チャットのカードは一言のまま）
 function showCardSprite(c) {
-  if (isChat(c) || c.status === 'todo' || c.status === 'done') return false;
-  if (c.status === 'running' || c.status === 'queued' || needsYou(c) || subtasksRunning(c)) return true;
-  return !!(c.todos && c.todos.items && c.todos.items.length);
+  return !isChat(c) && c.status !== 'todo';
 }
 function spriteCanvasHtml(c, kind) {
   return `<canvas class="agent-sprite ${kind}" data-sprite="${kind}" data-id="${esc(c.id)}" aria-hidden="true"></canvas>`;

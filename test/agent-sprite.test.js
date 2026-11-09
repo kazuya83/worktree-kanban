@@ -94,3 +94,21 @@ test('エージェントのログから、いまの作業（ツール・返事�
   assert.match(src, /if \(kind === 'tool'\) card\.activity = \{ kind: 'tool'/);
   assert.match(src, /else if \(kind === 'text'\) card\.activity = \{ kind: 'text'/);
 });
+
+test('カード: スキルの下・ブランチの上に、チャットの一言の代わりにロボットを出す（レビュー・完了でも）', () => {
+  const src = read('renderer/renderer.js');
+  const a = src.indexOf('function cardHtml(c)');
+  const body = src.slice(a, src.indexOf('\n}\n', a));
+  const skill = body.indexOf('c.skill ?');
+  const sprite = body.indexOf("spriteCanvasHtml(c, 'mini')");
+  const branch = body.indexOf('c.branch ?');
+  assert.ok(skill < sprite && sprite < branch);
+  // チャットの最後の一言は、チャットのカードだけに出す
+  assert.match(body, /isChat\(c\) && c\.lastMessage && !waiting \?/);
+  assert.doesNotMatch(body, /\$\{c\.lastMessage && !waiting/);
+  const f = src.slice(src.indexOf('function showCardSprite'));
+  const fn = new Function('isChat', `${f.slice(0, f.indexOf('\n}\n') + 2)}; return showCardSprite;`)((c) => !!c.chat);
+  for (const status of ['running', 'queued', 'review', 'done', 'failed']) assert.strictEqual(fn({ status }), true, status);
+  assert.strictEqual(fn({ status: 'todo' }), false);
+  assert.strictEqual(fn({ status: 'review', chat: true }), false);
+});
