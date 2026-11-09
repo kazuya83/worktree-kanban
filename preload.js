@@ -155,6 +155,14 @@ contextBridge.exposeInMainWorld('api', {
   mobileSetTunnel: (p) => call('mobile:setTunnel', p || {}),
   mobileRecheck: () => call('mobile:recheck'),
   onMobile: (cb) => ipcRenderer.on('mobile:changed', (_e, d) => cb(d)),
+  // CLI・MCP（ほかのツールから操作する。src/api-server.js）
+  cliStatus: () => call('cli:status'),
+  cliSetEnabled: (on) => call('cli:setEnabled', !!on),
+  cliPair: () => call('cli:pair'),
+  cliRevoke: (p) => call('cli:revoke', p || {}),
+  cliRevokeAll: () => call('cli:revokeAll'),
+  cliInstall: () => call('cli:install'),
+  onCli: (cb) => ipcRenderer.on('cli:changed', (_e, d) => cb(d)),
   mobileSetTerminal: (on) => call('mobile:setTerminal', !!on),
   // アプリの中のターミナル（src/terminal.js）。遠隔操作中にホストのタブを見ているときは、ホストで開く
   terminalAvailable: () => call('terminal:available'),

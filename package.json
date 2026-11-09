@@ -30,7 +30,7 @@
     "productName": "Worktree Kanban",
     "artifactName": "worktree-kanban-${version}-${os}-${arch}.${ext}",
     "files": ["main.js", "preload.js", "src/**", "renderer/**", "mobile/**", "!node_modules/node-pty/{src,deps,third_party,scripts,typings}/**", "!node_modules/node-pty/**/*.pdb", "!node_modules/node-pty/prebuilds/win32-arm64/**", "!node_modules/node-addon-api/**", "!node_modules/@xterm/**/*.map", "!node_modules/@xterm/**/*.mjs", "!node_modules/@xterm/*/src/**"],
-    "asarUnpack": ["src/permission-mcp.js", "renderer/i18n.js", "renderer/locales/**/*.js", "node_modules/node-pty/**"],
+    "asarUnpack": ["src/permission-mcp.js", "src/kanban-cli.js", "src/api-client.js", "src/api-mcp.js", "renderer/i18n.js", "renderer/locales/**/*.js", "node_modules/node-pty/**"],
     "npmRebuild": false,
     "directories": {
       "output": "dist",

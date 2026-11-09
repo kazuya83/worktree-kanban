@@ -99,6 +99,15 @@ Desde cualquier lugar, puede ver el tablero en el navegador del teléfono (Safar
 
 Los pasos, y cómo arreglar una conexión que falla, están en [docs/mobile.md](docs/mobile.md) (English).
 
+### Usar desde otras herramientas (CLI y MCP)
+Agentes y scripts pueden crear tareas, consultar su estado y manejarlas: iniciar, aprobar, responder, fusionar, abrir PR, eliminar y ejecutar Pipelines.
+
+- `wtk` es un comando para la terminal y los scripts (`wtk create "Fix the login bug" --start`, `wtk tasks`, `wtk merge <id>`). Se instala desde Ajustes > "CLI / MCP"
+- `wtk mcp` es un servidor MCP, para que Claude Code y otros agentes manejen el tablero por sí mismos
+- Si la aplicación no está abierta, wtk la inicia en modo residente. Otros equipos pueden usarlo por un túnel SSH tras emparejarse con un código de un solo uso
+
+Consulte [docs/cli.md](docs/cli.md) (English).
+
 Además: cambiar el estado (columna) de una tarjeta arrastrándola, mensajes a un agente en ejecución (btw), adjuntar imágenes y archivos, competición (varios agentes resuelven la misma tarea), y repositorios de WSL en Windows. El uso está resumido en [docs/usage.md](docs/usage.md) (English).
 
 ### Pipeline: describe un flujo en lenguaje natural y ejecuta tareas con él
@@ -304,6 +313,7 @@ Los mismos comandos actualizan a la última versión. También se puede actualiz
 | [Integraciones](docs/integrations.md) (English) | Configurar GitLab, Linear, Jira y Slack, y qué pueden y no pueden hacer |
 | [Control remoto](docs/remote.md) (English) | Cómo manejar el tablero desde otro PC por un túnel SSH, y cómo arreglar una conexión que falla |
 | [Usar desde el teléfono](docs/mobile.md) (English) | Cómo manejar el tablero desde el navegador del teléfono desde cualquier lugar (Cloudflare Tunnel), y cómo arreglar una conexión que falla |
+| [CLI y MCP](docs/cli.md) (English) | Crear y manejar tareas desde scripts y agentes con `wtk` y su servidor MCP, también desde otro equipo |
 | [Modo residente](docs/headless.md) (English) | Mantenerlo en marcha sin ventana (también en un servidor Linux): el programador, Slack, la vigilancia de Issues y el host de control remoto |
 | [Instalación](docs/install.md) (English) | Instalación, actualización, desinstalación y uso de un repositorio de WSL en Windows |
 | [Para desarrolladores](docs/development.md) (English) | Ejecutar desde el código, compilar, publicar, cómo está hecha la aplicación y las pruebas |

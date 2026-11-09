@@ -321,6 +321,10 @@ const DEFAULT_SETTINGS = {
   mobileTunnelMode: 'quick', // 'quick' = Quick Tunnel（URL が起動ごとに変わる） / 'named' = 名前付きトンネル
   mobileNamedHostname: '', // 名前付きトンネルで公開するホスト名（トークンは secrets.json）
   cloudflaredPath: '', // cloudflared のパス（空なら探す）
+  // ---- CLI・MCP（ほかのツールから操作する。src/api-server.js） ----
+  apiEnabled: true, // API を動かす（127.0.0.1 だけ。同じ PC の CLI・MCP は userData/api.json のトークンで使う）
+  apiPort: 47821, // API の待ち受けポート（127.0.0.1）。ふさがっていたら空いているポートを使う
+  apiDevices: [], // ペアリングしたほかの PC（トークンは SHA-256 だけ）
   // ---- サイクル（期間とゴールを持つ、タスクのまとまり） ----
   cycleView: 'top', // 'top' = ボードの上のタブ / 'sidebar' = 左のサイドバー / 'lanes' = 列の中をサイクルごとの段に分ける
 };

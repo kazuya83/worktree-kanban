@@ -99,6 +99,15 @@ Où que vous soyez, vous pouvez voir le tableau dans le navigateur du téléphon
 
 La procédure, et comment réparer une connexion qui échoue, se trouve dans [docs/mobile.md](docs/mobile.md) (English).
 
+### Utiliser depuis d'autres outils (CLI et MCP)
+Les agents et les scripts peuvent créer des tâches, consulter leur état et les piloter : démarrer, approuver, répondre, fusionner, ouvrir des PR, supprimer et lancer des Pipelines.
+
+- `wtk` est une commande pour le terminal et les scripts (`wtk create "Fix the login bug" --start`, `wtk tasks`, `wtk merge <id>`). Installez-la depuis Réglages > « CLI / MCP »
+- `wtk mcp` est un serveur MCP, pour que Claude Code et d'autres agents pilotent eux-mêmes le tableau
+- Si l'application n'est pas lancée, wtk la démarre en mode résident. D'autres ordinateurs peuvent l'utiliser via un tunnel SSH après un appairage avec un code à usage unique
+
+Voir [docs/cli.md](docs/cli.md) (English).
+
 Également : changer l'état (colonne) d'une carte par glisser-déposer, messages à un agent en cours d'exécution (btw), pièces jointes image et fichier, compétition (plusieurs agents résolvent la même tâche), et dépôts WSL sous Windows. L'utilisation est résumée dans [docs/usage.md](docs/usage.md) (English).
 
 ### Pipeline : décrivez un flux en langage naturel et lancez vos tâches dessus
@@ -304,6 +313,7 @@ Les mêmes commandes mettent à jour vers la dernière version. Vous pouvez auss
 | [Intégrations](docs/integrations.md) (English) | Configurer GitLab, Linear, Jira et Slack, et ce qu'ils peuvent ou non faire |
 | [Contrôle à distance](docs/remote.md) (English) | Comment piloter le tableau depuis un autre PC par un tunnel SSH, et comment réparer une connexion qui échoue |
 | [Utiliser depuis le téléphone](docs/mobile.md) (English) | Comment piloter le tableau depuis le navigateur du téléphone où que vous soyez (Cloudflare Tunnel), et comment réparer une connexion qui échoue |
+| [CLI et MCP](docs/cli.md) (English) | Créer et piloter des tâches depuis des scripts et des agents avec `wtk` et son serveur MCP, aussi depuis un autre ordinateur |
 | [Mode résident](docs/headless.md) (English) | Le garder en marche sans fenêtre (aussi sur un serveur Linux) : le planificateur, Slack, la surveillance des Issues et l’hôte de contrôle à distance |
 | [Installation](docs/install.md) (English) | Installation, mise à jour, désinstallation, et utilisation d'un dépôt WSL sous Windows |
 | [Pour les développeurs](docs/development.md) (English) | Lancer depuis les sources, compiler, publier, comment l'application est faite, et les tests |
