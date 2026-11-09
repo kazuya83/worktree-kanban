@@ -501,6 +501,7 @@ function cardHtml(c) {
       </div>
       <div class="card-title">${c.issue ? tr('<a class="issue-chip" data-url="{url}" title="Issue を開く">{key}</a> {v}', { url: (esc(c.issue.url)), key: (esc(IssueRef.keyOf(c.issue))), v: (esc(IssueRef.stripKey(c.title, c.issue))) }) : esc(c.title)}</div>
       ${orchChipsHtml(c)}
+      ${showCardSprite(c) ? spriteCanvasHtml(c, 'mini') : ''}
       ${CycleView.chipsHtml(c)}
       ${c.readOnly ? tr('<div class="card-skill-row"><span class="readonly-chip" title="ソースを変更しないタスク: worktree を作らず、ファイルを書き換えるツールを止めて動かします。確かめたら「完了にする」で完了にします">{v}ソース変更なし</span></div>', { v: (icon('lock')) }) : ''}
       ${c.skill ? tr('<div class="card-skill-row"><span class="skill-chip small" title="最初の指示で使うスキル">{v}/{skill}</span></div>', { v: (icon('zap')), skill: (esc(c.skill)) }) : ''}
@@ -518,6 +519,47 @@ function cardHtml(c) {
         ${c.costUsd ? `<span class="card-cost">$${c.costUsd.toFixed(2)}</span>` : ''}
       </div>
     </div>`;
+}
+
+// 進捗の見える化（renderer/agent-sprite.js）: エージェントのロボットと TODO の進み具合を Canvas で動かす
+const SPRITE_LABEL = {
+  edit: tr('ファイルを編集中'),
+  read: tr('ファイルを読んでいます'),
+  run: tr('コマンドを実行中'),
+  search: tr('コードを検索中'),
+  web: tr('Web を調べています'),
+  plan: tr('TODO を整理中'),
+  agent: tr('サブエージェントに依頼中'),
+  tool: tr('ツールを実行中'),
+};
+function spriteMood(c) {
+  const attention = (c.permissions || []).length ? 'perm' : needsYou(c) || isSpecPending(c) ? 'ask' : null;
+  const orchestrating = !attention && subtasksRunning(c) && (c.status === 'review' || c.status === 'failed');
+  const status = c.relay && c.relay.waiting && c.status === 'review' ? 'queued' : c.status;
+  return AgentSprite.moodOf({ status, attention, activity: c.activity, startedAt: c.startedAt, orchestrating });
+}
+function spriteInfo(c) {
+  const { mood, tool } = spriteMood(c);
+  const progress = AgentSprite.progressOf(c.todos && c.todos.items);
+  let label;
+  if (mood === 'work') label = SPRITE_LABEL[tool] || SPRITE_LABEL.tool;
+  else if (mood === 'think') label = tr('考え中…');
+  else if (mood === 'wait') label = tool === 'perm' ? tr('承認を待っています') : tr('あなたの返事を待っています');
+  else if (mood === 'queued') label = tr('順番を待っています');
+  else if (mood === 'done') label = c.status === 'done' ? tr('完了！') : tr('できました！');
+  else if (mood === 'fail') label = tr('止まってしまいました');
+  else label = tr('開始を待っています');
+  const detail = progress.now ? `▶ ${progress.now}` : c.lastMessage && mood !== 'done' ? plainText(c.lastMessage) : '';
+  return { mood, tool, label, detail, progress, color: AgentSprite.colorFor(agentOf(c), c.persona) };
+}
+// ボードのカードに出すのは、動いている・待っているタスクと、TODO のあるレビュー待ち
+function showCardSprite(c) {
+  if (isChat(c) || c.status === 'todo' || c.status === 'done') return false;
+  if (c.status === 'running' || c.status === 'queued' || needsYou(c) || subtasksRunning(c)) return true;
+  return !!(c.todos && c.todos.items && c.todos.items.length);
+}
+function spriteCanvasHtml(c, kind) {
+  return `<canvas class="agent-sprite ${kind}" data-sprite="${kind}" data-id="${esc(c.id)}" aria-hidden="true"></canvas>`;
 }
 
 // カードに出すエージェント・Pipeline・競争の印
@@ -793,6 +835,7 @@ function renderBoard() {
     if (top && list) list.scrollTop = top;
   });
   [boardEl.scrollLeft, boardEl.scrollTop] = boardScroll;
+  AgentSprite.drawNow();
 }
 
 // その列に出すカード。サブタスクを動かしている親は「実行中」に置く
@@ -1974,6 +2017,7 @@ function progressHtml(c) {
   const cost = hasSubtasks(c) ? subTotalCost(c) : c.costUsd;
   if (cost) rows.push(tr('<dt>コスト</dt><dd>${v}{v2}</dd>', { v: (cost.toFixed(3)), v2: (hasSubtasks(c) ? tr(' <span class="muted small">サブタスクを含む</span>') : '') }));
   const parts = [`<section class="pg-sec"><dl class="d-meta pg-summary">${rows.join('')}</dl></section>`];
+  if (s !== 'todo') parts.push(`<section class="pg-sec pg-stage">${spriteCanvasHtml(c, 'stage')}</section>`);
   // 競争の候補（採用・比べてもらう）
   const compete = competeBoxHtml(c);
   if (compete) parts.push(`<section class="pg-sec">${compete}</section>`);
@@ -2051,6 +2095,7 @@ function renderProgress(c, { force = false } = {}) {
   const chart = view.querySelector('.pg-chart');
   if (chart && scroll) [chart.scrollLeft, chart.scrollTop] = scroll;
   bindProgressView(c, view);
+  AgentSprite.drawNow();
 }
 // 進捗タブ・サブタスクタブの中身のボタンやリンク（描き直すたびに付け直す）
 function bindProgressView(c, view) {
@@ -6086,6 +6131,11 @@ api.onLog(({ id, entry }) => {
 });
 api.onFocus((id) => card(id) && select(id));
 
+// カードと進捗タブのロボットを動かす（画面に出ている Canvas だけを描く）
+AgentSprite.start((id) => {
+  const c = card(id);
+  return c ? spriteInfo(c) : null;
+});
 setInterval(() => {
   document.querySelectorAll('.elapsed[data-since]').forEach((el) => (el.textContent = elapsed(Number(el.dataset.since))));
 }, 1000);
