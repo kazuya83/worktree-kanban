@@ -45,7 +45,7 @@ test('closeRepoTab: 最後の1つと、タブにないものは閉じない', ()
   assert.deepStrictEqual(closeRepoTab(['/a', '/b'], '/a', '/x'), { tabs: ['/a', '/b'], next: '/a' });
 });
 
-test('repoTabSummary: リポジトリごとに動いているタスクと対応待ちを数える', () => {
+test('repoTabSummary: リポジトリごとに動いているタスク・対応待ち・レビュー中を数える', () => {
   const cards = [
     { repoPath: '/a', status: 'running' },
     { repoPath: '/a', status: 'queued' },
@@ -53,11 +53,15 @@ test('repoTabSummary: リポジトリごとに動いているタスクと対応�
     { repoPath: '/b', status: 'running', permissions: [{ id: 1 }] },
     { repoPath: '/b', status: 'done' },
     { repoPath: '/z', status: 'running' },
+    { id: 'p', repoPath: '/c', status: 'review' },
+    { repoPath: '/c', status: 'failed', subtaskOf: 'p' },
+    { repoPath: '/c', status: 'failed' },
+    { repoPath: '/c', status: 'review', kind: 'chat' },
   ];
   assert.deepStrictEqual(repoTabSummary(['/a', '/b', '/c'], cards), [
-    { path: '/a', running: 2, attention: 1 },
-    { path: '/b', running: 1, attention: 1 },
-    { path: '/c', running: 0, attention: 0 },
+    { path: '/a', running: 2, attention: 1, review: 1 },
+    { path: '/b', running: 1, attention: 1, review: 0 },
+    { path: '/c', running: 0, attention: 0, review: 2 },
   ]);
 });
 

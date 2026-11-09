@@ -403,7 +403,7 @@
   function repoTabsList() {
     const repo = S.board.settings.repoPath || '';
     const list = (S.board.repoTabs || []).filter((t) => t && t.path).map((t) => ({ ...t, remote: !!t.remote, active: 'active' in t ? !!t.active : t.path === repo }));
-    if (repo && !list.some((t) => t.active)) list.push({ path: repo, running: 0, attention: 0, active: true });
+    if (repo && !list.some((t) => t.active)) list.push({ path: repo, running: 0, attention: 0, review: 0, active: true });
     return list;
   }
   async function switchRepo(t, btn) {
@@ -450,6 +450,7 @@
                 h('span.repo-name', { text: folderName(t.path) }),
                 !t.active && t.attention ? h('span.pill.warn', { text: String(t.attention), title: tr('あなたの対応を待っているタスクが {attention} 件あります', { attention: t.attention }) }) : null,
                 !t.active && t.running ? h('span.pill.run', { text: String(t.running), title: tr('動いているタスクが {running} 件あります', { running: t.running }) }) : null,
+                !t.active && t.review ? h('span.pill.review', { text: String(t.review), title: tr('レビュー中のタスクが {review} 件あります', { review: t.review }) }) : null,
               ),
             )
           : h('span.muted.small', { text: tr('リポジトリがありません') }),
