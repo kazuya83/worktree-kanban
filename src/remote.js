@@ -122,6 +122,11 @@ const PROXY_CHANNELS = new Set([
   'repo:create',
   'repo:info',
   'settings:update',
+  // リポジトリで共有する設定（ホストのリポジトリのファイル）
+  'shared:status',
+  'shared:save',
+  'shared:revert',
+  'shared:approveScripts',
   'flow:generate',
   'card:create',
   'chat:create',

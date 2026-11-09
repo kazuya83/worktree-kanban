@@ -65,11 +65,12 @@ Scripts run in sh / bash on macOS, Linux, and WSL, and stop at the first line th
 | `WORKTREE_KANBAN_BASE_BRANCH` | The base branch |
 | `WORKTREE_KANBAN_TASK_ID` | The task's ID |
 | `WORKTREE_KANBAN_PORT` | This task's port (see "Ports per task" below) |
+| `WORKTREE_KANBAN_PORT_COUNT` | How many ports this task can use |
 | `PORT` | The same number as `WORKTREE_KANBAN_PORT` |
 
 ### Ports per task
 
-A worktree only separates files, so running the same development server in parallel would normally make the ports collide. When a worktree is created, each task therefore gets 10 consecutive ports from the 20000–29999 range (`WORKTREE_KANBAN_PORT` through +9). Ports used by other apps are avoided. The number stays the same across app restarts and is freed when the worktree is removed. The current number is shown on the "worktree" tab in the detail panel.
+A worktree only separates files, so running the same development server in parallel would normally make the ports collide. When a worktree is created, each task therefore gets 10 consecutive ports from the 20000–29999 range (`WORKTREE_KANBAN_PORT` through +9). The first port and how many each task gets can be changed per project in Settings > "Branches and landing" (and shared with your team through `.worktree-kanban/settings.json` in the repository; see [Settings](settings.md#share-with-team)). Ports used by other apps are avoided. The number stays the same across app restarts and is freed when the worktree is removed. The current number is shown on the "worktree" tab in the detail panel.
 
 The agent receives the same environment variables as the scripts, so a server that reads `PORT` does not collide when the agent starts it either. Servers that read `PORT` (Next.js, Express, and so on) work as they are. For servers that do not, pass the number in the run script.
 

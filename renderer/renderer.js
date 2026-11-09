@@ -4738,7 +4738,12 @@ function renderSettingsView() {
       <label class="field">${tr('<span>実行スクリプト（詳細の worktree タブのボタンで動かす）</span>')}
         <textarea id="sRunScript" class="mono" rows="3" spellcheck="false" placeholder="${tr('例: npm run dev')}">${esc(s.runScript || '')}</textarea>
         <small>${tr('開発サーバーなど、タスクの変更を手で確かめるためのコマンドです。worktree タブから動かす・止めることができ、セットアップと片付けも手で動かせます。')}</small></label>
-      <small class="muted s-note">${tr('スクリプトは macOS・Linux・WSL では sh / bash で動き、途中の行が失敗するとそこで止まります。Windows では各行を && でつないで cmd で動かします。環境変数 WORKTREE_KANBAN_ROOT（リポジトリ）、WORKTREE_KANBAN_WORKTREE、WORKTREE_KANBAN_BRANCH、WORKTREE_KANBAN_BASE_BRANCH、WORKTREE_KANBAN_TASK_ID が使えます。WORKTREE_KANBAN_PORT と PORT にはタスクごとに分けたポートが入り、そこから連続する10個を使えます（並列で動かしてもぶつかりません）。')}</small>`,
+      <div class="row">
+        <label class="field">${tr('<span>タスクのポートを探し始める番号</span>')}<input id="sPortStart" type="number" min="1024" max="65535" value="${esc(s.portStart || 20000)}" /></label>
+        <label class="field">${tr('<span>1つのタスクに割り当てるポートの数</span>')}<input id="sPortCount" type="number" min="1" max="100" value="${esc(s.portCount || 10)}" /></label>
+      </div>
+      <small class="muted s-note">${tr('スクリプトは macOS・Linux・WSL では sh / bash で動き、途中の行が失敗するとそこで止まります。Windows では各行を && でつないで cmd で動かします。環境変数 WORKTREE_KANBAN_ROOT（リポジトリ）、WORKTREE_KANBAN_WORKTREE、WORKTREE_KANBAN_BRANCH、WORKTREE_KANBAN_BASE_BRANCH、WORKTREE_KANBAN_TASK_ID が使えます。WORKTREE_KANBAN_PORT と PORT にはタスクごとに分けたポートが入り、そこから連続する10個を使えます（並列で動かしてもぶつかりません）。')}</small>
+      <small class="muted s-note">${tr('ポートの数を変えたときは、そこから連続する、設定した数のポートを使えます（WORKTREE_KANBAN_PORT_COUNT にも入ります）。')}</small>`,
     issue: `<label class="field"><span>${tr('使う課題管理サービス')}</span>
         <select id="sIssueProvider">${issueProviders().map((p) => `<option value="${esc(p.id)}" ${p.id === (s.issueProvider || GITHUB_PROVIDER.id) ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select>
         <small>${tr('「＋ 新しいタスク」の Issue の欄で使います。接続先とトークンは、設定の「連携」で設定します。')}</small></label>
@@ -4771,6 +4776,10 @@ function renderSettingsView() {
       <label class="check"><input type="checkbox" id="sSpecCheck" ${s.specCheck !== false ? 'checked' : ''} /> ${tr('新しいタスクの内容が詰まっていなければ、開発を始める前にエージェントと対話して仕様を詰める')}</label>
       <small class="muted s-note">${tr('仕様を詰めるときに、分けたほうがよい大きなタスクなら、エージェントがサブタスクに分けることを提案します（「サブタスクでやる」と答えたら分けます）。開始前のタスクには、進捗タブから手動でサブタスクを足せます（足したあとは「サブタスク」タブで見られます）。')}</small>
       <label class="field">${tr('<span>サブタスクが終わったら（既定。タスクごとに開始前に変えられます）</span>')}<select id="sSubtaskMerge"><option value="auto"${s.subtaskMerge !== 'review' ? ' selected' : ''}>${tr('自動で親のブランチにマージする')}</option><option value="review"${s.subtaskMerge === 'review' ? ' selected' : ''}>${tr('確かめてからマージする')}</option></select></label>`,
+    share: `<small class="muted s-note">${tr('このプロジェクトの設定（スクリプト・ポート・ブランチ・Pipeline・カスタムエージェントなど）を、リポジトリの <code>.worktree-kanban/settings.json</code> に書いてコミットすると、チームのほかの人の PC でも同じ設定になります。ファイルにある項目はファイルの値を使い、この PC で変えた項目だけは、この PC の値（上書き）を使います。')}</small>
+      <div id="sShared" class="shared-panel">${tr('リポジトリのファイルを確かめています…')}</div>
+      <div class="pl-tools"><button class="btn small" id="sSharedSave" type="button">${tr('リポジトリのファイルに保存')}</button></div>
+      <small>${tr('保存してある今のプロジェクトの設定を、ファイルに書き出します（画面で変えたところは、先に「保存」を押してください）。コミットと push は自分で行ってください。トークンなどの秘密は書き出しません。')}</small>`,
     agents: `<small class="muted s-note">${tr('ここの項目は、どのプロジェクトでも同じです（「このプロジェクトの設定」と書いた項目だけは、プロジェクトごとに覚えます）。')}</small>
       <small class="muted s-note">${tr('チェックを付けたエージェントだけ、コマンドとモデルを設定でき、タスク・会話・Pipeline・競争で選べます（1つ以上）。')}</small>
       ${agentConfigHtml('claude', s, `
@@ -5308,6 +5317,13 @@ ${tr('読めなかったファイル: {v1}', { v1: (parsed.skipped.join(tr('、'
   $('sIssueProvider').onchange = drawIssueProvider;
   $('sIssueSync').onchange = drawIssueProvider;
   drawIssueProvider();
+  drawShared();
+  $('sSharedSave').onclick = async () => {
+    const st = await run(() => api.saveShared());
+    if (!st) return;
+    toast(tr('{file} に書き出しました。コミットしてチームと共有してください', { file: st.file }), 'ok');
+    drawShared(st);
+  };
   drawTrackers();
   refreshGh();
   bindUpdatePanel();
@@ -5354,6 +5370,9 @@ ${tr('読めなかったファイル: {v1}', { v1: (parsed.skipped.join(tr('、'
         setupScript: $('sSetupScript').value,
         teardownScript: $('sTeardownScript').value,
         runScript: $('sRunScript').value,
+        // 変えたときだけ送る（古い版のホストは知らない設定を受け取らないので、変えていなければエラーにしない）
+        ...(String($('sPortStart').value) !== String(s.portStart || 20000) ? { portStart: $('sPortStart').value } : {}),
+        ...(String($('sPortCount').value) !== String(s.portCount || 10) ? { portCount: $('sPortCount').value } : {}),
         permissionMode: $('sMode').value,
         allowedTools: $('sAllowed').value,
         maxParallel: $('sMax').value,
@@ -5401,6 +5420,112 @@ ${tr('読めなかったファイル: {v1}', { v1: (parsed.skipped.join(tr('、'
   // 一覧を描いて高さが決まってから戻す
   $('settingsMain').scrollTop = scrollTop;
   settingsNav.sync();
+}
+
+// 設定の「チームで共有」の欄で見せる、項目の名前（いっしょに扱う Pipeline の3つは1つにまとめる）
+function sharedKeyLabel(k) {
+  const labels = {
+    baseBranch: tr('ベースブランチ'),
+    integration: tr('レビュー後の取り込み方'),
+    branchNamingRule: tr('ブランチの命名規則'),
+    issueProvider: tr('使う課題管理サービス'),
+    issueComments: tr('Issue へのコメント'),
+    issueStatusSync: tr('Issue のステータスの自動変更'),
+    statusFieldName: tr('Project で変える項目'),
+    statusMapping: tr('列ごとの選択肢の名前'),
+    permissionMode: tr('権限モード'),
+    allowedTools: tr('許可しておくツール'),
+    defaultSkill: tr('最初から選んでおくスキル'),
+    specCheck: tr('仕様の確認'),
+    ciAutoFix: tr('CI の失敗の自動修正'),
+    reviewAutoFix: tr('レビューコメントの自動修正'),
+    subtaskMerge: tr('サブタスクのマージ'),
+    sprintBranch: tr('スプリントのブランチ'),
+    pushAfterMerge: tr('マージしたあとの push'),
+    relayFlow: 'Pipeline',
+    relayFlows: 'Pipeline',
+    relayFlowId: 'Pipeline',
+    customAgents: tr('カスタムエージェント'),
+    competes: tr('競争'),
+    defaultAgent: tr('最初から選んでおくエージェント'),
+    setupScript: tr('セットアップスクリプト'),
+    teardownScript: tr('片付けスクリプト'),
+    runScript: tr('実行スクリプト'),
+    portStart: tr('タスクのポートを探し始める番号'),
+    portCount: tr('1つのタスクに割り当てるポートの数'),
+  };
+  return labels[k] || k;
+}
+
+// 項目を名前でまとめる（Pipeline の3つは1つ）。[{ label, keys }]
+function sharedKeyGroups(keys) {
+  const out = [];
+  for (const k of keys || []) {
+    const label = sharedKeyLabel(k);
+    const g = out.find((x) => x.label === label);
+    if (g) g.keys.push(k);
+    else out.push({ label, keys: [k] });
+  }
+  return out;
+}
+
+// 設定の「チームで共有」の欄を描く（st を省くと読み直す）
+async function drawShared(st) {
+  const box = $('sShared');
+  if (!box) return;
+  if (!st) {
+    try {
+      st = await api.sharedStatus();
+    } catch (err) {
+      // 古い版のホストには無い
+      box.innerHTML = `<small class="muted">${esc(err.message || String(err))}</small>`;
+      return;
+    }
+    if (!$('sShared')) return;
+  }
+  const file = `<code>${esc(st.file)}</code>`;
+  if (!st.repoPath) {
+    box.innerHTML = `<small class="muted">${tr('リポジトリを開いていません')}</small>`;
+    return;
+  }
+  const head = st.error
+    ? `<p class="shared-state error">${tr('{file} を読めませんでした（前に読んだ値のまま使います）: {error}', { file, error: esc(st.error) })}</p>`
+    : !st.exists
+      ? `<p class="shared-state">${tr('{file} はまだありません。下のボタンで、今の設定から作れます。', { file })}</p>`
+      : `<p class="shared-state">${tr('{file} から {n} 項目を使っています。', { file, n: sharedKeyGroups(st.keys.filter((k) => !st.overrides.includes(k))).length })}</p>`;
+  const used = sharedKeyGroups(st.keys.filter((k) => !st.overrides.includes(k)));
+  const over = sharedKeyGroups(st.overrides);
+  const usedHtml = used.length ? `<div class="shared-list"><small>${tr('リポジトリのファイルで設定')}</small><div class="chips">${used.map((g) => `<span class="chip">${esc(g.label)}</span>`).join('')}</div></div>` : '';
+  const overHtml = over.length
+    ? `<div class="shared-list"><small>${tr('この PC で上書き中（ファイルの値を使っていません）')}</small>
+        <ul class="shared-overrides">${over.map((g) => `<li><span>${esc(g.label)}</span><button class="btn small ghost" type="button" data-shared-revert="${esc(g.keys.join(','))}">${tr('ファイルの値に戻す')}</button></li>`).join('')}</ul>
+        ${over.length > 1 ? `<button class="btn small" type="button" id="sSharedRevertAll">${tr('すべてファイルの値に戻す')}</button>` : ''}</div>`
+    : '';
+  const pending = (st.scripts || []).filter((x) => !x.approved);
+  const kindLabel = { setup: tr('セットアップスクリプト'), teardown: tr('片付けスクリプト'), run: tr('実行スクリプト') };
+  const scriptHtml = pending.length
+    ? `<div class="shared-list shared-scripts"><small>${tr('まだ許可していないスクリプト（初めて動かすときに確かめます。中身を確かめてから許可してください）')}: ${pending.map((x) => esc(kindLabel[x.kind] || x.kind)).join('、')}</small>
+        <button class="btn small" type="button" id="sSharedApprove">${tr('今の中身で許可する')}</button></div>`
+    : '';
+  const ignoredHtml = (st.ignored || []).length ? `<small class="muted">${tr('使わなかった項目（知らない名前か、値の形が違います）: {keys}', { keys: esc(st.ignored.join(', ')) })}</small>` : '';
+  box.innerHTML = head + usedHtml + overHtml + scriptHtml + ignoredHtml;
+  const after = async (p) => {
+    const next = await run(p);
+    if (!next) return;
+    // 値がファイルの値に戻ったので、欄も描き直す（ボードの更新を待たずに）
+    try {
+      state.board = await api.getBoard();
+    } catch {
+      /* 次のボードの更新で直る */
+    }
+    renderSettingsView();
+  };
+  box.querySelectorAll('[data-shared-revert]').forEach((b) => (b.onclick = () => after(() => api.revertShared(b.dataset.sharedRevert.split(',')))));
+  if ($('sSharedRevertAll')) $('sSharedRevertAll').onclick = () => after(() => api.revertShared());
+  if ($('sSharedApprove')) $('sSharedApprove').onclick = async () => {
+    const next = await run(() => api.approveSharedScripts());
+    if (next) drawShared(next);
+  };
 }
 
 // 設定の「連携」の欄。登録されているサービスごとに、configFields の欄を出す。

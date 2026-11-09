@@ -26,6 +26,7 @@ const CycleModel = require('../renderer/cycle-model');
 const Subtasks = require('./subtasks');
 const Checkpoints = require('./checkpoints');
 const { SCRIPT_KINDS, SCRIPT_SETTINGS, PORT_START, PORT_END, PORT_COUNT, portsFree, cleanScript, appendOutput, startScript } = require('./worktree-scripts');
+const { SHARED_REL } = require('./shared-settings');
 const I18n = require('../renderer/i18n');
 const APP_VERSION = require('../package.json').version;
 const RPC_PROBE_TIMEOUT_MS = 20000; // 承認のやりとりができるかを確かめるときに、CLI の返事を待つ長さ
@@ -2892,18 +2893,56 @@ class AgentManager extends EventEmitter {
 
   portEnv(c) {
     if (!c.devPort) return {};
-    return { WORKTREE_KANBAN_PORT: String(c.devPort), PORT: String(c.devPort) };
+    return { WORKTREE_KANBAN_PORT: String(c.devPort), WORKTREE_KANBAN_PORT_COUNT: String(c.devPortCount || PORT_COUNT), PORT: String(c.devPort) };
   }
 
   // 空いているポートの組をタスクに割り当てる。一度決めたら、worktree を消すまで変えない
+  // 探し始める番号と1つのタスクの数は、プロジェクトの設定（リポジトリの共有ファイルでも決められる）
   async ensureDevPort(c) {
-    const taken = (port) => this.store.cards.some((o) => o.devPort === port);
-    for (let port = PORT_START; port + PORT_COUNT <= PORT_END && !c.devPort; port += PORT_COUNT) {
-      if (taken(port) || !(await portsFree(port))) continue;
+    if (c.devPort) return;
+    const rs = this.store.repoSettings(c.repoPath);
+    const count = parseInt(rs.portCount, 10) || PORT_COUNT;
+    const start = parseInt(rs.portStart, 10) || PORT_START;
+    // 初期値（20000 から 10 個ずつ）なら 30000 まで。数を変えたときも、同じだけの組を探す
+    const end = Math.min(65536, start + count * ((PORT_END - PORT_START) / PORT_COUNT));
+    // ほかのタスクの組と重なる番号は使わない（プロジェクトごとに数が違うことがある）
+    const taken = (port) => this.store.cards.some((o) => o !== c && o.devPort && o.devPort < port + count && port < o.devPort + (o.devPortCount || PORT_COUNT));
+    for (let port = start; port + count <= end && !c.devPort; port += count) {
+      if (taken(port) || !(await portsFree(port, count))) continue;
       // 確かめているあいだに、同じ番号を別のタスクが取っていることがある
-      if (!c.devPort && !taken(port)) c.devPort = port;
+      if (!c.devPort && !taken(port)) {
+        c.devPort = port;
+        c.devPortCount = count;
+      }
     }
     if (!c.devPort) this.log(c, 'error', tr('開発サーバーのポートに空きがないので、PORT を渡さずに動かします'));
+  }
+
+  // リポジトリの共有ファイル（.worktree-kanban/settings.json）から来たスクリプトは、初めて動かすときと中身が変わったときに確かめる
+  async allowScript(c, kind, script) {
+    const repo = c.repoPath;
+    if (!this.store.isSharedScript(repo, kind) || this.store.isScriptApproved(repo, kind, script)) return true;
+    const ask = this.opts.confirmScript;
+    if (typeof ask !== 'function') return false;
+    // 同時に始めたタスクで、同じスクリプトを何度も聞かない
+    const key = `${repo}\n${kind}\n${script}`;
+    if (!this.scriptAsks) this.scriptAsks = new Map();
+    let p = this.scriptAsks.get(key);
+    if (!p) {
+      p = Promise.resolve()
+        .then(() => ask({ repoPath: repo, kind, script }))
+        .then((ok) => {
+          if (ok) {
+            this.store.approveScript(repo, kind, script);
+            this.store.save();
+          }
+          return !!ok;
+        })
+        .catch(() => false)
+        .finally(() => this.scriptAsks.delete(key));
+      this.scriptAsks.set(key, p);
+    }
+    return p;
   }
 
   // 1つのタスクで同時に動かすスクリプトは1つだけ（出力の表示も1つ）
@@ -2930,6 +2969,7 @@ class AgentManager extends EventEmitter {
       delete c.setupPending;
       return;
     }
+    if (!(await this.allowScript(c, 'setup', script))) throw new Error(tr('リポジトリで共有しているセットアップスクリプト（{file}）を動かすのを許可しなかったので、エージェントは開始していません。設定の「チームで共有」で許可するか、この PC のスクリプトに書き換えてください', { file: SHARED_REL }));
     await this.stopRunningScript(c.id);
     await this.ensureDevPort(c);
     this.log(c, 'system', tr('セットアップスクリプトを実行します'));
@@ -2945,7 +2985,9 @@ class AgentManager extends EventEmitter {
   async removeWorktreeOf(c, top) {
     await this.stopRunningScript(c.id);
     const script = this.scriptOf(c, 'teardown');
-    if (script && fs.existsSync(c.worktreePath)) {
+    const allowed = script && fs.existsSync(c.worktreePath) ? await this.allowScript(c, 'teardown', script) : false;
+    if (script && fs.existsSync(c.worktreePath) && !allowed) this.log(c, 'error', tr('リポジトリで共有している片付けスクリプト（{file}）を動かすのを許可しなかったので、動かさずに worktree を消します', { file: SHARED_REL }));
+    if (script && fs.existsSync(c.worktreePath) && allowed) {
       this.log(c, 'system', tr('片付けスクリプトを実行します'));
       const run = await this.execScript(c, 'teardown', script, { auto: true, timeoutMs: this.opts.teardownTimeoutMs || TEARDOWN_TIMEOUT_MS });
       if (scriptPassed(run)) this.log(c, 'system', tr('片付けスクリプトが終わりました'));
@@ -2954,6 +2996,7 @@ class AgentManager extends EventEmitter {
     await git.removeWorktree(top, c.worktreePath);
     this.scriptRuns.delete(c.id);
     delete c.devPort; // 次のタスクが使えるように返す
+    delete c.devPortCount;
   }
 
   scriptState(id) {
@@ -2961,7 +3004,7 @@ class AgentManager extends EventEmitter {
     const scripts = Object.fromEntries(SCRIPT_KINDS.map((k) => [k, !!this.scriptOf(c, k)]));
     const r = this.scriptRuns.get(id);
     const run = r ? { kind: r.kind, auto: r.auto, running: r.running, output: r.output, startedAt: r.startedAt, endedAt: r.endedAt, code: r.code, stopped: r.stopped, timedOut: r.timedOut, error: r.error } : null;
-    return { scripts, run, port: c.devPort || null, portCount: PORT_COUNT };
+    return { scripts, run, port: c.devPort || null, portCount: c.devPortCount || parseInt(this.store.repoSettings(c.repoPath).portCount, 10) || PORT_COUNT, shared: Object.fromEntries(SCRIPT_KINDS.map((k) => [k, this.store.isSharedScript(c.repoPath, k)])) };
   }
 
   // 画面のボタンから動かす。終わるのは待たない（出力と結果は scriptState で見る）
@@ -2971,6 +3014,7 @@ class AgentManager extends EventEmitter {
     if (isChat(c) || isNoGit(c) || !c.worktreePath || !fs.existsSync(c.worktreePath)) throw new Error(tr('worktree がありません'));
     const script = this.scriptOf(c, kind);
     if (!script) throw new Error(tr('スクリプトが設定されていません'));
+    if (!(await this.allowScript(c, kind, script))) throw new Error(tr('リポジトリで共有しているスクリプト（{file}）を動かすのを許可しませんでした', { file: SHARED_REL }));
     await this.ensureDevPort(c); // この機能より前に作った worktree には、まだ割り当てがない
     if (this.merging?.has(id)) throw new Error(tr('処理中です'));
     if (this.scriptRuns.get(id)?.running) throw new Error(tr('ほかのスクリプトが動いています'));
