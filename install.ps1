@@ -79,15 +79,45 @@ New-Item -ItemType Directory -Path $tmpDir | Out-Null
 try {
   $zip = Join-Path $tmpDir 'app.zip'
   $downloaded = $false
+  $errors = @()
+  # github.com/.../releases/download/... sometimes keeps answering 504 Gateway Time-out for one file,
+  # so retry each name a few times, then fall back to the next name
   foreach ($name in $assetNames) {
-    Info "Downloading: $name"
-    try {
-      Invoke-WebRequest -Uri "https://github.com/$repo/releases/download/$tag/$name" -OutFile $zip -UseBasicParsing
-      $downloaded = $true
-      break
-    } catch { }
+    for ($attempt = 1; $attempt -le 3 -and -not $downloaded; $attempt++) {
+      Info "Downloading: $name$(if ($attempt -gt 1) { " (retry $attempt/3)" })"
+      try {
+        Invoke-WebRequest -Uri "https://github.com/$repo/releases/download/$tag/$name" -OutFile $zip -UseBasicParsing
+        $downloaded = $true
+      } catch {
+        $errors += "${name}: $($_.Exception.Message)"
+        # 404 means this name is not in the release; do not retry it
+        if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) { break }
+        Start-Sleep -Seconds (2 * $attempt)
+      }
+    }
+    if ($downloaded) { break }
   }
-  if (-not $downloaded) { throw "Download failed: $($assetNames[0]) (check that version $tag has a Windows zip at https://github.com/$repo/releases. The zip exists from v0.1.1 onward)" }
+  # Last resort: download through the GitHub API (a different server from releases/download)
+  if (-not $downloaded) {
+    try {
+      Info 'Downloading through the GitHub API'
+      $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/$tag" -UseBasicParsing
+      $asset = $null
+      foreach ($name in $assetNames) {
+        if (-not $asset) { $asset = $release.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1 }
+      }
+      if (-not $asset) { throw "the release has none of: $($assetNames -join ', ')" }
+      Info "Downloading: $($asset.name)"
+      Invoke-WebRequest -Uri $asset.url -Headers @{ Accept = 'application/octet-stream' } -OutFile $zip -UseBasicParsing
+      $downloaded = $true
+    } catch {
+      $errors += "GitHub API: $($_.Exception.Message)"
+    }
+  }
+  if (-not $downloaded) {
+    $detail = ($errors | Select-Object -Last 4) -join '; '
+    throw "Download failed: $($assetNames[0]) ($detail). Check that version $tag has a Windows zip at https://github.com/$repo/releases (the zip exists from v0.1.1 onward), or try again later"
+  }
   Unblock-File -Path $zip
 
   Info 'Extracting...'

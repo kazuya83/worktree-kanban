@@ -71,6 +71,9 @@ test('同じ版なら latest、ファイルがまだなければ preparing、通
   assert.strictEqual(same.state, 'latest');
   const prep = await mk(fakeFetch((u) => (u.endsWith('/latest') ? { status: 200, url: 'https://github.com/kazuya83/worktree-kanban/releases/tag/v0.1.9' } : { status: 404 }))).check();
   assert.strictEqual(prep.state, 'preparing');
+  // ファイルの URL が 504 などを返すのは GitHub 側の一時的な不調なので、準備中にはしない
+  const flaky = await mk(fakeFetch((u) => (u.endsWith('/latest') ? { status: 200, url: 'https://github.com/kazuya83/worktree-kanban/releases/tag/v0.1.9' } : { status: 504 }))).check();
+  assert.strictEqual(flaky.state, 'available');
   const err = await mk(fakeFetch(() => new Error('offline'))).check();
   assert.strictEqual(err.state, 'error');
   assert.match(err.error, /offline/);
