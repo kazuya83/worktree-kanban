@@ -54,7 +54,9 @@
       return { mood: 'think', tool: null };
     }
     if (status === 'queued') return { mood: 'queued', tool: null };
-    if (status === 'review' || status === 'done') return { mood: 'done', tool: null };
+    // レビューはゴールではなく、あなたの確認待ち
+    if (status === 'review') return { mood: 'wait', tool: 'review' };
+    if (status === 'done') return { mood: 'done', tool: null };
     if (status === 'failed') return { mood: 'fail', tool: null };
     return { mood: 'idle', tool: null };
   }
@@ -97,6 +99,7 @@
     tool: ['.#.#.', '#####', '.#.#.', '#####', '.#.#.'],
     ask: ['.###.', '#...#', '...#.', '.....', '..#..'],
     perm: ['..#..', '..#..', '..#..', '.....', '..#..'],
+    review: ['.##..', '#..#.', '#..#.', '.###.', '...##'],
     done: ['..#..', '.###.', '#####', '.###.', '.#.#.'],
     fail: ['#...#', '.#.#.', '..#..', '.#.#.', '#...#'],
     queued: ['#####', '.###.', '..#..', '.###.', '#####'],
@@ -108,7 +111,7 @@
     });
   }
   function iconColor(name, th) {
-    if (name === 'perm' || name === 'ask' || name === 'queued') return th.warn;
+    if (name === 'perm' || name === 'ask' || name === 'review' || name === 'queued') return th.warn;
     if (name === 'done') return th.ok;
     if (name === 'fail') return th.err;
     if (name === 'edit') return th.ok;
@@ -410,9 +413,12 @@
       ctx.fillRect(gx + 2 + i * 4, groundY - 34 + j * 4, 4, 4);
     }
     // ロボットの行き先: 今の TODO の旗の手前（終わったらゴール、TODO がなければ道の途中）
-    const allDone = mood === 'done' || (n > 0 && p.done === n);
+    // レビュー（あなたの確認待ち）では、ゴールの手前で待つ
+    const reviewing = mood === 'wait' && info.tool === 'review';
+    const allDone = !reviewing && (mood === 'done' || (n > 0 && p.done === n));
     let target;
-    if (allDone) target = gx - 12 * u;
+    if (reviewing) target = gx - 22 * u;
+    else if (allDone) target = gx - 12 * u;
     else if (n) target = at(Math.min(p.cur, n - 1)) - 10 * u;
     else target = mood === 'idle' ? xs - 10 : xs + span * 0.45;
     target = Math.max(4, target);
