@@ -4,7 +4,10 @@ name: Download stats
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    # GitHub drops many scheduled runs, especially at minute 0 (busiest time).
+    # Run 4 times an hour at off-peak minutes; the script records only the first
+    # successful run of each hour, so main still gets at most one commit per hour.
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -30,6 +33,7 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: node scripts/update-download-stats.mjs
 
       - name: Commit and push if changed
@@ -40,5 +44,12 @@ jobs:
           else
             git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
               commit -m "chore: update download stats snapshot"
-            git push
+            # main may have moved while this ran; rebase onto it and retry.
+            for i in 1 2 3 4 5; do
+              if git push origin HEAD:main; then exit 0; fi
+              sleep $((i * 5))
+              git pull --rebase origin main
+            done
+            echo "push failed after retries" >&2
+            exit 1
           fi
