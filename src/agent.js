@@ -5139,7 +5139,7 @@ class AgentManager extends EventEmitter {
    */
   complete(id) {
     const c = this.must(id);
-    if (!isNoGit(c)) throw new Error(this.prText(c, tr('git のリポジトリのタスクは、マージか PR の作成で完了にしてください')));
+    if (!isNoGit(c)) return this.completeWithoutMerge(c);
     if (!['review', 'failed'].includes(c.status)) throw new Error(tr('レビュー中のタスクだけ完了にできます'));
     c.status = 'done';
     c.error = null;
@@ -5150,6 +5150,62 @@ class AgentManager extends EventEmitter {
     this.completed(c);
     this.changed(c);
     this.checkCompetitionDone(c);
+  }
+
+  /**
+   * git のリポジトリのタスクを、マージや PR を作らずに「完了」にする。
+   * ベースからの差分（コミット済み・未コミット・未追跡）がなければ、worktree とブランチを片付けて完了にする。
+   * 差分があれば、マージはせずに worktree とブランチを残して完了にする（「レビュー」の列へ戻せば続けられる）
+   * @returns {Promise<{cleaned: boolean}>}
+   */
+  async completeWithoutMerge(c) {
+    this.assertNotRewinding(c);
+    if (isChat(c)) throw new Error(tr('会話は完了にできません'));
+    const check = () => {
+      if (!['review', 'failed'].includes(c.status)) throw new Error(tr('レビュー中のタスクだけ完了にできます'));
+      if (c.afterDone) throw new Error(tr('完了したタスクについて話しているあいだは動かせません'));
+      if (this.subtaskParentOf(c)) throw new Error(tr('サブタスクの状態は、親のタスクの「サブタスク」タブで変えてください'));
+      if (c.subtasks && (c.subtasks.phase === 'run' || c.subtasks.phase === 'plan')) throw new Error(tr('サブタスクが残っています。サブタスクタブでサブタスクをすべて完了にしてから動かしてください'));
+      if (c.conflict) throw new Error(tr('コンフリクトを解消するか、取り込みを中止してから完了にしてください'));
+      if (c.relay && c.relay.waiting) throw new Error(tr('Pipelineの並列の枝が終わるのを待っています'));
+      if (this.merging?.has(c.id)) throw new Error(tr('マージ中です'));
+    };
+    check();
+    const wt = c.worktreePath && fs.existsSync(c.worktreePath) ? c.worktreePath : null;
+    let changed = false;
+    if (wt) {
+      // 差分が取れないとき（ベースのコミットが無いなど）は、変更があるものとして worktree を残す
+      const d = c.baseCommit ? await git.diff(wt, c.baseCommit).catch(() => null) : null;
+      changed = d === null || d.trim().length > 0;
+    }
+    check(); // 差分を見ているあいだに、追加の指示などで状態が変わっていないか
+    const cleaned = !!wt && !changed;
+    if (cleaned) {
+      await this.removeWorktreeOf(c, c.repoPath);
+      await git.deleteBranch(c.repoPath, c.branch);
+      c.worktreePath = null;
+      c.finalDiff = '';
+    }
+    c.status = 'done';
+    c.manualDone = true;
+    c.error = null;
+    c.interrupted = null;
+    c.awaitingReply = false;
+    c.subtaskProposal = null;
+    c.completedAt = Date.now();
+    this.log(
+      c,
+      'system',
+      cleaned
+        ? tr('変更がなかったので、worktree とブランチ {branch} を片付けて完了にしました', { branch: c.branch })
+        : wt
+          ? tr('完了にしました（マージはしていません。worktree とブランチ {branch} は残しています。続けるときは「レビュー」の列へ戻します）', { branch: c.branch })
+          : tr('タスクを完了にしました'),
+    );
+    this.completed(c);
+    this.changed(c);
+    this.checkCompetitionDone(c);
+    return { cleaned };
   }
 
   // 完了したタスク（完了後の会話の途中も含む）は削除できない。会話（chat）は対象外

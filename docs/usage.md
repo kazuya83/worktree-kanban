@@ -39,6 +39,8 @@ You can change a card's column (state) by drag and drop on the board. This chang
 - Done → Review: brings back a task you marked done (a task whose worktree was cleaned up by a merge or PR cannot be brought back; use "Create a fix task" instead)
 - Running tasks, conversations, and parent tasks with subtasks remaining cannot be moved. Merges and PR merges mark tasks done as before
 
+The "Mark done" button at the top of the detail panel also marks a task done without merging or opening a PR (for example, when a task meant to change the source turned out not to need any change). If the worktree has no changes (committed, uncommitted, or untracked), the worktree and branch are cleaned up; if it has changes, they are kept, the same as dragging.
+
 ## Approve on the card
 A card waiting for approval glows yellow. Check the command it is about to run and press "Allow / Deny / Always allow" right there.
 
