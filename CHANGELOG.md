@@ -17,6 +17,7 @@ Each release that changes the app raises the last number of the version. There i
 - A guide for moving from Conductor, with the steps to export Conductor Cloud data first (English and Japanese).
 - Branch per sprint (project setting, off by default): when on, each sprint gets a branch (`sprint/<name>-<ID>`) created from the base branch when its first task starts. Tasks in the sprint start from that branch and merge (or open PRs) into it. A task in several sprints uses the sprint you choose in its "Sprint" dialog; if none is chosen, it starts from the base branch. The sprint shows its branch with "Merge into base" and "Create PR" buttons; completing a sprint does not merge anything by itself.
 - Headless mode (`--headless`): keeps the scheduler, Issue watching, Slack, the remote control host, and the mobile page running without a window, including on a Linux server with no display. Approvals and questions wait until answered and are posted to Slack. Tokens can come from environment variables or a token file readable only by you (`chmod 600`). The desktop app and headless mode refuse to run at the same time on one machine. A Linux `tar.gz` with a `worktree-kanban-headless` launcher is added to the release files. See [docs/headless.md](docs/headless.md).
+- Terminal panel: the tabs at the bottom can be dragged to change their order. The order is kept after reloading the window.
 
 ### Security
 
