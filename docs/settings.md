@@ -9,7 +9,7 @@ The list of sections is on the left, and all sections run down the right side. P
 | Group | Sections |
 | --- | --- |
 | (no heading) | [General](#general), [App updates](#app-updates), [Integrations](#integrations) |
-| This project | [Branches and landing](#branches-and-landing), [Issue sync](#issue-sync), [Permissions](#permissions), [Task defaults](#task-defaults) |
+| This project | [Branches and landing](#branches-and-landing), [Issue sync](#issue-sync), [Permissions](#permissions), [Task defaults](#task-defaults), [Share with team](#share-with-team) |
 | Agent | [Agents to use](#agents-to-use), [Custom agents](#custom-agents), [Orchestration](#orchestration) |
 
 ## How saving works
@@ -47,6 +47,8 @@ Enter the address and token for GitLab, Linear, Jira, and Slack. These are the s
 | Base branch | Where worktrees are created from. It is also the default merge target. If empty, the checked-out branch is used |
 | How to land after review | **Create a PR** (default; **Create an MR** in a connected GitLab repository) or **Merge directly**. Repositories with no origin or not on GitHub or a connected GitLab, and folders not managed by git, start with "Merge directly" |
 | Branch naming rule | The agent comes up with branch names that follow a rule written in plain language |
+| Setup, teardown, and run scripts | Scripts run right after a worktree is created, just before it is removed, and from the button in the detail panel ([Usage](usage.md)) |
+| First port to search for tasks, Ports assigned to each task | The development server ports given to each task. By default, 10 at a time from 20000 |
 
 "After merging, push to origin", chosen in the merge dialog, is also remembered per project.
 
@@ -74,6 +76,29 @@ See [usage.md](usage.md#update-issue-status-automatically) and [integrations.md]
 | Skill selected by default on a new task | The skill already selected when you open "+ New task" (for both plain language and Issues) |
 | Pin down the spec | If a new task is not specific enough, the agent asks questions to pin down the spec before development starts (on by default) |
 | When a subtask finishes | The default for whether to merge into the parent branch automatically or after you check it. Each task can change this before it starts |
+
+## Share with team
+
+Put this project's settings (scripts, ports, base branch, how to land, permissions, Pipelines, custom agents, competitions, and more) in `.worktree-kanban/settings.json` in the repository and commit it, and your teammates' PCs get the same settings.
+
+- **"Save to repository file"** writes this project's saved settings to the file. Commit and push it yourself. Secrets such as tokens are not written
+- The file is read again when you open the repository, switch tabs, or come back to the app window (after a `git pull`, for example)
+- Items in the file use the file's value. Only items you change in Settings on this PC become **"Overridden on this PC"** and use this PC's value. **"Use the file's value"** goes back to the file's value
+- The file can list only the items you want. Unknown items and values of the wrong type are not used. If the file cannot be read, the values read last time are kept
+- Setup, teardown, and run scripts from the file ask for confirmation the first time they run and whenever their contents change (headless mode cannot ask, so allow them with **"Allow the current contents"** in Settings over remote control). If a setup script is not allowed, the agent does not start
+
+```json
+{
+  "version": 1,
+  "settings": {
+    "setupScript": "npm ci",
+    "runScript": "npm run dev -- --port \"$WORKTREE_KANBAN_PORT\"",
+    "portStart": 40000,
+    "portCount": 4,
+    "integration": "pr"
+  }
+}
+```
 
 ## Agents to use
 

@@ -64,6 +64,7 @@ const wsl = require('./src/wsl');
 const { fixPath, resolveCommand } = require('./src/env');
 const providers = require('./src/providers');
 const { cleanScript } = require('./src/worktree-scripts');
+const SharedSettings = require('./src/shared-settings');
 const { RemoteHost, RemoteClient, Reconnector, DEFAULT_PORT, isProxyChannel, isLocalChannel, routeSide, stripRouting, stripLocalSettings, droppedSettingKeys, droppedSettingsMessage, composeTabs, VIEW_CHANNELS, connectionKey, upsertConnectionHistory, removeConnectionHistory, findConnectionHistory, publicConnectionHistory, restoreLocalLanguage, terminalSide } = require('./src/remote');
 const { SshTunnel, isLoopbackHost, sshHostInfo } = require('./src/ssh-tunnel');
 const sshKey = require('./src/ssh-key');
@@ -276,6 +277,44 @@ function withRemoteSession(state) {
 }
 
 let boardTimer = null;
+// リポジトリの共有ファイル（.worktree-kanban/settings.json）を読み直して、ファイルの値をそのプロジェクトの設定に当てる
+function refreshShared(dir) {
+  const d = String(dir || '').trim();
+  if (!d || !store) return { exists: false, values: {}, ignored: [], error: '', file: '' };
+  const shared = SharedSettings.readShared(d, require('./src/store').SHARED_SPEC);
+  const prevInfo = JSON.stringify(store.sharedInfo(d));
+  const changed = store.applyShared(d, shared);
+  if (changed && d === store.settings.repoPath) store.settings.defaultAgent = providers.defaultTaskRefOf(store.settings);
+  if (changed || JSON.stringify(store.sharedInfo(d)) !== prevInfo) store.save();
+  if (changed) {
+    notifyBoard();
+    agents?.pump();
+  }
+  return shared;
+}
+
+const SCRIPT_KIND_LABELS = { setup: 'セットアップスクリプト', teardown: '片付けスクリプト', run: '実行スクリプト' };
+
+// 共有ファイルのスクリプトを動かしてよいか、このマシンの画面で聞く（常駐モードは聞く相手がいないので動かさない。設定画面から許可できる）
+async function confirmSharedScript({ repoPath, kind, script }) {
+  const name = tr(SCRIPT_KIND_LABELS[kind] || 'スクリプト');
+  if (HEADLESS || !win || win.isDestroyed()) {
+    if (HEADLESS) headlessLib.log(`${repoPath}: ${SharedSettings.SHARED_REL} の${SCRIPT_KIND_LABELS[kind] || 'スクリプト'}をまだ許可していないので動かしません（設定の「チームで共有」で許可できます）`);
+    return false;
+  }
+  const body = String(script || '');
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: [tr('動かす'), tr('動かさない')],
+    defaultId: 1,
+    cancelId: 1,
+    title: tr('リポジトリで共有しているスクリプト'),
+    message: tr('リポジトリの {file} にある{name}を動かしますか？', { file: SharedSettings.SHARED_REL, name }),
+    detail: tr('{repo}\n\nリポジトリに入っている設定なので、初めて動かすときと中身が変わったときに確かめます。中身を見て、信用できるときだけ動かしてください。\n\n{script}', { repo: repoPath, script: body.length > 3000 ? `${body.slice(0, 3000)}\n…` : body }),
+  });
+  return response === 0;
+}
+
 function notifyBoard() {
   if (boardTimer) return;
   boardTimer = setTimeout(() => {
@@ -726,6 +765,7 @@ app.whenReady().then(async () => {
     nodeBin: process.execPath, // ELECTRON_RUN_AS_NODE=1 で Node として動かす
     claudeConfigFor, // 会話を消すときの Claude Code の設定フォルダ（WSL のリポジトリなら WSL の中）
     trackers,
+    confirmScript: confirmSharedScript, // リポジトリで共有しているスクリプトを、初めて動かす・中身が変わったときに確かめる
   });
 
   permServer = new PermissionServer((payload, signal) => agents.requestPermission(payload, signal));
@@ -1128,6 +1168,7 @@ app.whenReady().then(async () => {
     const s = store.settings;
     switchRepoSettings(s, dir);
     s.repoTabs = tabs;
+    refreshShared(dir);
   };
   // 初めて開いたプロジェクトは初期値から始める。取り込み方は PR を作成。ただし origin が GitHub でも GitLab でもない・git なしなら直接マージ。
   // 使う課題管理サービスは origin から推定する（分からなければ GitHub のまま）
@@ -1138,6 +1179,8 @@ app.whenReady().then(async () => {
     const issueProvider = url ? trackers.guessFromRemote(url.trim()) : 'github';
     const canReview = gh || (!!url && !!trackers.codeHostOf(url.trim()));
     const patch = { ...(canReview ? {} : { integration: 'merge' }), ...(issueProvider === 'github' ? {} : { issueProvider }) };
+    // リポジトリの共有ファイルで決めている項目は、推定で変えない
+    for (const k of store.sharedInfo(dir).keys) delete patch[k];
     if (!Object.keys(patch).length) return;
     store.setRepoSettings(dir, patch);
     store.save();
@@ -1155,6 +1198,55 @@ app.whenReady().then(async () => {
   };
   trackers.on('changed', () => refreshCodeHost(store.settings.repoPath).catch(() => {}));
   refreshCodeHost(store.settings.repoPath).catch(() => {});
+  refreshShared(store.settings.repoPath);
+  // git pull などでファイルが変わったときのために、画面に戻ってきたら読み直す
+  app.on('browser-window-focus', () => refreshShared(store.settings.repoPath));
+  // リポジトリで共有する設定（.worktree-kanban/settings.json）。画面の「チームで共有」で使う
+  const sharedStatus = (dir) => {
+    const d = String(dir || store.settings.repoPath || '').trim();
+    if (!d) return { repoPath: '', file: SharedSettings.SHARED_REL, exists: false, keys: [], overrides: [], ignored: [], error: '', scripts: [] };
+    const shared = refreshShared(d);
+    const info = store.sharedInfo(d);
+    const rs = store.repoSettings(d);
+    const scripts = Object.entries(SharedSettings.SCRIPT_KEYS)
+      .filter(([kind]) => store.isSharedScript(d, kind) && cleanScript(rs[SharedSettings.SCRIPT_KEYS[kind]]))
+      .map(([kind, key]) => ({ kind, approved: store.isScriptApproved(d, kind, cleanScript(rs[key])) }));
+    return { repoPath: d, file: SharedSettings.SHARED_REL, exists: shared.exists, error: shared.error, ignored: shared.ignored, keys: info.keys, overrides: info.overrides, scripts };
+  };
+  handle('shared:status', () => sharedStatus());
+  // 今のプロジェクトの設定を、リポジトリのファイルに書き出す（コミットはユーザーがする）
+  handle('shared:save', () => {
+    const d = store.settings.repoPath;
+    if (!d) throw new Error(tr('リポジトリを開いていません'));
+    SharedSettings.writeShared(d, store.repoSettings(d), require('./src/store').SHARED_KEYS);
+    // 書き出した値はこの PC の値なので、上書きはもういらない。書いたスクリプトは自分で書いたものなので許可しておく
+    store.clearSharedOverrides(d);
+    refreshShared(d);
+    const rs = store.repoSettings(d);
+    for (const [kind, key] of Object.entries(SharedSettings.SCRIPT_KEYS)) if (cleanScript(rs[key])) store.approveScript(d, kind, cleanScript(rs[key]));
+    store.save();
+    notifyBoard();
+    return sharedStatus(d);
+  });
+  // この PC の上書きをやめて、ファイルの値に戻す（keys を省くとすべて）
+  handle('shared:revert', ({ keys } = {}) => {
+    const d = store.settings.repoPath;
+    if (!d) throw new Error(tr('リポジトリを開いていません'));
+    store.clearSharedOverrides(d, Array.isArray(keys) ? keys.map(String) : undefined);
+    refreshShared(d);
+    store.save();
+    notifyBoard();
+    return sharedStatus(d);
+  });
+  // ファイルのスクリプトを許可する（今の中身。変わったら、また確かめる）
+  handle('shared:approveScripts', () => {
+    const d = store.settings.repoPath;
+    if (!d) throw new Error(tr('リポジトリを開いていません'));
+    const rs = store.repoSettings(d);
+    for (const [kind, key] of Object.entries(SharedSettings.SCRIPT_KEYS)) if (store.isSharedScript(d, kind) && cleanScript(rs[key])) store.approveScript(d, kind, cleanScript(rs[key]));
+    store.save();
+    return sharedStatus(d);
+  });
   const openRepo = (dir, { tab } = {}) => {
     const s = store.settings;
     const fresh = !!dir && !hasRepoSettings(s, dir);
@@ -1242,9 +1334,11 @@ app.whenReady().then(async () => {
     return { branches, current, hasOrigin };
   });
   handle('settings:update', (patch) => {
-    const allowed = ['baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'reviewAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
+    const allowed = ['portStart', 'portCount', 'baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'reviewAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
     if (patch && 'branchNamingRule' in patch) patch = { ...patch, branchNamingRule: String(patch.branchNamingRule || '').trim() };
     for (const k of ['setupScript', 'teardownScript', 'runScript']) if (patch && k in patch) patch = { ...patch, [k]: cleanScript(patch[k]) };
+    if (patch && 'portCount' in patch) patch = { ...patch, portCount: require('./src/store').cleanPortCount(patch.portCount) };
+    if (patch && 'portStart' in patch) patch = { ...patch, portStart: require('./src/store').cleanPortStart(patch.portStart, 'portCount' in patch ? patch.portCount : store.settings.portCount) };
     if (patch && 'integration' in patch && !['merge', 'pr'].includes(patch.integration)) patch = { ...patch, integration: 'merge' };
     if (patch && 'suggestSkillsOnDone' in patch) patch = { ...patch, suggestSkillsOnDone: !!patch.suggestSkillsOnDone };
     if (patch && 'deleteSessionsOnMerge' in patch) patch = { ...patch, deleteSessionsOnMerge: !!patch.deleteSessionsOnMerge };
@@ -1291,10 +1385,13 @@ app.whenReady().then(async () => {
       const str = (v) => String(v || '').trim();
       patch = { ...patch, statusMapping: { inProgress: str(m.inProgress), inReview: str(m.inReview), done: str(m.done) } };
     }
+    const before = store.repoSettings(store.settings.repoPath);
     for (const k of allowed) if (patch && k in patch) store.settings[k] = patch[k];
     // 最初から選んでおくものは、使うエージェントとこのプロジェクトのカスタムエージェント・Pipeline・競争の中から（消えた・使わない設定にしたら、使うものの先頭にする）
     store.settings.defaultAgent = providers.defaultTaskRefOf(store.settings);
     store.settings.maxParallel = Math.min(10, Math.max(1, parseInt(store.settings.maxParallel, 10) || 1));
+    // リポジトリの共有ファイルの値から変えた項目は、この PC の上書きにする
+    if (store.settings.repoPath) store.noteSharedOverrides(store.settings.repoPath, before, store.repoSettings(store.settings.repoPath));
     store.save();
     agents.pump();
     notifyBoard();
@@ -1465,7 +1562,7 @@ app.whenReady().then(async () => {
   handle('card:merge', async ({ id, target, createNew, keep, push }) => {
     // push するかどうかはプロジェクトごとに覚えておき、次のマージでも同じにする
     const card = store.card(id);
-    store.setRepoSettings((card && card.repoPath) || store.settings.repoPath, { pushAfterMerge: !!push });
+    store.setRepoSettingsByUser((card && card.repoPath) || store.settings.repoPath, { pushAfterMerge: !!push });
     store.save();
     return agents.merge(id, { target, createNew, keep, push });
   });

@@ -6,6 +6,7 @@ const FlowModel = require('../renderer/flow-model');
 const { cleanSchedules } = require('../renderer/schedule-model');
 const { cleanCycles, cleanCycleView } = require('../renderer/cycle-model');
 const I18n = require('../renderer/i18n');
+const Shared = require('./shared-settings');
 const { tr } = I18n;
 
 // Pipelineのフローチャート（プロジェクトごと）の初期値: 前と同じ「実装 → レビュー」
@@ -224,6 +225,7 @@ const DEFAULT_SETTINGS = {
   repoPath: '',
   repoTabs: [], // 画面上部のタブで開いているリポジトリ（左から順。今のリポジトリも含む・MAX_REPO_TABS まで）
   repoSettings: {}, // プロジェクト（リポジトリ）ごとの設定（REPO_SETTING_KEYS）。今のリポジトリの分は、下の同じ名前の項目にも入れて使う
+  sharedRepos: {}, // リポジトリの .worktree-kanban/settings.json の様子 { [リポジトリ]: { keys: ファイルにある項目, overrides: この PC で上書きした項目, approved: { setup|teardown|run: 許可したスクリプトの SHA-256 } } }
   lastRepoParent: '', // クローン・新規作成で最後に使った置き場所（親フォルダ）
   recentRepoPaths: [], // 最近開いたリポジトリ（新しいものが先頭）
   noGitRepos: [], // git で管理していないフォルダとして開いたもの（worktree を作らず、そのフォルダでタスクを動かす）
@@ -238,6 +240,8 @@ const DEFAULT_SETTINGS = {
   setupScript: '', // worktree を作った直後、エージェントの開始前に動かすスクリプト
   teardownScript: '', // worktree を消す直前に動かすスクリプト
   runScript: '', // タスク詳細の「実行」ボタンで動かすスクリプト（開発サーバーなど）
+  portStart: 20000, // タスクごとに分ける開発サーバーのポートを探し始める番号（プロジェクトごと）
+  portCount: 10, // 1つのタスクに割り当てるポートの数（フロントと API など、複数のサーバーを動かせるように）
   integration: 'pr', // レビュー後の取り込み方: merge（ローカルで直接マージ） / pr（push してプルリクエストを作る）
   issueProvider: 'github', // このプロジェクトで使う課題管理サービス（src/trackers に登録したプロバイダの ID）
   trackerConfigs: {}, // 連携するサービスの設定（アプリ全体。プロバイダの ID ごと）。トークンは入れない（src/secrets.js に保存する）
@@ -341,7 +345,7 @@ const MAX_NOTIFICATIONS = 200;
 
 // ---------- プロジェクト（リポジトリ）ごとの設定 ----------
 // リポジトリに関わる設定だけをプロジェクトごとに持つ。コマンドのパス・モデル・同時に動かす数・自動更新などはアプリ全体で1つ
-const REPO_SETTING_KEYS = ['baseBranch', 'integration', 'branchNamingRule', 'issueProvider', 'issueComments', 'codeHost', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'permissionMode', 'allowedTools', 'defaultSkill', 'specCheck', 'ciAutoFix', 'reviewAutoFix', 'subtaskMerge', 'sprintBranch', 'pushAfterMerge', 'relayFlow', 'relayFlows', 'relayFlowId', 'customAgents', 'competeCustomAgents', 'competes', 'defaultAgent', 'setupScript', 'teardownScript', 'runScript'];
+const REPO_SETTING_KEYS = ['baseBranch', 'integration', 'branchNamingRule', 'issueProvider', 'issueComments', 'codeHost', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'permissionMode', 'allowedTools', 'defaultSkill', 'specCheck', 'ciAutoFix', 'reviewAutoFix', 'subtaskMerge', 'sprintBranch', 'pushAfterMerge', 'relayFlow', 'relayFlows', 'relayFlowId', 'customAgents', 'competeCustomAgents', 'competes', 'defaultAgent', 'setupScript', 'teardownScript', 'runScript', 'portStart', 'portCount'];
 const MAX_REPO_SETTINGS = 200;
 
 // 初めて開いたプロジェクトの設定（初期値。取り込み方は PR を作成。GitHub でないリポジトリは開いたときに直接マージにする）
@@ -368,6 +372,8 @@ function pickRepoSettings(src) {
   if (!['merge', 'pr'].includes(out.integration)) out.integration = DEFAULT_SETTINGS.integration;
   if (!['auto', 'review'].includes(out.subtaskMerge)) out.subtaskMerge = 'auto';
   out.sprintBranch = out.sprintBranch === true;
+  out.portCount = cleanPortCount(out.portCount);
+  out.portStart = cleanPortStart(out.portStart, out.portCount);
   out.issueProvider = String(out.issueProvider || '') || DEFAULT_SETTINGS.issueProvider;
   // 既定の Pipeline のフローは relayFlow を正とする（前の版の設定・relayFlow を直接変えたときも、一覧の既定の分に入る）
   Object.assign(out, cleanRelayFlows(out.relayFlows, out.relayFlowId, src.relayFlow !== undefined ? src.relayFlow : undefined));
@@ -379,6 +385,21 @@ function pickRepoSettings(src) {
   const known = isAgent(ref) || isCustomRef(ref) || (typeof ref === 'string' && ref.startsWith('relay:') && out.relayFlows.some((p) => 'relay:' + p.id === ref)) || (typeof ref === 'string' && ref.startsWith('compete:') && out.competes.some((x) => 'compete:' + x.id === ref));
   if (!known) out.defaultAgent = DEFAULT_SETTINGS.defaultAgent;
   return out;
+}
+
+const MAX_PORT_COUNT = 100;
+
+// 1つのタスクに割り当てるポートの数（1〜100）
+function cleanPortCount(v) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? Math.min(MAX_PORT_COUNT, Math.max(1, n)) : DEFAULT_SETTINGS.portCount;
+}
+
+// ポートを探し始める番号（1024〜。最後の組が 65535 を越えないように）
+function cleanPortStart(v, count = DEFAULT_SETTINGS.portCount) {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n)) return DEFAULT_SETTINGS.portStart;
+  return Math.min(65536 - cleanPortCount(count), Math.max(1024, n));
 }
 
 // 競争に加えるカスタムエージェントの ID（あるものだけ・重なりなし）
@@ -446,6 +467,128 @@ function setRepoSettings(settings, dir, patch) {
   for (const k of keys) cur[k] = patch[k];
   map[d] = pickRepoSettings(cur);
   settings.repoSettings = map;
+}
+
+// ---------- リポジトリで共有する設定（.worktree-kanban/settings.json） ----------
+
+const SHARED_KEYS = Shared.sharedKeys(REPO_SETTING_KEYS);
+const SHARED_SPEC = { keys: SHARED_KEYS, defaults: DEFAULT_SETTINGS };
+const SCRIPT_KINDS_SHARED = Object.keys(Shared.SCRIPT_KEYS);
+
+function cleanSharedInfo(v) {
+  const o = v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  const list = (x) => [...new Set((Array.isArray(x) ? x : []).filter((k) => SHARED_KEYS.includes(k)))];
+  const approved = {};
+  const a = o.approved && typeof o.approved === 'object' && !Array.isArray(o.approved) ? o.approved : {};
+  for (const kind of SCRIPT_KINDS_SHARED) if (typeof a[kind] === 'string' && /^[0-9a-f]{64}$/.test(a[kind])) approved[kind] = a[kind];
+  const keys = list(o.keys);
+  // 上書きは、ファイルにある項目だけ
+  return { keys, overrides: list(o.overrides).filter((k) => keys.includes(k)), approved };
+}
+
+function cleanSharedRepos(map) {
+  const out = {};
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return out;
+  for (const [p, v] of Object.entries(map).slice(-MAX_REPO_SETTINGS)) if (String(p || '').trim()) out[p] = cleanSharedInfo(v);
+  return out;
+}
+
+function sharedInfoOf(settings, dir) {
+  const d = String(dir || '').trim();
+  return cleanSharedInfo(d && settings && settings.sharedRepos ? settings.sharedRepos[d] : null);
+}
+
+function putSharedInfo(settings, dir, info) {
+  const map = settings.sharedRepos && typeof settings.sharedRepos === 'object' && !Array.isArray(settings.sharedRepos) ? { ...settings.sharedRepos } : {};
+  map[dir] = cleanSharedInfo(info);
+  settings.sharedRepos = map;
+}
+
+// ファイルの値を使っている（ファイルにあって、この PC で上書きしていない）項目
+function sharedActiveKeys(settings, dir) {
+  const info = sharedInfoOf(settings, dir);
+  return info.keys.filter((k) => !info.overrides.includes(k));
+}
+
+/**
+ * 共有ファイルの値を、そのリポジトリの設定に当てる（ファイルにあって、上書きしていない項目だけ）
+ * @param {object} settings
+ * @param {string} dir
+ * @param {{ exists: boolean, values: object, error?: string }} shared readShared の結果
+ * @returns {boolean} 設定が変わったか
+ */
+function applySharedSettings(settings, dir, shared) {
+  const d = String(dir || '').trim();
+  if (!settings || !d) return false;
+  const prev = sharedInfoOf(settings, d);
+  // 読めなかったときは、前に読んだ分のまま（壊れたファイルで設定を消さない）
+  if (shared && shared.error) return false;
+  const values = (shared && shared.exists && shared.values) || {};
+  const keys = SHARED_KEYS.filter((k) => values[k] !== undefined);
+  const info = { ...prev, keys, overrides: prev.overrides.filter((k) => keys.includes(k)) };
+  if (!keys.length && !Object.keys(prev.approved).length) {
+    const had = settings.sharedRepos && Object.prototype.hasOwnProperty.call(settings.sharedRepos, d);
+    if (had) {
+      const map = { ...settings.sharedRepos };
+      delete map[d];
+      settings.sharedRepos = map;
+    }
+  } else putSharedInfo(settings, d, info);
+  const before = repoSettingsOf(settings, d);
+  const merged = { ...before };
+  const use = keys.filter((k) => !info.overrides.includes(k));
+  for (const k of use) merged[k] = values[k];
+  // Pipeline の一覧だけを書いたファイル: 一覧の既定のフローを使う（手元の relayFlow で上書きしない）
+  if (use.some((k) => k === 'relayFlows' || k === 'relayFlowId') && !use.includes('relayFlow')) delete merged.relayFlow;
+  const next = pickRepoSettings(merged);
+  const changed = JSON.stringify(next) !== JSON.stringify(before);
+  if (!changed) return false;
+  const map = settings.repoSettings && typeof settings.repoSettings === 'object' && !Array.isArray(settings.repoSettings) ? { ...settings.repoSettings } : {};
+  map[d] = next;
+  settings.repoSettings = map;
+  if (d === settings.repoPath) Object.assign(settings, next);
+  return true;
+}
+
+/**
+ * 画面で変えた項目のうち、ファイルの値から変わったものを「この PC で上書き」にする
+ * @returns {string[]} 新しく上書きにした項目
+ */
+function noteSharedOverrides(settings, dir, before, after) {
+  const d = String(dir || '').trim();
+  if (!settings || !d) return [];
+  const info = sharedInfoOf(settings, d);
+  const changed = info.keys.filter((k) => !info.overrides.includes(k) && JSON.stringify(before[k]) !== JSON.stringify(after[k]));
+  if (!changed.length) return [];
+  const added = Shared.expandKeys(changed).filter((k) => info.keys.includes(k) && !info.overrides.includes(k));
+  putSharedInfo(settings, d, { ...info, overrides: [...info.overrides, ...added] });
+  return added;
+}
+
+// 上書きをやめる（keys を省くとすべて）。値は、次に applySharedSettings したときにファイルの値に戻る
+function clearSharedOverrides(settings, dir, keys) {
+  const d = String(dir || '').trim();
+  const info = sharedInfoOf(settings, d);
+  if (!d || !info.overrides.length) return;
+  const drop = Array.isArray(keys) ? Shared.expandKeys(keys) : info.overrides;
+  putSharedInfo(settings, d, { ...info, overrides: info.overrides.filter((k) => !drop.includes(k)) });
+}
+
+// そのスクリプトは共有ファイルから来たもの（ファイルにあって、この PC で上書きしていない）か
+function isSharedScript(settings, dir, kind) {
+  const key = Shared.SCRIPT_KEYS[kind];
+  return !!key && sharedActiveKeys(settings, dir).includes(key);
+}
+
+function isScriptApproved(settings, dir, kind, script) {
+  return sharedInfoOf(settings, dir).approved[kind] === Shared.scriptHash(script);
+}
+
+function approveScript(settings, dir, kind, script) {
+  const d = String(dir || '').trim();
+  if (!d || !Shared.SCRIPT_KEYS[kind]) return;
+  const info = sharedInfoOf(settings, d);
+  putSharedInfo(settings, d, { ...info, approved: { ...info.approved, [kind]: Shared.scriptHash(script) } });
 }
 
 // プロジェクトごとの設定がなかったころの設定: 今まで使っていたリポジトリには、今までの値（ベースブランチはリポジトリごとに覚えていた分）を入れておく
@@ -552,6 +695,7 @@ class Store {
       this.data.cycles = cleanCycles(raw.cycles);
       migrateSettings(this.data.settings, raw.settings || {}, this.data.cards);
       this.data.settings.cycleView = cleanCycleView(this.data.settings.cycleView);
+      this.data.settings.sharedRepos = cleanSharedRepos(this.data.settings.sharedRepos);
     } catch {
       /* ファイルが無い、または壊れている。language はコンストラクタで入れた表示言語のまま */
     }
@@ -607,6 +751,42 @@ class Store {
 
   setRepoSettings(dir, patch) {
     setRepoSettings(this.data.settings, dir, patch);
+  }
+
+  // 画面での操作で変える（ファイルの値から変わった項目は、この PC の上書きにする）
+  setRepoSettingsByUser(dir, patch) {
+    const before = this.repoSettings(dir);
+    setRepoSettings(this.data.settings, dir, patch);
+    noteSharedOverrides(this.data.settings, dir, before, this.repoSettings(dir));
+  }
+
+  // ---- リポジトリで共有する設定 ----
+  sharedInfo(dir) {
+    return sharedInfoOf(this.data.settings, dir);
+  }
+
+  applyShared(dir, shared) {
+    return applySharedSettings(this.data.settings, dir, shared);
+  }
+
+  noteSharedOverrides(dir, before, after) {
+    return noteSharedOverrides(this.data.settings, dir, before, after);
+  }
+
+  clearSharedOverrides(dir, keys) {
+    clearSharedOverrides(this.data.settings, dir, keys);
+  }
+
+  isSharedScript(dir, kind) {
+    return isSharedScript(this.data.settings, dir, kind);
+  }
+
+  isScriptApproved(dir, kind, script) {
+    return isScriptApproved(this.data.settings, dir, kind, script);
+  }
+
+  approveScript(dir, kind, script) {
+    approveScript(this.data.settings, dir, kind, script);
   }
 
   get notifications() {
@@ -745,6 +925,20 @@ module.exports = {
   MAX_RELAY_FLOWS,
   DEFAULT_RELAY_FLOW,
   REPO_SETTING_KEYS,
+  SHARED_KEYS,
+  SHARED_SPEC,
+  cleanPortCount,
+  cleanPortStart,
+  MAX_PORT_COUNT,
+  cleanSharedRepos,
+  sharedInfoOf,
+  sharedActiveKeys,
+  applySharedSettings,
+  noteSharedOverrides,
+  clearSharedOverrides,
+  isSharedScript,
+  isScriptApproved,
+  approveScript,
   defaultRepoSettings,
   pickRepoSettings,
   repoSettingsOf,

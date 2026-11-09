@@ -72,3 +72,14 @@
 .tracker-actions { display: flex; gap: 8px; }
 .tracker-guide ol { margin: 6px 0 0; padding-left: 20px; font-size: 12px; }
 .check[hidden] { display: none; }
+
+/* 設定の「チームで共有」（.worktree-kanban/settings.json） */
+.shared-panel { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel-2); display: flex; flex-direction: column; gap: 8px; }
+.shared-state { margin: 0; font-size: 13px; }
+.shared-state.error { color: var(--err); }
+.shared-list { display: flex; flex-direction: column; gap: 6px; }
+.shared-list .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.shared-list .chip { font-size: 11px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+.shared-overrides { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.shared-overrides li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.shared-scripts .btn { align-self: flex-start; }
