@@ -247,12 +247,12 @@ test('メニュー: 閉じているときの Esc とほかのキーには触ら�
 
 // ---- 設定画面の左の一覧 ----
 
-const SECTION_IDS = ['general', 'update', 'integrations', 'cli', 'branch', 'issue', 'permission', 'task', 'share', 'agents', 'custom', 'orchestration'];
+const SECTION_IDS = ['general', 'update', 'integrations', 'cli', 'branch', 'issue', 'permission', 'task', 'share', 'agents', 'custom', 'orchestration', 'about'];
 
 test('SETTINGS_NAV: 節の並びとグループが取り決めどおり', () => {
   assert.deepStrictEqual(SETTINGS_NAV.flatMap((g) => g.items.map((i) => i.id)), SECTION_IDS);
-  assert.deepStrictEqual(SETTINGS_NAV.map((g) => g.heading), [null, 'このプロジェクト', 'エージェント']);
-  assert.deepStrictEqual(SETTINGS_NAV.map((g) => g.items.length), [4, 5, 3]);
+  assert.deepStrictEqual(SETTINGS_NAV.map((g) => g.heading), [null, 'このプロジェクト', 'エージェント', 'このアプリ']);
+  assert.deepStrictEqual(SETTINGS_NAV.map((g) => g.items.length), [4, 5, 3, 1]);
 });
 
 test('SETTINGS_NAV: すべての項目にラベルと、存在するアイコンがある', () => {
@@ -271,7 +271,7 @@ test('settingsNavHtml: 項目ごとのリンクと、見出しのあるグルー
   assert.strictEqual(asked.length, SECTION_IDS.length);
   assert.deepStrictEqual([...html.matchAll(/href="#settings-([a-z]+)" data-section="([a-z]+)"/g)].map((m) => [m[1], m[2]]), SECTION_IDS.map((id) => [id, id]));
   assert.strictEqual(html.match(/class="settings-nav-item"/g).length, SECTION_IDS.length);
-  assert.deepStrictEqual([...html.matchAll(/settings-nav-heading">([^<]*)</g)].map((m) => m[1]), ['このプロジェクト', 'エージェント']);
+  assert.deepStrictEqual([...html.matchAll(/settings-nav-heading">([^<]*)</g)].map((m) => m[1]), ['このプロジェクト', 'エージェント', 'このアプリ']);
   assert.ok(html.indexOf('data-section="update"') < html.indexOf('このプロジェクト'), '見出しはグループの先頭に出す');
   assert.ok(html.includes('<i data-i="pipeline"></i><span>オーケストレーション</span>'));
   assert.doesNotMatch(html, /null|undefined/);

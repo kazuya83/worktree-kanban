@@ -2400,4 +2400,10 @@
   "まだ許可していないスクリプト（初めて動かすときに確かめます。中身を確かめてから許可してください）": {"en": "Scripts not yet allowed (you'll be asked the first time they run; check their contents before allowing them)", "es": "Scripts aún no permitidos (se le preguntará la primera vez que se ejecuten; revise su contenido antes de permitirlos)", "fr": "Scripts pas encore autorisés (une confirmation sera demandée à la première exécution ; vérifiez leur contenu avant de les autoriser)", "zh": "尚未允许的脚本（首次运行时会确认；请先检查内容再允许）"},
   "今の中身で許可する": {"en": "Allow the current contents", "es": "Permitir el contenido actual", "fr": "Autoriser le contenu actuel", "zh": "允许当前内容"},
   "使わなかった項目（知らない名前か、値の形が違います）: {keys}": {"en": "Items not used (unknown name or wrong value type): {keys}", "es": "Elementos no usados (nombre desconocido o tipo de valor incorrecto): {keys}", "fr": "Éléments non utilisés (nom inconnu ou type de valeur incorrect) : {keys}", "zh": "未使用的项目（名称未知或值的类型不对）：{keys}"},
+  "このアプリ": {"en": "This app", "es": "Esta aplicación", "fr": "Cette application", "zh": "本应用"},
+  "このアプリについて": {"en": "About", "es": "Acerca de", "fr": "À propos", "zh": "关于"},
+  "ライセンス（FSL-1.1-ALv2）": {"en": "License (FSL-1.1-ALv2)", "es": "Licencia (FSL-1.1-ALv2)", "fr": "Licence (FSL-1.1-ALv2)", "zh": "许可证（FSL-1.1-ALv2）"},
+  "開発を支援する": {"en": "Support development", "es": "Apoya el desarrollo", "fr": "Soutenir le développement", "zh": "支持开发"},
+  "Worktree Kanban が役に立ったら、寄付で開発を支えてもらえるとうれしいです。ボタンを押すと、ブラウザで寄付のページを開きます。": {"en": "If Worktree Kanban is useful to you, a donation helps keep development going. The buttons open the donation page in your browser.", "es": "Si Worktree Kanban te resulta útil, una donación ayuda a mantener el desarrollo. Los botones abren la página de donación en tu navegador.", "fr": "Si Worktree Kanban vous est utile, un don aide à poursuivre le développement. Les boutons ouvrent la page de don dans votre navigateur.", "zh": "如果 Worktree Kanban 对你有帮助，欢迎捐助支持开发。点击按钮会在浏览器中打开捐助页面。"},
+  "{v1} で支援する…": {"en": "Support on {v1}…", "es": "Apoyar en {v1}…", "fr": "Soutenir sur {v1}…", "zh": "通过 {v1} 支持…"},
 });

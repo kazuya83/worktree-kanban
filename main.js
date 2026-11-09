@@ -1839,6 +1839,11 @@ app.whenReady().then(async () => {
     store.save();
   }
 
+  // メニューの About に寄付のページを開く項目を足す（開くのは http(s) だけ）
+  if (!HEADLESS) {
+    const { Menu, MenuItem } = require('electron');
+    require('./src/about-menu').installSponsorMenu({ app, Menu, MenuItem, tr, openUrl: (url) => require('./src/external-url').externalUrl(url) && shell.openExternal(url).catch(() => {}) });
+  }
   if (HEADLESS) await startHeadless();
   else createWindow();
   scheduler.start();

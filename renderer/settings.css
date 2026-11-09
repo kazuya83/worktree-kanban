@@ -83,3 +83,12 @@
 .shared-overrides { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .shared-overrides li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 .shared-scripts .btn { align-self: flex-start; }
+
+/* このアプリについて（版・リンク・寄付のボタン） */
+.about-box { display: flex; flex-direction: column; gap: 14px; }
+.about-head { font-size: 15px; }
+.about-links, .sponsor-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.about-links .btn .ic, .sponsor-btn .ic { margin-right: 6px; }
+.about-sponsor { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; }
+.sponsor-btn { font-weight: 500; }
+.sponsor-btn .ic { color: var(--accent); }

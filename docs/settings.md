@@ -11,6 +11,7 @@ The list of sections is on the left, and all sections run down the right side. P
 | (no heading) | [General](#general), [App updates](#app-updates), [Integrations](#integrations), [CLI and MCP](#cli-and-mcp) |
 | This project | [Branches and landing](#branches-and-landing), [Issue sync](#issue-sync), [Permissions](#permissions), [Task defaults](#task-defaults), [Share with team](#share-with-team) |
 | Agent | [Agents to use](#agents-to-use), [Custom agents](#custom-agents), [Orchestration](#orchestration) |
+| This app | [About](#about) |
 
 ## How saving works
 
@@ -120,6 +121,10 @@ Give a base agent (CLI) and model a name, icon and color, description, and behav
 ## Orchestration
 
 Settings for Pipeline and competition. Each project can have any number of both, and you choose one in the "Agent" field when creating a task. For Pipeline, use "Edit flowchart" to build a flowchart that connects steps, branches (if), loops, parallel paths, and joins (`.json` and zip export and import are here too). For a competition, set a name and the agents (two or more) that solve the same task. See [agents.md](agents.md) for details.
+
+## About
+
+Shows the version, links to GitHub and the license, and buttons to support development on GitHub Sponsors or Ko-fi (they open in your browser). On a Mac, the same donation links are also under **About Worktree Kanban** in the app menu (on Windows and Linux, in the Help menu).
 
 ## Settings found elsewhere
 
