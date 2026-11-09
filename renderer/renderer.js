@@ -4716,6 +4716,31 @@ function openSettings(section) {
   if (section) settingsNav?.scrollTo(section);
 }
 
+// 設定の「このアプリについて」: 版の番号・リポジトリ・ライセンスと、寄付のボタン。リンク先は renderer/links.js にまとめる
+function aboutSectionHtml() {
+  const link = (url, label) => `<button class="btn small ghost" type="button" data-about-url="${esc(url)}">${icon('external')}${esc(label)}</button>`;
+  return `<div class="about-box">
+      <div class="about-head"><b>Worktree Kanban</b> <span id="sAboutVersion" class="muted"></span></div>
+      <div class="about-links">${link(Links.REPO_URL, 'GitHub')}${link(Links.LICENSE_URL, tr('ライセンス（FSL-1.1-ALv2）'))}</div>
+      <div class="about-sponsor">
+        <b>${tr('開発を支援する')}</b>
+        <small class="muted">${tr('Worktree Kanban が役に立ったら、寄付で開発を支えてもらえるとうれしいです。ボタンを押すと、ブラウザで寄付のページを開きます。')}</small>
+        <div class="sponsor-buttons">${Links.SPONSORS.map((x) => `<button class="btn sponsor-btn" type="button" data-sponsor="${esc(x.id)}" data-about-url="${esc(x.url)}">${icon(x.icon)}${esc(x.label)}</button>`).join('')}</div>
+      </div>
+    </div>`;
+}
+function bindAboutSection(box) {
+  if (!box) return;
+  box.querySelectorAll('[data-about-url]').forEach((b) => (b.onclick = () => run(() => api.openExternal(b.dataset.aboutUrl))));
+  api.appInfo().then(
+    (i) => {
+      const el = box.querySelector('#sAboutVersion');
+      if (el) el.textContent = `v${i.version}${i.packaged ? '' : tr('（開発版）')}`;
+    },
+    () => {},
+  );
+}
+
 function renderSettingsView() {
   const s = state.board.settings;
   const viewKey = currentSettingsKey();
@@ -4866,6 +4891,7 @@ function renderSettingsView() {
         <div id="sCompeteList" class="pl-list"></div>
         <div class="pl-tools"><button class="btn small" id="sCompeteAdd" type="button">${tr('＋ 競争を追加')}</button></div>
         <small>${tr('競争ごとに、同じタスクを解かせるエージェントを2つ以上選びます。使うエージェントにチェックを付けたものと、このプロジェクトのカスタムエージェントから選べます。競争の一覧の変更は「保存」で保存します。')}</small></div>`,
+    about: `${aboutSectionHtml()}`,
   };
   // 描き直しても（元に戻す・タブの切り替え）、見ていた節から動かさない
   const scrollTop = $('settingsMain')?.scrollTop || 0;
@@ -4881,6 +4907,7 @@ function renderSettingsView() {
   // ダイアログの操作を待つ間に、画面を離れたりプロジェクトが変わったりしたら、この描画の値では保存も描き直しもしない
   const isStale = () => settingsViewKey !== viewKey;
   settingsNav = AppView.bindSettingsNav({ nav: $('settingsNav'), scroller: $('settingsMain'), section: (id) => $(`settings-${id}`) });
+  bindAboutSection($('settings-about'));
 
   // Pipeline の一覧（追加・編集・削除・インポートは、その場で保存する）
   let flows = JSON.parse(JSON.stringify(pipelines(s)));

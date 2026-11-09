@@ -104,6 +104,10 @@
         { id: 'orchestration', label: tr('オーケストレーション'), icon: 'pipeline' },
       ],
     },
+    {
+      heading: tr('このアプリ'),
+      items: [{ id: 'about', label: tr('このアプリについて'), icon: 'heart' }],
+    },
   ];
   // 節の先頭がスクロール位置のこの距離まで近づいたら、その節を現在地にする
   const SECTION_TOP_MARGIN = 24;
