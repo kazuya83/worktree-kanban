@@ -256,3 +256,25 @@ test('既定のエージェント: アプリ全体の設定だったころの値
   assert.strictEqual(store.repoSettings('/b').defaultAgent, 'gemini');
   fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+test('/chrome: claude には /chrome を外して渡し、--chrome で起動する（追加指示でも付けたまま）', async () => {
+  const { agents, calls } = setup();
+  const c = agents.createCard({ title: 'chrome', prompt: '/chrome 画面を開いて確かめて', agent: 'claude' });
+  agents.start(c.id);
+  await waitFor(() => c.status === 'review' || c.status === 'failed');
+  const first = calls().filter((x) => x.kind === 'claude');
+  assert.ok(first.length >= 1);
+  assert.ok(first.at(-1).args.includes('--chrome'));
+  assert.strictEqual(c.chrome, true);
+  const said = c.logs.map((l) => l.text || '').join('\n');
+  assert.match(said, /了解: 画面を開いて確かめて/);
+  assert.doesNotMatch(said, /了解: \/chrome/);
+  agents.send(c.id, 'もう一度見て');
+  await waitFor(() => calls().filter((x) => x.kind === 'claude').length > first.length && (c.status === 'review' || c.status === 'failed'));
+  assert.ok(calls().filter((x) => x.kind === 'claude').at(-1).args.includes('--chrome'));
+  // ふつうのタスクには付けない
+  const d = agents.createCard({ title: 'plain', prompt: 'ふつうに直して', agent: 'claude' });
+  agents.start(d.id);
+  await waitFor(() => d.status === 'review' || d.status === 'failed');
+  assert.ok(!calls().filter((x) => x.kind === 'claude').at(-1).args.includes('--chrome'));
+});

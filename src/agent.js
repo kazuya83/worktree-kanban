@@ -44,7 +44,27 @@ function withReplyLanguage(prompt) {
   if (!text || I18n.getLanguage() === 'ja') return text;
   if (text.startsWith('【返事の言語】')) return text;
   const name = REPLY_LANG_NAME[I18n.getLanguage()] || I18n.getLanguage();
-  return `【返事の言語】ユーザーへの返事・質問・報告は${name}で書いてください。\n\n${text}`;
+  const note = `【返事の言語】ユーザーへの返事・質問・報告は${name}で書いてください。`;
+  // 「/スキル名 指示」は、/スキル名 が先頭にないと Claude Code がスキルとして読まないので、そのあとに足す
+  const cmd = text.match(/^\/[^\s/]\S*[ \t]*/);
+  if (cmd) return text.slice(cmd[0].length).startsWith('【返事の言語】') ? text : `${cmd[0].trimEnd()} ${note}\n\n${text.slice(cmd[0].length)}`;
+  return `${note}\n\n${text}`;
+}
+
+// Claude in Chrome（/chrome）: claude -p では /chrome は使えず「/chrome isn't available in this environment.」になる。
+// 代わりに起動の引数 --chrome で使えるようにする。指示の先頭の /chrome は外して claude に渡し、
+// カードに覚えておく（あとの追加指示・--resume で続けるときも Chrome を使えるようにする）。
+// 先頭でなくても、行の頭に /chrome があれば（仕様の確認の指示に包まれたタスクの本文など）Chrome を使えるようにする
+const CHROME_HEAD_RE = /^\/chrome(?=\s|$)[ \t]*/;
+const CHROME_LINE_RE = /(^|\n)[ \t]*\/chrome(?=\s|$)/;
+const CHROME_ONLY_PROMPT = 'Claude in Chrome（Chrome の拡張）を使えるようにしました。Chrome のツールが使えるかを確かめて、短く返事をしてください';
+function takeChromeCommand(prompt) {
+  const text = String(prompt ?? '');
+  if (CHROME_HEAD_RE.test(text)) {
+    const rest = text.replace(CHROME_HEAD_RE, '').replace(/^\s+/, '');
+    return { prompt: rest || CHROME_ONLY_PROMPT, chrome: true };
+  }
+  return { prompt: text, chrome: CHROME_LINE_RE.test(text) };
 }
 
 const MAX_LOGS = 2000;
@@ -3479,8 +3499,14 @@ class AgentManager extends EventEmitter {
     const label = agentLabel(agent);
     const mode = afterDone ? 'plan' : chat ? this.chatPermissionMode(rs.permissionMode) : c.readOnly ? this.readOnlyPermissionMode(agentOf(c), rs.permissionMode) : this.taskPermissionMode(c, rs.permissionMode);
     const prompt = c.pendingPrompt || '';
+    // /chrome は claude -p では使えないので、外して --chrome で起動する
+    const chromeCmd = agent === 'claude' ? takeChromeCommand(prompt) : { prompt, chrome: false };
+    if (chromeCmd.chrome && !c.chrome) {
+      c.chrome = true;
+      this.log(c, 'system', tr('Claude in Chrome を使えるようにして動かします（このタスクでは、このあとも使えます）'));
+    }
     // 言語の指示はエージェントにだけ渡し、ログ（lastPromptSent）には残さない
-    const spoken = withReplyLanguage(prompt);
+    const spoken = withReplyLanguage(chromeCmd.prompt);
     let args;
     let rpcKind = null;
     let rpcVariant = null; // ACP の起動のしかた（providers.js の ACP_LAUNCH の何番目か）
@@ -3493,6 +3519,7 @@ class AgentManager extends EventEmitter {
       if (model) args.push('--model', model);
       const allowed = splitList(rs.allowedTools);
       if (allowed.length) args.push('--allowedTools', ...allowed);
+      if (c.chrome) args.push('--chrome');
       // ソースを変更しないタスクは、ファイルを書き換えるツールを止める
       if (c.readOnly && !afterDone) args.push('--disallowedTools', ...READ_ONLY_DISALLOWED_TOOLS);
       const mcpConfig = this.writeMcpConfig(c, wsl.parseWslPath(cwd)?.distro);
@@ -5306,4 +5333,4 @@ class AgentManager extends EventEmitter {
   }
 }
 
-module.exports = { READ_ONLY_DISALLOWED_TOOLS, withReadOnlyNote, relayStepsOf, whoLabel, AgentManager, isNoGit, toolResultText, toolResultImages, agentOf, promptWithSkill, buildRelayStepPrompt, buildComparePrompt, PERMISSION_TOOL, endsWithQuestion, SPEC_MARKER, withSpecCheck, stripSpecMarker, extractSpecQuestions, parseMarkdownQuestions, isOtherOption, withReplyLanguage, isQuitInterrupt, SKILL_SUGGEST_PROMPT, SKILL_SUGGEST_REPEAT_NOTE, buildSkillSuggestPrompt, isChat, isSessionId, quoteForCmd, cleanBranchName, buildBranchNamePrompt, cleanModel, modelOf };
+module.exports = { READ_ONLY_DISALLOWED_TOOLS, withReadOnlyNote, relayStepsOf, whoLabel, AgentManager, isNoGit, toolResultText, toolResultImages, agentOf, promptWithSkill, buildRelayStepPrompt, buildComparePrompt, PERMISSION_TOOL, endsWithQuestion, SPEC_MARKER, withSpecCheck, stripSpecMarker, extractSpecQuestions, parseMarkdownQuestions, isOtherOption, withReplyLanguage, takeChromeCommand, isQuitInterrupt, SKILL_SUGGEST_PROMPT, SKILL_SUGGEST_REPEAT_NOTE, buildSkillSuggestPrompt, isChat, isSessionId, quoteForCmd, cleanBranchName, buildBranchNamePrompt, cleanModel, modelOf };
