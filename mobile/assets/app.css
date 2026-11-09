@@ -381,6 +381,9 @@ select:focus {
 .pill.run {
   background: var(--accent);
 }
+.pill.review {
+  background: var(--ok);
+}
 .conn-dot {
   width: 10px;
   height: 10px;

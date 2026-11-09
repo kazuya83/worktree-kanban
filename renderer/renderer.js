@@ -621,7 +621,7 @@ function repoTabsList() {
   const repo = state.board.settings.repoPath || '';
   const host = viewingHost();
   const list = (state.board.repoTabs || []).filter((t) => t && t.path).map((t) => ({ ...t, remote: !!t.remote, active: 'active' in t ? !!t.active : t.path === repo }));
-  if (repo && !list.some((t) => t.active)) list.push({ path: repo, running: 0, attention: 0, remote: host, active: true });
+  if (repo && !list.some((t) => t.active)) list.push({ path: repo, running: 0, attention: 0, review: 0, remote: host, active: true });
   return list;
 }
 // 側ごとのタブ（remote: true ならホスト）
@@ -646,7 +646,7 @@ function renderRepoTabs() {
     const own = tabs.filter((x) => x.remote === t.remote);
     const badges = on
       ? ''
-      : `${t.attention ? tr('<span class="repo-tab-badge warn" title="あなたの対応を待っているタスクが {attention} 件あります">{attention}</span>', { attention: (t.attention) }) : ''}${t.running ? tr('<span class="repo-tab-badge run" title="動いているタスクが {running} 件あります">{running}</span>', { running: (t.running) }) : ''}`;
+      : `${t.attention ? tr('<span class="repo-tab-badge warn" title="あなたの対応を待っているタスクが {attention} 件あります">{attention}</span>', { attention: (t.attention) }) : ''}${t.running ? tr('<span class="repo-tab-badge run" title="動いているタスクが {running} 件あります">{running}</span>', { running: (t.running) }) : ''}${t.review ? tr('<span class="repo-tab-badge review" title="レビュー中のタスクが {review} 件あります">{review}</span>', { review: (t.review) }) : ''}`;
     const where = rc ? (t.remote ? tr('接続先（{host}）のリポジトリ\n', { host }) : tr('このマシンのリポジトリ\n')) : '';
     const tip = on ? tr('{where}{path}\nクリックで、このタブのリポジトリを切り替えます', { where, path: (t.path) }) : tr('{where}{path}\nクリックでこのリポジトリに切り替えます', { where, path: (t.path) });
     const tipAll = t.noGit ? tr('{tip}\n（git で管理していないフォルダ。タスクはこのフォルダで直接動きます）', { tip }) : tip;

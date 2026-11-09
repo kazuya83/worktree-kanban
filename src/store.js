@@ -192,7 +192,7 @@ function closeRepoTab(tabs, current, dir, max = MAX_REPO_TABS) {
   return { tabs: list, next: d === cur ? list[Math.min(i, list.length - 1)] : cur };
 }
 
-// タブに出す、リポジトリごとの動いているタスクと対応を待っているタスクの数
+// タブに出す、リポジトリごとの動いているタスク・対応を待っているタスク・レビュー中のタスクの数
 // git で管理していないフォルダとして開いたか（settings.noGitRepos に入っている）
 function isNoGitRepo(settings, dir) {
   const d = String(dir || '').trim();
@@ -210,6 +210,7 @@ function markNoGitRepo(settings, dir, noGit) {
 
 function repoTabSummary(tabs, cards, settings) {
   const all = Array.isArray(cards) ? cards : [];
+  const ids = new Set(all.map((c) => c && c.id).filter(Boolean));
   return (Array.isArray(tabs) ? tabs : []).map((p) => {
     const mine = all.filter((c) => c && c.repoPath === p);
     return {
@@ -217,6 +218,8 @@ function repoTabSummary(tabs, cards, settings) {
       ...(isNoGitRepo(settings, p) ? { noGit: true } : {}),
       running: mine.filter((c) => c.status === 'running' || c.status === 'queued').length,
       attention: mine.filter((c) => (c.questions || []).length || (c.permissions || []).length || (c.awaitingReply && (c.status === 'review' || c.status === 'failed'))).length,
+      // ボードの「レビュー」列に出るもの（チャットと、親のカードにまとめて出すサブタスクは数えない）
+      review: mine.filter((c) => (c.status === 'review' || c.status === 'failed') && c.kind !== 'chat' && !(c.subtaskOf && ids.has(c.subtaskOf))).length,
     };
   });
 }

@@ -16,6 +16,7 @@
   "つなぎ直しています…": {"en":"Reconnecting…","es":"Reconectando…","fr":"Reconnexion…","zh":"正在重新连接…"},
   "あなたの対応を待っているタスクが {attention} 件あります": {"en":"{attention} task(s) waiting for you","es":"{attention} tarea(s) esperan tu respuesta","fr":"{attention} tâche(s) attendent votre action","zh":"有 {attention} 个任务在等待你处理"},
   "動いているタスクが {running} 件あります": {"en":"{running} task(s) running","es":"{running} tarea(s) en curso","fr":"{running} tâche(s) en cours","zh":"有 {running} 个任务正在运行"},
+  "レビュー中のタスクが {review} 件あります": {"en":"{review} task(s) in review","es":"{review} tarea(s) en revisión","fr":"{review} tâche(s) en revue","zh":"有 {review} 个任务在审查中"},
   "リポジトリがありません": {"en":"No repository","es":"No hay repositorio","fr":"Aucun dépôt","zh":"没有仓库"},
   "ログアウト": {"en":"Sign out","es":"Cerrar sesión","fr":"Se déconnecter","zh":"退出登录"},
   "つながりません。つなぎ直しています…": {"en":"Not connected. Reconnecting…","es":"Sin conexión. Reconectando…","fr":"Non connecté. Reconnexion…","zh":"未连接。正在重新连接…"},
