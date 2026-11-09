@@ -57,6 +57,46 @@ function features(ctx) {
     }),
 
     // 大きなタスクをサブタスクに分けて、並列に進める
+    // 進捗の見える化: カードのロボットが作業し、「進捗」タブで TODO の旗の道を進んでゴールする
+    progress: (outFile) => record(outFile, async ({ snap, moveTo }) => {
+      // ロボットは時間で動くので、0.1 秒ずつ撮り続ける
+      const play = async (sec) => {
+        for (let i = 0; i < Math.round(sec * 10); i++) await snap(0.1);
+      };
+      const todos = (done) => ({ items: t.pgTodos.map((text, i) => ({ text, status: i < done ? 'completed' : i === done ? 'in_progress' : 'pending' })) });
+      const startedAt = now() - 60000;
+      const csv = (more) => ({ ...c.csv, startedAt, issue: undefined, title: t.tCsv, ...more });
+      const work = (name, done) => csv({ status: 'running', activity: { kind: 'tool', name, at: now() }, todos: todos(done) });
+      const others = {
+        dark: c.dark,
+        enter: { ...c.enter, agent: 'codex', todos: todos(t.pgTodos.length) },
+        speed: c.speed,
+      };
+      const stage = async (task, sec) => {
+        await show({ cards: onlyCards({ ...others, csv: task }) });
+        await redetail();
+        await play(sec);
+      };
+
+      // 1. ボード: カードごとに、ロボットが今の作業（編集・承認待ち・レビュー・完了）を見せる
+      await show({ cards: onlyCards({ ...others, csv: work('Edit', 2) }) });
+      await settle();
+      await play(1.6);
+      await show({ cards: onlyCards({ ...others, csv: work('Bash', 3) }) });
+      await play(1.6);
+      // 2. 「進捗」タブ: TODO の旗が並ぶ道を、ロボットが進む
+      await moveTo('.card[data-id=csv]', { n: 4 });
+      await open('csv');
+      await tab('progress');
+      await settle(200);
+      await play(1.8);
+      await stage(work('Write', 4), 2.4);
+      await stage(work('Bash', 4), 0.8);
+      // 3. 全部終わるとレビュー（ゴールの手前で待つ）→ 完了でゴールして跳ねる
+      await stage(csv({ status: 'review', todos: todos(5), lastMessage: t.pgReport, costUsd: 0.04 }), 2.0);
+      await stage(csv({ status: 'done', todos: todos(5), lastMessage: t.pgReport, costUsd: 0.04, mergedInto: 'main' }), 3.2);
+    }),
+
     subtasks: (outFile) => record(outFile, async ({ snap, moveTo }) => {
       const items = [
         { key: 'api', title: t.subApi, prompt: t.subApi, after: [] },

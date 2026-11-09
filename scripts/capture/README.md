@@ -1,6 +1,6 @@
 # README 用の画面と GIF を撮る
 
-実際のアプリを起動して、`docs/images/<言語>/` に画面（18枚）、`demo.gif`、機能ごとの GIF（`feature-<名前>.gif`、13本）を作ります。言語は en / ja / es / fr / zh です。
+実際のアプリを起動して、`docs/images/<言語>/` に画面（18枚）、`demo.gif`、機能ごとの GIF（`feature-<名前>.gif`、14本）を作ります。言語は en / ja / es / fr / zh です。
 
 画面に渡すデータは架空のものに差し替えます。`preload.js` のチャンネルをすべて差し替えるので、エージェントや GitHub などの外部サービスは動きません。
 
@@ -26,7 +26,7 @@ node scripts/capture/capture.js --feature=pipeline,issue # 機能ごとの GIF �
 | `scenes.js` | 画面ごとの作り方 |
 | `demo.js` | デモ GIF の流れ（Codex で実装 → Claude でレビュー → 差し戻し → 人が承認・マージ） |
 | `pipeline-story.js` | デモ GIF と `pipeline` の GIF で共通の場面（フローチャートを組む・タスクを作る・工程の中身） |
-| `features.js` | 機能ごとの GIF の流れ（pipeline / subtasks / repos / approval / question / issue / merge / remote / chat / notifications / conflict / skills / scheduler） |
+| `features.js` | 機能ごとの GIF の流れ（pipeline / progress / subtasks / repos / approval / question / issue / merge / remote / chat / notifications / conflict / skills / scheduler） |
 | `feature-content.js` | 機能ごとの GIF で使う文言（言語ごと） |
 | `recorder.js` | GIF の録画（マウスの矢印、コマの撮影、ffmpeg でつなぐ） |
 

@@ -32,6 +32,7 @@ A desktop app (Electron, Mac / Windows / Linux) that runs AI coding-agent CLIs (
 ## Why Worktree Kanban?
 
 - **Agents in a flowchart** — describe a flow in plain language or draw it, and agents hand the work over step by step, following branches, loops, and parallel steps.
+- **Progress you can see at a glance** — each agent becomes a pixel-art robot that works right on its card. Editing, running commands, waiting for approval, and waiting for review all show as motion, and in the Progress tab the robot walks a road of TODO flags and jumps at the finish line.
 - **You stay in charge** — check the diff before you merge or open a PR. With Claude Code, Codex, and Cursor, you also approve actions on the card.
 - **One task, one worktree** — each task gets its own git worktree and branch, so tasks never collide with each other or with your working tree.
 - **Several repositories at once** — keep up to 3 repositories open as tabs; switching tabs does not stop anything.
@@ -62,6 +63,16 @@ flowchart LR
 On Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid, multiple-choice questions, btw, and cost display are unavailable because of CLI limits. In-card approval works on Codex and Cursor, but not on Antigravity, Gemini, OpenCode, Copilot, Amp, Pi, or Droid (see [docs/agents.md](docs/agents.md)).
 
 ## Features
+
+### Progress at a glance: a robot shows how far each task has come
+Each agent gets a pixel-art robot that acts out what it is doing right now. You can tell which task is doing what, and where you are needed, just by looking at the board, without reading any logs.
+
+![The robot on each card works away, and in the Progress tab it walks a road of TODO flags and jumps at the finish line when the task is done](docs/images/en/feature-progress.gif)
+
+- **On the card**: the robot sits at a desk, and a speech bubble shows what it is doing (editing files, running a command, searching the code, looking something up on the web, and so on). Its antenna blinks while it waits for your approval or reply, and a segmented bar shows the TODO progress. Each time a TODO is finished, sparks fly from its segment
+- **In the Progress tab**: the robot walks along a road of TODO flags to the TODO it is on now. Finished flags wave in green. While the task waits for your review, the robot waits just before the finish line; when the task is done, it jumps at the goal under a shower of confetti. If the run stops, a rain cloud appears over its head
+- Each agent (Claude Code, Codex, Gemini, and so on) has its own robot color, and custom agents use the color you set
+- When "Reduce motion" is turned on in your OS, the robot is drawn as a still picture
 
 ### Operate from another PC (RC)
 
