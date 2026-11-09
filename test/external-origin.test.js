@@ -91,7 +91,8 @@ test('Issue から作ったタスクは、プロジェクトが「すべて自�
   const c = agents.createCard({ title: '#7 x', prompt: 'Issue の本文', issue: { number: 7, title: 'x', url: 'https://github.com/o/r/issues/7' } });
   agents.start(plain.id);
   agents.start(c.id);
-  await waitFor(() => plain.status === 'review' && c.status === 'review');
+  // テスト全体を並べて動かすと遅くなるので、長めに待つ
+  await waitFor(() => plain.status === 'review' && c.status === 'review', 30000);
   const started = (card) => card.logs.map((l) => l.text).find((t) => /セッション開始/.test(t)) || '';
   assert.match(started(plain), /権限モード: bypassPermissions/, 'ふつうのタスクは設定どおり');
   assert.match(started(c), /権限モード: acceptEdits/, 'Issue のタスクは acceptEdits');
