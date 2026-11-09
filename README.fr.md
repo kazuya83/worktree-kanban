@@ -32,6 +32,7 @@ Application de bureau (Electron, Mac / Windows / Linux) qui lance en parallèle 
 ## Pourquoi Worktree Kanban ?
 
 - **Des agents en organigramme** — décrivez un flux en langage naturel ou dessinez-le, et les agents se passent le travail étape par étape, en suivant branches, boucles et étapes parallèles.
+- **L'avancement d'un coup d'œil** — chaque agent devient un robot en pixel art qui travaille directement sur sa carte. Modification, exécution de commandes, attente d'approbation ou de revue : tout se voit en mouvement, et dans l'onglet Progression le robot parcourt une route de drapeaux TODO et saute à l'arrivée.
 - **Vous gardez la main** — vérifiez le diff avant de fusionner ou d'ouvrir une PR. Avec Claude Code, Codex et Cursor, vous approuvez aussi les actions sur la carte.
 - **Une tâche, un worktree** — chaque tâche a son propre worktree git et sa branche : elles n'entrent en conflit ni entre elles ni avec votre arbre de travail.
 - **Plusieurs dépôts à la fois** — ouvrez jusqu'à 3 dépôts en onglets ; changer d'onglet n'arrête rien.
@@ -62,6 +63,16 @@ flowchart LR
 Sur Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid, les limites de la CLI empêchent les questions à choix multiples, btw et l'affichage du coût. L'approbation sur la carte fonctionne avec Codex et Cursor, mais pas avec Antigravity, Gemini, OpenCode, Copilot, Amp, Pi ni Droid (voir [docs/agents.md](docs/agents.md) (English)).
 
 ## Fonctions principales
+
+### L'avancement d'un coup d'œil : un robot montre où en est chaque tâche
+Chaque agent a son robot en pixel art, qui mime ce qu'il est en train de faire. Un simple coup d'œil au tableau suffit pour savoir ce que fait chaque tâche et où vous êtes attendu, sans lire les journaux.
+
+![Le robot de chaque carte travaille et, dans l'onglet Progression, il parcourt une route de drapeaux TODO et saute à l'arrivée quand la tâche est terminée](docs/images/fr/feature-progress.gif)
+
+- **Sur la carte** : le robot est assis à un bureau, et une bulle montre ce qu'il fait (modifier des fichiers, lancer une commande, chercher dans le code, consulter le web, etc.). Son antenne clignote quand il attend votre approbation ou votre réponse, et une barre en segments montre l'avancement des TODO. À chaque TODO terminé, des étincelles jaillissent de son segment
+- **Dans l'onglet Progression** : le robot marche sur une route de drapeaux TODO jusqu'au TODO en cours. Les drapeaux terminés flottent en vert. Quand la tâche attend votre revue, le robot attend juste avant l'arrivée ; quand elle est terminée, il saute à l'arrivée sous une pluie de confettis. Si l'exécution s'arrête, un nuage de pluie apparaît au-dessus de sa tête
+- Chaque agent (Claude Code, Codex, Gemini, etc.) a sa propre couleur de robot, et les agents personnalisés prennent la couleur que vous choisissez
+- Si « Réduire les animations » est activé dans votre système, le robot est affiché en image fixe
 
 ### Piloter depuis un autre PC (RC)
 

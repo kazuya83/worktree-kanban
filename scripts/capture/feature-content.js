@@ -18,6 +18,7 @@ module.exports = {
     subParent: 'Add coupons to checkout',
     subNote: 'This work has three separate parts, so splitting it will be faster. The API and the screen can run in parallel.',
     subApi: 'Add the coupon API', subUi: 'Add a coupon field to the cart', subTest: 'Add end-to-end checkout tests',
+    pgTodos: ['Reproduce the garbled CSV', 'Find where the CSV is encoded', 'Write the CSV as UTF-8 with a BOM', 'Add a test with non-ASCII names', 'Run all the tests'], pgReport: 'The CSV is now written as UTF-8 with a BOM, so Excel opens non-ASCII names correctly. Added a test.',
   },
   ja: {
     scTitle: '毎朝の依存関係チェック',
@@ -37,6 +38,7 @@ module.exports = {
     subParent: '購入画面にクーポンを足す',
     subNote: '作業が3つに分かれるので、分けたほうが速く進みます。API と画面は並列に進められます。',
     subApi: 'クーポンの API を作る', subUi: 'カートにクーポンの欄を足す', subTest: '購入の流れの E2E テストを足す',
+    pgTodos: ['文字化けする CSV を再現する', 'CSV を書き出す処理を探す', 'BOM 付きの UTF-8 で書き出す', '日本語の名前でテストを足す', 'テストをすべて流す'], pgReport: 'CSV を BOM 付きの UTF-8 で書き出すようにし、Excel でも日本語が化けなくなりました。テストを足しました。',
   },
   es: {
     scTitle: 'Revisar las dependencias cada mañana',
@@ -56,6 +58,7 @@ module.exports = {
     subParent: 'Añadir cupones al pago',
     subNote: 'El trabajo tiene tres partes separadas, así que dividirlo será más rápido. La API y la pantalla pueden avanzar en paralelo.',
     subApi: 'Añadir la API de cupones', subUi: 'Añadir un campo de cupón al carrito', subTest: 'Añadir pruebas de extremo a extremo del pago',
+    pgTodos: ['Reproducir el CSV estropeado', 'Encontrar dónde se codifica el CSV', 'Escribir el CSV en UTF-8 con BOM', 'Añadir una prueba con nombres acentuados', 'Ejecutar todas las pruebas'], pgReport: 'El CSV se escribe ahora en UTF-8 con BOM y Excel muestra bien los acentos. Añadí una prueba.',
   },
   fr: {
     scTitle: 'Vérifier les dépendances chaque matin',
@@ -75,6 +78,7 @@ module.exports = {
     subParent: 'Ajouter les coupons au paiement',
     subNote: "Le travail comporte trois parties distinctes : le découper ira plus vite. L'API et l'écran peuvent avancer en parallèle.",
     subApi: "Ajouter l'API des coupons", subUi: 'Ajouter un champ coupon au panier', subTest: 'Ajouter des tests de bout en bout du paiement',
+    pgTodos: ['Reproduire le CSV abîmé', 'Trouver où le CSV est encodé', 'Écrire le CSV en UTF-8 avec BOM', 'Ajouter un test avec des noms accentués', 'Lancer tous les tests'], pgReport: 'Le CSV est maintenant écrit en UTF-8 avec BOM : Excel affiche correctement les accents. Un test a été ajouté.',
   },
   zh: {
     scTitle: '每天早上检查依赖项',
@@ -94,5 +98,6 @@ module.exports = {
     subParent: '在结账流程中加入优惠券',
     subNote: '这项工作分为三个部分，拆开会更快。API 和界面可以并行推进。',
     subApi: '添加优惠券 API', subUi: '在购物车中添加优惠券输入框', subTest: '添加结账流程的端到端测试',
+    pgTodos: ['复现乱码的 CSV', '找到写出 CSV 的代码', '用带 BOM 的 UTF-8 写出 CSV', '添加中文名称的测试', '运行全部测试'], pgReport: 'CSV 改为以带 BOM 的 UTF-8 写出，Excel 中的中文不再乱码。已添加测试。',
   },
 };

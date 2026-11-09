@@ -32,6 +32,7 @@ Aplicación de escritorio (Electron, Mac / Windows / Linux) que ejecuta en paral
 ## ¿Por qué Worktree Kanban?
 
 - **Agentes en un diagrama de flujo** — describe un flujo en lenguaje natural o dibújalo, y los agentes se pasan el trabajo paso a paso, siguiendo ramas, bucles y pasos en paralelo.
+- **El progreso, de un vistazo** — cada agente se convierte en un robot de pixel art que trabaja sobre su tarjeta. Editar, ejecutar comandos, esperar aprobación o esperar revisión se ve como movimiento, y en la pestaña Progreso el robot recorre un camino de banderas TODO y salta en la meta.
 - **Tú decides** — revisa el diff antes de fusionar o abrir un PR. Con Claude Code, Codex y Cursor, también apruebas las acciones en la tarjeta.
 - **Una tarea, un worktree** — cada tarea tiene su propio worktree de git y su rama, así que no chocan entre sí ni con tu árbol de trabajo.
 - **Varios repositorios a la vez** — abre hasta 3 repositorios en pestañas; cambiar de pestaña no detiene nada.
@@ -62,6 +63,16 @@ flowchart LR
 En Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid, por los límites de la CLI, no están disponibles las preguntas de opción múltiple, btw ni el coste. La aprobación en la tarjeta funciona en Codex y Cursor, pero no en Antigravity, Gemini, OpenCode, Copilot, Amp, Pi ni Droid (más detalles en [docs/agents.md](docs/agents.md) (English)).
 
 ## Funciones principales
+
+### El progreso de un vistazo: un robot muestra cuánto ha avanzado cada tarea
+Cada agente tiene un robot de pixel art que representa lo que está haciendo en ese momento. Con solo mirar el tablero sabes qué hace cada tarea y dónde se te necesita, sin leer los registros.
+
+![El robot de cada tarjeta trabaja y, en la pestaña Progreso, recorre un camino de banderas TODO y salta en la meta cuando la tarea termina](docs/images/es/feature-progress.gif)
+
+- **En la tarjeta**: el robot está sentado ante un escritorio y un bocadillo muestra lo que hace (editar archivos, ejecutar un comando, buscar en el código, consultar la web, etc.). Su antena parpadea mientras espera tu aprobación o tu respuesta, y una barra por segmentos muestra el avance de los TODO. Cada vez que termina un TODO, salen chispas de su segmento
+- **En la pestaña Progreso**: el robot camina por un camino de banderas TODO hasta el TODO en el que está. Las banderas terminadas ondean en verde. Mientras la tarea espera tu revisión, el robot espera justo antes de la meta; cuando la tarea termina, salta en la meta bajo una lluvia de confeti. Si la ejecución se detiene, aparece una nube de lluvia sobre su cabeza
+- Cada agente (Claude Code, Codex, Gemini, etc.) tiene su propio color de robot, y los agentes personalizados usan el color que elijas
+- Si activas «Reducir movimiento» en el sistema, el robot se dibuja como una imagen fija
 
 ### Operar desde otro PC (RC)
 

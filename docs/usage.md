@@ -223,7 +223,10 @@ Under "Conversation" in the detail panel, choose which conversation the next run
 ## See progress
 The "Progress" tab in the detail panel shows how far a task has come.
 
+![The robot works on its card, and in the Progress tab it walks the road of TODO flags to the finish line](images/en/feature-progress.gif)
+
 - State, start time and elapsed time, agent, and cost
+- The agent's pixel-art robot walks along a road of TODO flags to the TODO it is on now. A speech bubble shows what it is doing (editing, running a command, searching, and so on); it raises its hand while it waits for your approval or reply, waits just before the finish line while the task is in review, and jumps at the goal when the task is done. Cards on the board show the same robot working at a desk, with a segmented TODO bar (when your OS is set to reduce motion, it is drawn as a still picture)
 - TODOs written by the agent (TodoWrite on Claude Code, TODO lists on Codex, Gemini, and Cursor; Antigravity does not report TODOs, so the list stays empty), grouped into done, in progress, and upcoming, with a bar showing the share done. A Pipeline shows the current step's TODOs, and shows each branch's TODOs while waiting for parallel branches
 - For a Pipeline, the flowchart from Settings is drawn as is, with steps colored as finished (green), running (blue), stopped (orange), and upcoming. Lines already passed are green, and the line toward the current step animates in blue. Zoom the flowchart with the buttons at the top right, or with ⌘ (Ctrl) + scroll or a pinch ("Fit" fits it to the frame's width). Below it are each step's time, cost, judgment, and the report passed to the next step. When the task is stopped in review or has failed, "Restart from here" on a step returns to just before that step's first run ([Restore an earlier point](#restore-an-earlier-point))
 - Recent work (tool calls and replies), newest first. See "Log" for details
