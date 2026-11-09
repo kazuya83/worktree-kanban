@@ -26,8 +26,20 @@ const canCompleteNoGit = (c) =>
 const COMPLETE_TITLE = tr('git で管理していないフォルダなので、マージや PR はありません。フォルダの中身を確かめてから完了にします');
 // 「完了にする」: 確かめてから完了にする（詳細の上・ボードのカード・チャットとログの最後のどこから押しても同じ）
 async function completeNoGit(c) {
-  if (!c || !confirm(tr('「{title}」を完了にしますか？\nフォルダの中身はそのまま残ります（git で管理していないので、マージや PR はありません）。', { title: (c.title) }))) return;
+  if (!c) return;
+  if (!isNoGit(c)) return completeWithoutMerge(c);
+  if (!confirm(tr('「{title}」を完了にしますか？\nフォルダの中身はそのまま残ります（git で管理していないので、マージや PR はありません）。', { title: (c.title) }))) return;
   await runBusy(tr('完了にしています…'), () => api.complete(c.id), tr('完了にしました'));
+}
+// git のリポジトリのタスクで、マージや PR の作成の代わりに「完了にする」を出すか（差分がなかったときなど）
+const canCompleteWithoutMerge = (c) =>
+  !!c && !isChat(c) && !isNoGit(c) && (c.status === 'review' || c.status === 'failed') && !!c.worktreePath && !c.conflict && !c.afterDone && !isHiddenSubtask(c) && !subtasksBlockMerge(c) && !(c.relay && c.relay.waiting);
+const COMPLETE_GIT_TITLE = tr('マージや PR を作らずに完了にします。変更がなければ worktree とブランチを片付けます。変更があれば、worktree とブランチは残します');
+// git のリポジトリのタスクを、マージや PR を作らずに完了にする
+async function completeWithoutMerge(c) {
+  if (!confirm(tr('「{title}」を、マージや PR を作らずに完了にしますか？\n・変更がなければ、worktree とブランチ {branch} を片付けます。\n・変更があれば、マージはせずに worktree とブランチを残します（「レビュー」の列へ戻すと続けられます）。', { title: c.title, branch: c.branch || '' }))) return;
+  const r = await runBusy(tr('完了にしています…'), () => api.complete(c.id));
+  if (r) toast(r.cleaned ? tr('変更がなかったので、worktree とブランチを片付けて完了にしました') : tr('完了にしました（worktree とブランチは残しています）'), 'ok');
 }
 const LOG_LABEL = { question: tr('質問'), user: tr('あなた'), text: 'Claude', tool: tr('ツール'), tool_result: tr('結果'), tool_error: tr('結果(エラー)'), system: tr('システム'), result: tr('完了'), error: tr('エラー'), stderr: 'stderr', permission: tr('承認') };
 const PERMISSION_MODES = [
@@ -288,6 +300,8 @@ function badgeFor(c) {
   if (c.subtaskOf && subtaskNeedsCheck(c)) return ['awaiting', tr('確認待ち')];
   if (c.relay && c.relay.waiting && c.status === 'review') return ['queued', tr('並列の枝を待機中')];
   if (c.awaitingReply && (c.status === 'review' || c.status === 'failed')) return ['awaiting', tr('回答待ち')];
+  // マージも PR もせずに完了にしたタスクは「マージ済み」ではなく「完了」と出す
+  if (c.status === 'done' && !isChat(c) && c.manualDone && !(c.mergedInto || []).length && !c.prUrl) return ['done', tr('完了')];
   return [c.status, (isChat(c) ? CHAT_STATUS_LABEL : STATUS_LABEL)[c.status]];
 }
 // PR の CI の結果のバッジ（結果がまだ来ていない・チェックがないときは出さない）
@@ -2216,6 +2230,7 @@ function renderDetailHead() {
       (state.board.settings.integration === 'pr'
         ? `<button class="btn primary" data-act="pr">${icon('pr')}${c.prUrl ? prTr(c, tr('PR を更新…')) : prTr(c, tr('PR を作成…'))}</button>`
         : tr('<button class="btn primary" data-act="merge">{v}マージ…</button>', { v: (icon('merge')) })),
+    canCompleteWithoutMerge(c) && tr('<button class="btn" data-act="complete" title="{COMPLETE_GIT_TITLE}">{v}完了にする</button>', { COMPLETE_GIT_TITLE, v: (icon('check')) }),
     // 完了したタスクは開き直さない。修正は別のタスクにする（このタスクのやりとりを引き継ぐ）
     s === 'done' && tr('<button class="btn" data-act="fixTask" title="このタスクのやりとり（完了後の会話も含む）を引き継いで、修正のための新しいタスクを作ります">{v}修正タスクを作る</button>', { v: (icon('wrench')) }),
     (c.worktreePath || isNoGit(c)) && tr('<button class="btn ghost" data-act="open">フォルダを開く</button>'),
