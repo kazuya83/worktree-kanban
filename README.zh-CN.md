@@ -99,6 +99,15 @@ flowchart LR
 
 步骤，以及连不上时的处理方法，写在 [docs/mobile.md](docs/mobile.md) (English)。
 
+### 从其他工具使用（CLI 与 MCP）
+代理和脚本可以创建任务、查看状态并进行操作：开始、批准、回答、合并、创建 PR、删除、运行 Pipeline。
+
+- `wtk` 是在终端和脚本中使用的命令（`wtk create "Fix the login bug" --start`、`wtk tasks`、`wtk merge <id>`）。在 设置 >「CLI / MCP」中安装
+- `wtk mcp` 是 MCP 服务器，Claude Code 等代理可以自己操作看板
+- 应用未运行时，wtk 会以常驻模式启动它。其他电脑用一次性代码配对后，也可以通过 SSH 隧道使用
+
+详见 [docs/cli.md](docs/cli.md) (English)。
+
 此外还支持：用拖放改变卡片的状态（列）、给正在运行的智能体发消息（btw）、附加图片和文件、竞争（多个智能体解决同一任务），以及在 Windows 上使用 WSL 的仓库。用法汇总在 [docs/usage.md](docs/usage.md) (English)。
 
 ### Pipeline：用自然语言描述流程，并按流程运行任务
@@ -304,6 +313,7 @@ irm https://raw.githubusercontent.com/kazuya83/worktree-kanban/main/install.ps1 
 | [集成](docs/integrations.md) (English) | 设置 GitLab、Linear、Jira 和 Slack，以及能做和不能做的事 |
 | [远程操作](docs/remote.md) (English) | 通过 SSH 隧道从另一台电脑操作看板的步骤，以及连不上时的处理方法 |
 | [从手机使用](docs/mobile.md) (English) | 从任何地方用手机浏览器操作看板的步骤（Cloudflare Tunnel），以及连不上时的处理方法 |
+| [CLI 与 MCP](docs/cli.md) (English) | 用 `wtk` 及其 MCP 服务器从脚本和代理创建、操作任务，也可从其他电脑使用 |
 | [常驻模式](docs/headless.md) (English) | 不打开窗口持续运行（也可在 Linux 服务器上）：任务调度、Slack、Issue 监视和远程控制主机 |
 | [安装](docs/install.md) (English) | 安装、更新、卸载，以及在 Windows 上使用 WSL 仓库 |
 | [面向开发者](docs/development.md) (English) | 从源码运行、构建、发布、应用的结构，以及测试 |

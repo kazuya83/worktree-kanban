@@ -99,6 +99,15 @@ From anywhere, you can see the board in your phone's browser (Safari on iPhone, 
 
 Steps, and how to fix a connection that fails, are in [docs/mobile.md](docs/mobile.md).
 
+### Use from other tools (CLI and MCP)
+Agents and scripts can create tasks, check their status, and operate them: start, approve, answer, merge, open PRs, delete, and run Pipelines.
+
+- `wtk` is a command for your shell and scripts (`wtk create "Fix the login bug" --start`, `wtk tasks`, `wtk merge <id>`). Install it from Settings > "CLI / MCP"
+- `wtk mcp` is an MCP server, so Claude Code and other agents can manage the board themselves
+- If the app is not running, wtk starts it in headless mode. Other computers can use it over an SSH tunnel after pairing with a one-time code
+
+See [docs/cli.md](docs/cli.md).
+
 Also included: drag-and-drop changes to a card's state (column), messages to a running agent (btw), image and file attachments, competition (several agents solving the same task), and WSL repositories on Windows. Usage is summarized in [docs/usage.md](docs/usage.md).
 
 ### Pipeline: describe a flow in plain language and run tasks on it
@@ -304,6 +313,7 @@ The same commands update to the latest version. You can also update from the app
 | [Integrations](docs/integrations.md) | Setting up GitLab, Linear, Jira, and Slack, and what they can and cannot do |
 | [Remote control](docs/remote.md) | How to operate the board from another PC over an SSH tunnel, and how to fix a connection that fails |
 | [Use from your phone](docs/mobile.md) | How to operate the board from a phone browser from anywhere (Cloudflare Tunnel), and how to fix a connection that fails |
+| [CLI and MCP](docs/cli.md) | Create and operate tasks from scripts and agents with `wtk` and its MCP server, also from another computer |
 | [Headless mode](docs/headless.md) | Keep it running without a window (also on a Linux server): the scheduler, Slack, Issue watching, and the remote control host |
 | [Install](docs/install.md) | Install, update, uninstall, and using a WSL repository on Windows |
 | [For developers](docs/development.md) | Run from source, build, release, how the app is built, and tests |

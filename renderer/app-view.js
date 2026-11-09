@@ -83,6 +83,7 @@
         { id: 'general', label: tr('全般'), icon: 'settings' },
         { id: 'update', label: tr('アプリの更新'), icon: 'download' },
         { id: 'integrations', label: tr('連携'), icon: 'zap' },
+        { id: 'cli', label: tr('CLI・MCP'), icon: 'terminal' },
       ],
     },
     {

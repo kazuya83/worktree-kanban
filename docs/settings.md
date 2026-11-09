@@ -8,7 +8,7 @@ The list of sections is on the left, and all sections run down the right side. P
 
 | Group | Sections |
 | --- | --- |
-| (no heading) | [General](#general), [App updates](#app-updates), [Integrations](#integrations) |
+| (no heading) | [General](#general), [App updates](#app-updates), [Integrations](#integrations), [CLI and MCP](#cli-and-mcp) |
 | This project | [Branches and landing](#branches-and-landing), [Issue sync](#issue-sync), [Permissions](#permissions), [Task defaults](#task-defaults), [Share with team](#share-with-team) |
 | Agent | [Agents to use](#agents-to-use), [Custom agents](#custom-agents), [Orchestration](#orchestration) |
 
@@ -16,7 +16,7 @@ The list of sections is on the left, and all sections run down the right side. P
 
 - Changes are saved together with **"Save"** at the bottom. The screen stays open after saving
 - **"Undo"** throws away unsaved changes and returns to the saved values
-- Only changes to the list of Pipelines are saved on the spot
+- Only changes to the list of Pipelines, and the items in "CLI / MCP", are saved on the spot
 - If you move to another screen or tab without saving, your changes are discarded without asking
 - When the app starts, it returns to whichever of Kanban or Task scheduler you had open, not to the settings screen
 
@@ -39,6 +39,10 @@ Shows the current version and whether a new one is available. You can also open 
 ## Integrations
 
 Enter the address and token for GitLab, Linear, Jira, and Slack. These are the same for every project. Each service has "Save", "Test connection", and "Delete". Saved tokens are not shown on screen. See [integrations.md](integrations.md) for details.
+
+## CLI and MCP
+
+Turns on the API that the `wtk` command and its MCP server use (on by default), installs `wtk`, shows the MCP settings to copy for agents, shows pairing codes for other computers, and lists paired computers so you can revoke them. These are the same for every project and are saved on the spot. See [cli.md](cli.md) for details.
 
 ## Branches and landing
 

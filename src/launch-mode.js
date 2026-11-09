@@ -35,3 +35,34 @@ function nodeRelaunch(execPath, argv, env) {
 }
 
 module.exports = { isMcpLaunch, nodeRelaunch, MCP_SCRIPT, RELAUNCH_ENV };
+
+// ---- CLI（src/kanban-cli.js） ----
+// ふつうは wtk が「アプリの exe + kanban-cli.js + ELECTRON_RUN_AS_NODE=1」で動かす。
+// AppImage（中のファイルの場所が起動ごとに変わる）と、ELECTRON_RUN_AS_NODE が届かなかったときは、
+// アプリとして起動したあとで、ここから Node として起動し直す
+const CLI_FLAG = '--kanban-cli';
+const CLI_SCRIPT = 'kanban-cli.js';
+
+// CLI として起動されたなら、CLI の引数が始まる位置（--kanban-cli かスクリプトの次）。違えば -1
+function cliArgsStart(argv) {
+  const list = argv || [];
+  for (let k = 1; k < list.length; k++) {
+    const a = list[k];
+    if (a === CLI_FLAG) return k + 1;
+    if (typeof a === 'string' && path.win32.basename(a).toLowerCase() === CLI_SCRIPT) return k + 1;
+  }
+  return -1;
+}
+
+// Node として起動し直すコマンド。すでに起動し直した子なら null（その場で動く）。作業フォルダはそのまま（--repo . などのため）
+function cliRelaunch(execPath, argv, env, script, extraEnv = {}) {
+  if (env && env[RELAUNCH_ENV]) return null;
+  const i = cliArgsStart(argv);
+  if (i < 0) return null;
+  return { file: execPath, args: [script, ...(argv || []).slice(i)], env: { ...env, ...extraEnv, ELECTRON_RUN_AS_NODE: '1', [RELAUNCH_ENV]: '1' } };
+}
+
+module.exports.CLI_FLAG = CLI_FLAG;
+module.exports.CLI_SCRIPT = CLI_SCRIPT;
+module.exports.cliArgsStart = cliArgsStart;
+module.exports.cliRelaunch = cliRelaunch;

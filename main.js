@@ -18,6 +18,30 @@ if (require('./src/launch-mode').isMcpLaunch(process.argv)) {
   }
   return;
 }
+// CLI（wtk）として呼ばれたとき（AppImage の「--kanban-cli」か、ELECTRON_RUN_AS_NODE が効かなかったとき）は、
+// ウィンドウを開かずに Node として起動し直し、CLI（src/kanban-cli.js）を動かす。標準入出力はそのまま渡す（wtk mcp のため）
+if (require('./src/launch-mode').cliArgsStart(process.argv) >= 0) {
+  const lm = require('./src/launch-mode');
+  const script = path.join(__dirname, 'src', 'kanban-cli.js').replace('app.asar', 'app.asar.unpacked');
+  const extraEnv = {
+    // 常駐モードで自動で起動するときの exe（AppImage は中の exe ではなく AppImage 自体）
+    WORKTREE_KANBAN_APP: process.env.APPIMAGE || process.execPath,
+    WORKTREE_KANBAN_APP_ARGS: app.isPackaged ? '' : JSON.stringify([app.getAppPath()]),
+    WORKTREE_KANBAN_DATA_DIR: process.env.WORKTREE_KANBAN_DATA_DIR || (app.commandLine.hasSwitch('user-data-dir') ? app.commandLine.getSwitchValue('user-data-dir') : path.join(app.getPath('appData'), 'agent-kanban')),
+  };
+  const re = lm.cliRelaunch(process.execPath, process.argv, process.env, script, extraEnv);
+  const inProcess = () => {
+    Object.assign(process.env, extraEnv);
+    require('./src/kanban-cli').main(process.argv.slice(lm.cliArgsStart(process.argv))).then((code) => app.exit(code || 0), () => app.exit(1));
+  };
+  if (!re) inProcess();
+  else {
+    const child = require('child_process').spawn(re.file, re.args, { env: re.env, stdio: 'inherit', windowsHide: true });
+    child.on('error', inProcess);
+    child.on('exit', (code) => app.exit(code ?? 0));
+  }
+  return;
+}
 // 常駐モード（--headless）: ウィンドウを開かずに、スケジューラ・Issue の監視・Slack・遠隔操作のホストだけを動かす（src/headless.js）
 const headlessLib = require('./src/headless');
 const headlessOpts = headlessLib.parseHeadlessOptions(process.argv, process.env);
@@ -75,6 +99,9 @@ const trackersRegistry = require('./src/trackers');
 const { SecretStore } = require('./src/secrets');
 const { SlackBridge } = require('./src/slack');
 const { MobileServer } = require('./src/mobile-server');
+const { ApiServer, API_READ_CHANNELS, writeDiscovery: writeApiDiscovery, clearDiscovery: clearApiDiscovery } = require('./src/api-server');
+const { createApiOps } = require('./src/api-ops');
+const cliShim = require('./src/cli-shim');
 const { CloudflareTunnel, findCloudflared, installHint } = require('./src/cloudflare-tunnel');
 const { createScheduleApi, notificationClickPlan } = require('./src/schedule-wiring');
 const { TerminalManager } = require('./src/terminal');
@@ -584,6 +611,92 @@ async function stopMobile({ keepEnabled = false } = {}) {
   return mobileStatus();
 }
 
+// ---- CLI・MCP から使う（src/api-server.js・src/api-ops.js・src/kanban-cli.js・src/api-mcp.js） ----
+// API は 127.0.0.1 だけで待ち受ける。同じ PC の CLI・MCP は userData/api.json のトークンを読んで使い、
+// ほかの PC はペアリングコードと引き換えにもらったトークンで使う（SSH のポート転送などで届ける）
+let apiServer = null;
+let apiError = '';
+let apiPair = null; // 画面で出したペアリングコード（{ code, expiresAt }）
+
+function cliShimPlan() {
+  const script = path.join(__dirname, 'src', 'kanban-cli.js').replace('app.asar', 'app.asar.unpacked');
+  return cliShim.shimPlan({ platform: process.platform, home: app.getPath('home'), execPath: process.execPath, appImage: process.env.APPIMAGE || '', script, dataDir: app.getPath('userData'), appArgs: app.isPackaged ? [] : [app.getAppPath()] });
+}
+
+function apiStatus() {
+  const server = apiServer?.status() || { listening: false, port: store.settings.apiPort, pairCode: null, devices: [] };
+  if (!server.listening) server.devices = (store.settings.apiDevices || []).map(({ tokenHash, ...d }) => d);
+  if (apiPair && (!server.pairCode || apiPair.expiresAt <= Date.now())) apiPair = null;
+  const plan = cliShimPlan();
+  return {
+    enabled: !!store.settings.apiEnabled,
+    error: apiError,
+    server,
+    pair: apiPair,
+    shim: { file: plan.file, dir: plan.dir, onPath: cliShim.onPath(plan.dir), ...cliShim.shimState(plan) },
+    mcp: plan.mcp,
+    claudeAdd: plan.claudeAdd,
+  };
+}
+
+let apiNotifyTimer = null;
+function notifyApi() {
+  if (apiNotifyTimer) return;
+  apiNotifyTimer = setTimeout(() => {
+    apiNotifyTimer = null;
+    send('cli:changed', apiStatus());
+  }, 100);
+}
+
+async function startApi() {
+  if (!apiServer) {
+    apiServer = new ApiServer({
+      port: store.settings.apiPort,
+      devices: store.settings.apiDevices || [],
+      onDevices: (devices) => {
+        store.settings.apiDevices = devices;
+        store.save();
+      },
+      appVersion: app.getVersion(),
+      mode: appMode,
+      invoke: (channel, arg, who) => {
+        const fn = localHandlers.get(channel);
+        if (!fn) throw new Error(tr('未対応の操作です: {channel}', { channel }));
+        if (!API_READ_CHANNELS.has(channel)) console.log(`[api] ${who?.deviceName || who?.deviceId || '?'}: ${channel}`);
+        // 見せるのは、いつもこのマシンのボード（遠隔のホストにつないでいても混ぜない）
+        if (channel === 'board:get') return withRemoteSession(boardState());
+        return fn(arg);
+      },
+    });
+    apiServer.on('changed', notifyApi);
+    apiServer.on('error', (err) => console.error('CLI・MCP の API のエラー:', err));
+  }
+  try {
+    try {
+      await apiServer.start(store.settings.apiPort);
+    } catch (err) {
+      // 決まったポートがふさがっていたら、空いているポートで待ち受ける（CLI は api.json でポートを知る）
+      if (err && err.code === 'EADDRINUSE') await apiServer.start(0);
+      else throw err;
+    }
+    writeApiDiscovery(app.getPath('userData'), apiServer.discoveryInfo());
+    apiError = '';
+  } catch (err) {
+    apiError = (err && err.message) || String(err);
+    throw err;
+  } finally {
+    notifyApi();
+  }
+  return apiStatus();
+}
+
+async function stopApi() {
+  apiPair = null;
+  clearApiDiscovery(app.getPath('userData'));
+  await apiServer?.stop();
+  notifyApi();
+}
+
 async function stopRemoteHost() {
   store.settings.remoteHostEnabled = false;
   store.save();
@@ -933,6 +1046,36 @@ app.whenReady().then(async () => {
     return remoteSession();
   });
   // スマホから使う
+  // CLI・MCP（設定の「CLI・MCP」）
+  handle('cli:status', () => apiStatus());
+  handle('cli:setEnabled', async (on) => {
+    store.settings.apiEnabled = !!on;
+    store.save();
+    if (on) await startApi();
+    else await stopApi();
+    return apiStatus();
+  });
+  handle('cli:pair', () => {
+    if (!apiServer?.listening()) throw new Error(tr('CLI・MCP の API が動いていません'));
+    apiPair = apiServer.refreshPairCode();
+    return apiStatus();
+  });
+  handle('cli:revoke', ({ id } = {}) => {
+    apiServer ? apiServer.revokeDevice(id) : (store.settings.apiDevices = (store.settings.apiDevices || []).filter((d) => d.id !== id));
+    store.save();
+    notifyApi();
+    return apiStatus();
+  });
+  handle('cli:revokeAll', () => {
+    apiServer ? apiServer.revokeAll() : (store.settings.apiDevices = []);
+    store.save();
+    notifyApi();
+    return apiStatus();
+  });
+  handle('cli:install', () => {
+    cliShim.installShim(cliShimPlan());
+    return apiStatus();
+  });
   handle('mobile:status', () => mobileStatus());
   handle('mobile:start', () => startMobile());
   handle('mobile:stop', () => stopMobile());
@@ -1445,6 +1588,41 @@ app.whenReady().then(async () => {
     if (autoStart) for (const c of cards) agents.start(c.id);
     return cards[0].id;
   });
+  // CLI・MCP の API だけで使う操作（リポジトリを指定して、画面のタブを切り替えずに読む・作る）
+  // まだタブに無いリポジトリにタスクを作るときは、タブに足す（今開いているタブは切り替えない。何も開いていなければ開く）
+  const addRepoTab = async (picked) => {
+    const dir = await resolveRepoDir(String(picked || '').trim());
+    const s = store.settings;
+    if (!s.repoPath) return openRepo(dir);
+    if (cleanRepoTabs(s.repoTabs, s.repoPath).includes(dir)) return dir;
+    const fresh = !hasRepoSettings(s, dir);
+    s.repoTabs = openRepoTab(s.repoTabs, s.repoPath, dir);
+    s.recentRepoPaths = touchRecentRepo(s.recentRepoPaths, dir);
+    store.save();
+    notifyBoard();
+    if (fresh) await initRepoSettings(dir).catch(() => {});
+    refreshCodeHost(dir).catch(() => {});
+    return dir;
+  };
+  const apiOps = createApiOps({ store, agents, addRepo: addRepoTab });
+  handle('api:status', () => apiOps.status());
+  handle('api:tasks', (a) => apiOps.tasks(a || {}));
+  handle('api:task', (a) => apiOps.task(a || {}));
+  handle('api:create', (a) => apiOps.create(a || {}));
+  handle('api:pipelines', (a) => apiOps.pipelines(a || {}));
+  handle('api:pairCode', () => {
+    if (!apiServer?.listening()) throw new Error(tr('CLI・MCP の API が動いていません'));
+    apiPair = apiServer.refreshPairCode();
+    notifyApi();
+    if (HEADLESS) headlessLib.log(`CLI・MCP のペアリングのコードを出しました（${new Date(apiPair.expiresAt).toLocaleTimeString()} まで）`);
+    return { ...apiPair, port: apiServer.port };
+  });
+  handle('api:devices', () => apiStatus().server.devices);
+  handle('api:revoke', ({ id } = {}) => {
+    const r = apiServer ? apiServer.revokeDevice(String(id || '')) : false;
+    notifyApi();
+    return r;
+  });
   handle('chat:create', ({ message, title, session, skill, agent, model, attachments }) => agents.createChat({ message, title, session, skill, agent, model, attachments }).id);
   handle('card:createFromIssues', async ({ numbers, extra, autoStart, session, skill, agent, model, cycleIds }) => {
     const { cards, errors } = await agents.createFromIssues({ numbers, extra, session, skill, agent, model });
@@ -1633,6 +1811,21 @@ app.whenReady().then(async () => {
       store.settings.remoteHostEnabled = false;
       store.save();
     }
+  }
+
+  // CLI・MCP の API（既定で動かす。wtk が常駐モードを起動したときは --api で必ず動かす）
+  if (store.settings.apiEnabled || process.argv.includes('--api')) {
+    startApi()
+      .then((st) => {
+        if (HEADLESS) headlessLib.log(`CLI・MCP の API: 127.0.0.1:${st.server.port} で待ち受けています`);
+      })
+      .catch((err) => console.error('CLI・MCP の API の起動に失敗:', err));
+  }
+  // 前に置いた wtk が古い場所のアプリを指していたら、書き直す（アプリを移した・AppImage を入れ替えた）
+  try {
+    cliShim.refreshShim(cliShimPlan());
+  } catch (err) {
+    console.error('wtk を書き直せませんでした:', err.message);
   }
 
   // 前回スマホから使えるようにしていたら、起動時に再開する（トンネルがつながるのは待たない）
@@ -1859,6 +2052,8 @@ app.on('before-quit', (e) => {
     sshTunnel?.close();
     remoteHost?.stop();
     stopMobile({ keepEnabled: true });
+    clearApiDiscovery(app.getPath('userData'));
+    apiServer?.stop();
     headlessLib.clearLockInfo(app.getPath('userData'));
     if (HEADLESS) headlessLib.log('終了しました');
     return;
@@ -1879,6 +2074,8 @@ app.on('before-quit', (e) => {
       sshTunnel?.close();
       await remoteHost?.stop();
       await stopMobile({ keepEnabled: true });
+      clearApiDiscovery(app.getPath('userData'));
+      await apiServer?.stop();
     } catch {
       /* */
     }

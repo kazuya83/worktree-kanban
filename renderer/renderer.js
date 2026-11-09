@@ -4726,6 +4726,8 @@ function renderSettingsView() {
     update: `<div id="updPanel" class="gh-panel upd-panel">${updatePanelHtml(state.update)}</div>`,
     integrations: `<small class="muted s-note">${tr('ここの項目は、どのプロジェクトでも同じです。トークンは OS の安全な保存先の鍵で暗号化して保存し、保存したあとは画面に出しません。')}</small>
       <div id="sTrackers" class="tracker-list">${tr('連携先を確かめています…')}</div>`,
+    cli: `<small class="muted s-note">${tr('エージェントや外のスクリプトから、タスクを作る・状態を見る・操作する（開始・承認・マージ・削除・Pipeline の起動など）ためのコマンド（wtk）と MCP サーバーです。ここの項目は、どのプロジェクトでも同じです。')}</small>
+      <div id="sCli" class="remote-box">${tr('状態を読み込み中…')}</div>`,
     branch: `<small class="muted s-note">${tr('「このプロジェクト」の項目{v1}は、プロジェクト（リポジトリ）ごとに覚えます。タブを切り替えると、そのプロジェクトの設定に変わります。初めて開いたプロジェクトは初期値から始まります。', { v1: (projectName ? tr('（<code>{v1}</code>）', { v1: (esc(projectName)) }) : '') })}</small>
       <label class="field">${tr('<span>ベースブランチ（worktree の作成元・マージ先）</span>')}
         <select id="sBase">${baseOptions({ branches: [], current: '' })}</select></label>
@@ -5336,6 +5338,7 @@ ${tr('読めなかったファイル: {v1}', { v1: (parsed.skipped.join(tr('、'
     drawShared(st);
   };
   drawTrackers();
+  drawCliSettings();
   refreshGh();
   bindUpdatePanel();
   // 言語は保存ボタンを待たず、選んだら手元の設定へ書いて画面を読み直す
@@ -5587,6 +5590,68 @@ function updateTrackerStatus(board) {
     const s = ((board && board.trackerStatus) || {})[el.dataset.trackerStatus];
     if (s) el.textContent = s.text || '';
   });
+}
+
+// ---------------- CLI・MCP ----------------
+// ほかのツールから操作する入口（main.js の cli:*。API は src/api-server.js、コマンドは src/kanban-cli.js）
+async function drawCliSettings(st) {
+  const box = $('sCli');
+  if (!box) return;
+  if (!st) {
+    try {
+      st = await api.cliStatus();
+    } catch (err) {
+      if ($('sCli') === box) box.textContent = err.message || String(err);
+      return;
+    }
+  }
+  if ($('sCli') !== box) return;
+  const fmt = (t) => (t ? new Date(t).toLocaleString(I18n.locale()) : '—');
+  const on = !!st.server.listening;
+  const port = st.server.port;
+  const shim = st.shim || {};
+  const wtk = shim.onPath ? 'wtk' : shim.file;
+  const devices = st.server.devices || [];
+  const code = (id, text) => `<div class="remote-key-row"><div class="remote-ssh" id="${id}">${esc(text)}</div><button class="btn small" type="button" data-copy="${id}">${tr('コピー')}</button></div>`;
+  const shimLine = shim.installed
+    ? shim.ours
+      ? `${tr('入れてあります: {v1}', { v1: `<code>${esc(shim.file)}</code>` })}${shim.onPath ? '' : `<br /><small class="muted">${tr('このフォルダは PATH に入っていません。PATH に足すか、上のパスで呼んでください。')}</small>`}`
+      : tr('同じ名前の別のファイルがあります: {v1}', { v1: `<code>${esc(shim.file)}</code>` })
+    : tr('まだ入れていません');
+  box.innerHTML = `
+    <label class="check"><input type="checkbox" id="cliOn" ${st.enabled ? 'checked' : ''} /> ${tr('CLI・MCP から使えるようにする')}</label>
+    <small class="muted">${on ? tr('127.0.0.1:{v1} で待ち受けています。同じ PC の wtk・MCP は、アプリが本人だけ読めるファイルに書いたトークンで、そのまま使えます。', { v1: esc(port) }) : tr('止まっています。アプリを閉じているときに wtk を使うと、常駐モードで起動して使います（そのときは API も動きます）。')}</small>
+    ${st.error ? `<div class="relay-sum-err small">${icon('alert')}${esc(st.error)}</div>` : ''}
+    <div><b>${tr('コマンド（wtk）')}</b></div>
+    <div>${shimLine}</div>
+    <div class="row"><button class="btn small" type="button" id="cliInstall">${shim.installed && shim.ours ? tr('入れ直す') : tr('wtk を入れる')}</button></div>
+    ${code('cliExample', `${wtk} create "Fix the login bug" --start\n${wtk} tasks\n${wtk} --help`)}
+    <div><b>${tr('MCP サーバー（エージェントから使う）')}</b></div>
+    <small class="muted">${tr('Claude Code なら次のコマンドで足せます。ほかのエージェントには、下の設定を MCP の設定ファイルに足してください。')}</small>
+    ${code('cliClaudeAdd', st.claudeAdd || '')}
+    ${code('cliMcpJson', JSON.stringify(st.mcp || {}, null, 2))}
+    <div><b>${tr('ほかの PC から使う')}</b></div>
+    <small class="muted">${tr('API はこの PC の 127.0.0.1 だけで待ち受けます。ほかの PC からは SSH のポート転送でつなぎ、ペアリングコードでログインします。')}</small>
+    ${code('cliSsh', `ssh -N -L ${port}:127.0.0.1:${port} <${tr('この PC')}>\nwtk login --url http://127.0.0.1:${port} --code <${tr('コード')}>`)}
+    ${on ? `<div class="row"><button class="btn small primary" type="button" id="cliPair">${tr('ペアリングコードを出す')}</button></div>` : ''}
+    ${st.pair ? `<div class="pair-code">${esc(st.pair.code)}</div><small class="muted">${tr('このコードは {v1} まで、1 回だけ使えます。', { v1: esc(new Date(st.pair.expiresAt).toLocaleTimeString(I18n.locale())) })}</small>` : ''}
+    <div><b>${tr('ペアリングした PC')}</b></div>
+    ${devices.length ? devices.map((d) => `<div class="remote-key-row"><div><b>${esc(d.name || d.id)}</b><br /><small class="muted">${tr('つないだ日: {a} ・ 最後に使った日: {b} ・ 期限: {c}', { a: esc(fmt(d.createdAt)), b: esc(fmt(d.lastSeenAt)), c: esc(fmt(d.expiresAt)) })}</small></div><button class="btn small" type="button" data-cli-revoke="${esc(d.id)}">${tr('無効にする')}</button></div>`).join('') : `<div class="muted small">${tr('まだありません')}</div>`}
+    ${devices.length ? `<div class="row"><button class="btn small" type="button" id="cliRevokeAll">${tr('すべて無効にする')}</button></div>` : ''}`;
+  const busy = (label, fn) => runBusy(label, fn).then((r) => { if (r && r.server) drawCliSettings(r); return r; });
+  box.querySelectorAll('[data-copy]').forEach((b) => {
+    b.onclick = () => navigator.clipboard.writeText($(b.dataset.copy).textContent).then(() => toast(tr('コピーしました'), 'ok'), () => toast(tr('コピーできませんでした')));
+  });
+  $('cliOn').onchange = (e) => busy(tr('保存しています…'), () => api.cliSetEnabled(e.target.checked));
+  $('cliInstall').onclick = () => busy(tr('wtk を入れています…'), () => api.cliInstall()).then((r) => r && toast(tr('wtk を入れました'), 'ok'));
+  if ($('cliPair')) $('cliPair').onclick = () => busy(tr('コードを発行しています…'), () => api.cliPair());
+  box.querySelectorAll('[data-cli-revoke]').forEach((b) => {
+    b.onclick = () => busy(tr('無効にしています…'), () => api.cliRevoke({ id: b.dataset.cliRevoke }));
+  });
+  if ($('cliRevokeAll')) $('cliRevokeAll').onclick = () => {
+    if (!confirm(tr('ペアリングした PC を、すべて無効にしますか？'))) return;
+    busy(tr('無効にしています…'), () => api.cliRevokeAll());
+  };
 }
 
 async function drawTrackers() {
@@ -6177,6 +6242,11 @@ api.onRemote((rs) => {
     if (remoteDialogRedraw && $('rcBox') && !isBusy()) remoteDialogRedraw();
     else if (!$('rcBox')) remoteDialogRedraw = null;
   }
+});
+
+// CLI・MCP の状態が変わった（ペアリングした・コードの期限が切れた など）。設定画面を開いていれば描き直す
+api.onCli((st) => {
+  if ($('sCli') && !isBusy()) drawCliSettings(st);
 });
 
 // スマホから使うの状態が変わった（トンネルの URL が出た・スマホがつながった など）。開いているダイアログを描き直す

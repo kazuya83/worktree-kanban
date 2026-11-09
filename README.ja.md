@@ -98,6 +98,15 @@ Claude Code 以外では、CLI によって使える機能が違います。カ�
 
 手順と、つながらないときの直し方は [docs/mobile.ja.md](docs/mobile.ja.md) にあります。
 
+### ほかのツールから使う（CLI・MCP）
+エージェントや外のスクリプトから、タスクを作る・状態を見る・操作する（開始・承認・回答・マージ・PR・削除・Pipeline の起動）ができます。
+
+- `wtk` はシェルやスクリプトから使うコマンドです（`wtk create "ログインの不具合を直す" --start`、`wtk tasks`、`wtk merge <id>`）。設定の「CLI・MCP」から入れます
+- `wtk mcp` は MCP サーバーです。Claude Code などのエージェントが、自分でボードを操作できます
+- アプリが動いていなければ、wtk が常駐モードで起動します。ほかの PC からも、使い捨てのコードでペアリングすれば、SSH トンネル越しに使えます
+
+詳しくは [docs/cli.ja.md](docs/cli.ja.md) にあります。
+
 このほか、カードの状態（列）のドラッグ&ドロップでの変更、実行中のエージェントへのメッセージ（btw）、画像・ファイルの添付、競争（複数のエージェントに同じタスクを解かせる）、Windows での WSL のリポジトリにも対応しています。使い方は [docs/usage.ja.md](docs/usage.ja.md) にまとめています。
 
 ### Pipeline: 文章でフローを組み、それに沿ってタスクを動かす
@@ -295,6 +304,7 @@ irm https://raw.githubusercontent.com/kazuya83/worktree-kanban/main/install.ps1 
 | [連携](docs/integrations.ja.md) | GitLab・Linear・Jira・Slack の設定、できることとできないこと |
 | [遠隔操作](docs/remote.ja.md) | 別の PC から SSH トンネルでボードを操作する手順と、つながらないときの直し方 |
 | [スマホから使う](docs/mobile.ja.md) | 外からスマホのブラウザでボードを操作する手順（Cloudflare Tunnel）と、つながらないときの直し方 |
+| [CLI と MCP](docs/cli.ja.md) | `wtk` と MCP サーバーで、スクリプトやエージェントからタスクを作る・操作する（ほかの PC からも） |
 | [常駐モード](docs/headless.ja.md) | ウィンドウを開かずに動かし続ける（Linux のサーバーでも）。スケジューラ・Slack・Issue の監視・遠隔操作のホスト |
 | [インストール](docs/install.ja.md) | インストール・アップデート・アンインストール、Windows で WSL のリポジトリを使う |
 | [開発者向け](docs/development.ja.md) | ソースから動かす・ビルド・リリース・アプリのしくみ・テスト |

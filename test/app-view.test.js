@@ -247,12 +247,12 @@ test('メニュー: 閉じているときの Esc とほかのキーには触ら�
 
 // ---- 設定画面の左の一覧 ----
 
-const SECTION_IDS = ['general', 'update', 'integrations', 'branch', 'issue', 'permission', 'task', 'share', 'agents', 'custom', 'orchestration'];
+const SECTION_IDS = ['general', 'update', 'integrations', 'cli', 'branch', 'issue', 'permission', 'task', 'share', 'agents', 'custom', 'orchestration'];
 
 test('SETTINGS_NAV: 節の並びとグループが取り決めどおり', () => {
   assert.deepStrictEqual(SETTINGS_NAV.flatMap((g) => g.items.map((i) => i.id)), SECTION_IDS);
   assert.deepStrictEqual(SETTINGS_NAV.map((g) => g.heading), [null, 'このプロジェクト', 'エージェント']);
-  assert.deepStrictEqual(SETTINGS_NAV.map((g) => g.items.length), [3, 5, 3]);
+  assert.deepStrictEqual(SETTINGS_NAV.map((g) => g.items.length), [4, 5, 3]);
 });
 
 test('SETTINGS_NAV: すべての項目にラベルと、存在するアイコンがある', () => {
