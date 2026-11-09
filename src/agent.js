@@ -3166,21 +3166,22 @@ class AgentManager extends EventEmitter {
   }
 
   // エージェントの CLI を起動する（Claude Code / Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid）。child.agentCmd に起動したコマンドの名前を入れる
-  async spawnAgent(agent, cwd, args, extraEnv = {}) {
+  // cmd: CLI とは別のコマンド（ACP のアダプタなど）を動かすとき
+  async spawnAgent(agent, cwd, args, extraEnv = {}, { cmd: override } = {}) {
     const s = this.store.settings;
     const w = wsl.parseWslPath(cwd);
     if (w) {
       // Windows のパス（MCP の設定ファイルなど）は、WSL の中から見えるパス（/mnt/c/...）にして渡す
       const mapped = args.map((a) => (/^[A-Za-z]:[\\/]/.test(a) || wsl.isWslPath(a) ? wsl.toLinux(a) : a));
       // 設定のパスは Windows 側のものなので、WSL の中では Claude 以外はコマンド名で探す
-      const cmd = agent === 'claude' ? s.wslClaudePath || 'claude' : providers.AGENTS[agent].defaultCmd;
+      const cmd = override || (agent === 'claude' ? s.wslClaudePath || 'claude' : providers.AGENTS[agent].defaultCmd);
       const cm = wsl.command(w.distro, w.linux, cmd, mapped, { path: await wsl.shellPath(w.distro), env: extraEnv });
       const child = spawn(cm.file, cm.args, { env: process.env, windowsHide: true });
       child.viaWsl = w.distro;
       child.agentCmd = cmd;
       return child;
     }
-    const cmd = providers.agentCommand(s, agent);
+    const cmd = override || providers.agentCommand(s, agent);
     const resolved = resolveCommand(cmd);
     if (!resolved) throw Object.assign(new Error(notFoundMessage(cmd, agent)), { code: 'ENOENT' });
     // Windows の .cmd / .bat はシェル経由でしか起動できない。.exe は直接起動する
@@ -3197,17 +3198,31 @@ class AgentManager extends EventEmitter {
   }
 
   // 承認のやりとりができる起動のしかたが、この CLI の版で使えるかを確かめる（使えないときは前の起動のしかたに戻す）。
+  // 版によって引数が違う CLI は、順に試す。使えた起動のしかたの番号を返す（どれも使えなければ null）。
   // 使えると分かったら覚えておく。使えないと分かったときは、CLI を入れ替えたときのために、しばらくしたら確かめ直す
   async rpcReady(kind, agent, cwd) {
     const key = `${agent}:${wsl.parseWslPath(cwd)?.distro || ''}`;
     this.rpcSupport = this.rpcSupport || new Map();
     const known = this.rpcSupport.get(key);
-    if (known && (known.ok || Date.now() - known.at < RPC_RECHECK_MS)) return known.ok;
+    if (known && (known.ok || Date.now() - known.at < RPC_RECHECK_MS)) return known.ok ? known.variant : null;
+    let variant = null;
+    for (let i = 0; i < providers.rpcVariants(agent) && variant == null; i++) {
+      const r = await this.probeRpcVariant(kind, agent, cwd, i);
+      if (r === 'missing') return i; // CLI が見つからない: このあとの起動で、いつものエラーを出す
+      if (r) variant = i;
+    }
+    this.rpcSupport.set(key, { ok: variant != null, variant, at: Date.now() });
+    return variant;
+  }
+
+  // 1つの起動のしかたを確かめる（true / false。CLI そのものが見つからなければ 'missing'）
+  async probeRpcVariant(kind, agent, cwd, variant) {
+    const cmd = providers.rpcCommand(agent, variant);
     let child;
     try {
-      child = await this.spawnAgent(agent, cwd, providers.rpcArgs(agent, {}));
+      child = await this.spawnAgent(agent, cwd, providers.rpcArgs(agent, { variant }), {}, { cmd });
     } catch {
-      return true; // CLI が見つからない: このあとの起動で、いつものエラーを出す
+      return cmd ? false : 'missing'; // アダプタが入っていないときは、ふだんの起動のしかたにする
     }
     const probe = AgentRpc.probeRpc(kind, { cwd: wsl.parseWslPath(cwd)?.linux || cwd, version: APP_VERSION, write: (t) => child.stdin.write(t) });
     child.stdin.on('error', () => {});
@@ -3240,7 +3255,6 @@ class AgentManager extends EventEmitter {
     clearTimeout(timer);
     probe.close('probe finished');
     closeRpcChild(child);
-    this.rpcSupport.set(key, { ok, at: Date.now() });
     return ok;
   }
 
@@ -3461,6 +3475,8 @@ class AgentManager extends EventEmitter {
     const spoken = withReplyLanguage(prompt);
     let args;
     let rpcKind = null;
+    let rpcVariant = null; // ACP の起動のしかた（providers.js の ACP_LAUNCH の何番目か）
+    let rpcModel = null; // ACP の会話に設定するモデル（起動の引数で渡せない CLI）
     if (agent === 'claude') {
       // stdin を開いたままにして、実行中でもメッセージ（btw）を送れるようにする
       args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--replay-user-messages'];
@@ -3486,14 +3502,26 @@ class AgentManager extends EventEmitter {
         c.forkNext = false;
       }
       const attachDir = this.attachDirOf(c);
-      const sessionId = c.sessionId ? assertSessionId(c.sessionId) : null;
+      let sessionId = c.sessionId ? assertSessionId(c.sessionId) : null;
       rpcKind = providers.rpcKindOf(agent, mode, { sessionId, sessionVia: c.sessionVia });
-      if (rpcKind && !(await this.rpcReady(rpcKind, agent, cwd))) {
-        rpcKind = null;
-        this.log(c, 'system', tr('この版の {label} は承認のやりとりに対応していないので、CLI 側の許可で動かします', { label }));
+      if (rpcKind) {
+        rpcVariant = await this.rpcReady(rpcKind, agent, cwd);
+        if (rpcVariant == null) {
+          rpcKind = null;
+          this.log(c, 'system', providers.rpcCommand(agent) ? tr('{cmd} が見つからないか使えないので、{label} をいつもの起動のしかたで動かします（承認・btw・金額は使えません）', { cmd: providers.rpcCommand(agent), label }) : tr('この版の {label} は承認のやりとりに対応していないので、CLI 側の許可で動かします', { label }));
+        }
       }
-      if (rpcKind) args = providers.rpcArgs(agent, { mode, model: modelOf(c, s) });
-      else args = providers.buildArgs(agent, { mode, model: modelOf(c, s), sessionId, prompt: spoken, includeDirs: attachDir ? [attachDir] : [] });
+      // ACP の会話は、いつもの起動のしかたでは続けられない（権限モードを変えたときなど）
+      if (!rpcKind && sessionId && c.sessionVia === 'acp') {
+        this.log(c, 'system', tr('前の会話は ACP で始めたので、この起動のしかたでは続けられません。新しい会話で始めます'));
+        sessionId = null;
+        c.sessionId = null;
+      }
+      if (rpcKind) {
+        const model = modelOf(c, s);
+        rpcModel = rpcKind === 'acp' && providers.rpcSessionModel(agent) ? model : null;
+        args = providers.rpcArgs(agent, { mode, model: rpcModel ? null : model, includeDirs: attachDir ? [attachDir] : [], variant: rpcVariant });
+      } else args = providers.buildArgs(agent, { mode, model: modelOf(c, s), sessionId, prompt: spoken, includeDirs: attachDir ? [attachDir] : [] });
     }
 
     const sentAtts = c.pendingAttachments || null;
@@ -3505,17 +3533,21 @@ class AgentManager extends EventEmitter {
     if (agent !== 'claude') this.log(c, 'system', c.sessionId ? tr('{label} で動かします（会話 {id} の続き）', { label, id: c.sessionId.slice(0, 8) }) : tr('{label} で動かします', { label }));
     // 承認待ちの MCP ツール呼び出しがタイムアウトしないようにする
     // CLI 側の許可を環境変数で渡す CLI（OpenCode）もある
-    const permEnv = agent === 'claude' || rpcKind ? {} : providers.agentEnv(agent, mode);
-    const child = await this.spawnAgent(agent, cwd, args, { MCP_TOOL_TIMEOUT: '86400000', ...this.portEnv(c), ...permEnv });
+    // （OpenCode は ACP でも同じ。「確認」にしたものはカードに出る）
+    const permEnv = agent === 'claude' ? {} : providers.agentEnv(agent, mode);
+    const rpcCmd = rpcKind === 'acp' ? providers.rpcCommand(agent, rpcVariant) : null;
+    const child = await this.spawnAgent(agent, cwd, args, { MCP_TOOL_TIMEOUT: '86400000', ...this.portEnv(c), ...permEnv }, { cmd: rpcCmd });
     const cmd = child.agentCmd;
     this.procs.set(c.id, child);
     // sent: stdin に書いたメッセージ（acked = claude が受け取ったことをリプレイで確認済み）
-    const run = { agent, resultError: null, finished: false, child, sent: [], stdinClosed: false, idleTimer: null };
+    // costUsd: この起動で足した金額（ACP の usage_update から）
+    const run = { agent, resultError: null, finished: false, child, sent: [], stdinClosed: false, idleTimer: null, costUsd: 0 };
     if (rpcKind) {
       run.rpcKind = rpcKind;
       run.rpc = AgentRpc.createRpcSession(rpcKind, {
         mode,
         model: modelOf(c, s),
+        sessionModel: rpcModel,
         sessionId: c.sessionId || null,
         cwd: wsl.parseWslPath(cwd)?.linux || cwd,
         prompt: spoken,
@@ -3526,6 +3558,9 @@ class AgentManager extends EventEmitter {
           if (!run.finished) for (const a of actions) this.applyAction(c, a, run);
         },
         permit: (req) => this.requestPermission({ cardId: c.id, ...req }),
+        ask: (questions) => this.askQuestion(c, { questions }).then((d) => (d && d.behavior === 'allow' && d.updatedInput && d.updatedInput.answers) || null),
+        delivered: (btwId) => this.btwDelivered(c, btwId, label),
+        undelivered: (btwId, message) => this.btwUndelivered(c, run, btwId, message),
         done: () => closeRpcChild(child),
       });
     } else if (agent !== 'claude') run.parser = providers.createParser(agent, { summarize: summarizeInput });
@@ -3552,7 +3587,7 @@ class AgentManager extends EventEmitter {
     child.stdin.on('error', () => {});
     if (agent === 'claude') this.writeMessage(run, spoken, null, attachments.imageBlocks(sentAtts));
     else if (run.rpc) {
-      run.stdinClosed = true; // 指示は RPC で渡す。実行中の btw は、ほかの CLI と同じく終了後の追加指示にする
+      run.stdinClosed = true; // 指示は RPC で渡す。実行中の btw も RPC で渡す（Codex は途中に足し、ACP は止めて次のターンにする）
       run.rpc.start();
     } else {
       // ここへ来るのは RPC を使わないとき。指示は stdin で1回だけ受け取る（Cursor・Copilot は引数で受け取ったので空で閉じる）。実行中の btw は終了後の追加指示にする
@@ -3881,16 +3916,38 @@ class AgentManager extends EventEmitter {
         run.lastError = truncate(a.text, 500);
         this.log(c, 'stderr', truncate(a.text, 2000));
         break;
+      case 'cost':
+        this.addSessionCost(c, run, a.sessionId, a.total);
+        break;
       case 'result':
         if (a.error) {
           run.resultError = truncate(a.error, 1000);
           this.log(c, 'error',tr('エラーで終了しました: {resultError}', { resultError: run.resultError }));
-        } else this.log(c, 'result',tr('完了しました（{agentLabel}）', { agentLabel: agentLabel(run.agent) }));
+        } else if (run.costUsd > 0) this.log(c, 'result', tr('完了しました（{agentLabel} / ${amount}）', { agentLabel: agentLabel(run.agent), amount: run.costUsd.toFixed(3) }));
+        else this.log(c, 'result',tr('完了しました（{agentLabel}）', { agentLabel: agentLabel(run.agent) }));
         this.changed(c);
         break;
       default:
         break;
     }
+  }
+
+  // ACP の usage_update の金額（会話の合計）を、カードの金額に足す。
+  // 前の起動の合計を覚えておき、続きの会話で合計が前から数えたものなら、増えた分だけ足す
+  addSessionCost(c, run, sessionId, total) {
+    if (!Number.isFinite(total) || total < 0) return;
+    if (run.costSeen == null) {
+      const prev = c.sessionCost && c.sessionCost.id === sessionId ? c.sessionCost.total : 0;
+      run.costSeen = total >= prev ? prev : 0;
+    }
+    const add = total - run.costSeen;
+    run.costSeen = total;
+    c.sessionCost = { id: sessionId || null, total };
+    if (add <= 0) return;
+    run.costUsd += add;
+    c.costUsd = (c.costUsd || 0) + add;
+    this.store.addCost(c.repoPath, add);
+    this.changed(c);
   }
 
   // ---------- 実行中のメッセージ（btw） ----------
@@ -3948,6 +4005,25 @@ class AgentManager extends EventEmitter {
     }
   }
 
+  // RPC で btw をエージェントに渡した
+  btwDelivered(c, btwId, label) {
+    const b = (c.btw || []).find((x) => x.id === btwId);
+    if (!b || b.state !== 'sent') return;
+    b.state = 'delivered';
+    b.deliveredAt = Date.now();
+    this.log(c, 'system', tr('btw のメッセージを {label} が受け取りました', { label }));
+    this.changed(c);
+  }
+
+  // Codex の turn/steer が断られた（ターンが終わるところだったなど）: 終わったあとの追加指示にする
+  btwUndelivered(c, run, btwId, message) {
+    const b = (c.btw || []).find((x) => x.id === btwId);
+    if (!b || b.state !== 'sent' || run.finished) return;
+    b.state = 'follow';
+    this.log(c, 'system', tr('btw を作業の途中に足せなかったので、終わったあとに追加指示として送ります（{message}）', { message }));
+    this.changed(c);
+  }
+
   /**
    * 停止・失敗で終わったときは、予約した btw を送らずに「届かなかった」にする
    * @returns {false} 何も enqueue しない
@@ -3995,9 +4071,10 @@ class AgentManager extends EventEmitter {
   }
 
   /**
-   * 実行中のエージェントにメッセージを送る（btw）。Claude は今の作業にそのまま反映する。
+   * 実行中のエージェントにメッセージを送る（btw）。Claude・Codex（app-server）は今の作業にそのまま反映する。
+   * ACP で動かしている CLI は、今の作業を止めて、メッセージを次のターンとして送る。
    * 待機中なら、開始するときの指示に付け足す。
-   * Claude 以外の実行中は、終わったあとに追加指示として送る予約にする
+   * それ以外の CLI の実行中は、終わったあとに追加指示として送る予約にする
    */
   btw(id, text) {
     const c = this.must(id);
@@ -4009,8 +4086,17 @@ class AgentManager extends EventEmitter {
       c.pendingPrompt = `${c.pendingPrompt || ''}\n\n${wrapped}`;
       entry.state = 'queued';
     } else if (c.status === 'running' && agentOf(c) !== 'claude') {
-      // Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid は実行中の stdin 追加に対応していないので、終了後の追加指示にする
-      entry.state = 'follow';
+      // Codex（app-server）は動いているターンに足す。ACP の CLI は今のターンを止めて、btw を次のターンとして送る。
+      // それ以外（いつもの起動のしかた）は実行中の stdin 追加に対応していないので、終了後の追加指示にする
+      const run = this.runs && this.runs.get(id);
+      // ACP は作業を止めてから渡すので、止める前の続きから進めてもらう
+      const said = run && run.rpcKind === 'acp' ? `（作業中のユーザーからの追加メッセージ。これを伝えるために作業を一度止めました。これを踏まえて、止める前の作業の続きを進めてください）\n${text}` : wrapped;
+      if (run && run.rpc && !run.finished && run.rpc.interject(said, entry.id)) {
+        if (run.rpcKind === 'acp') {
+          this.log(c, 'system', tr('btw を渡すために、今の作業を止めて続きから動かします'));
+          this.denyAllPending(c.id, tr('btw を渡すために止めました'));
+        }
+      } else entry.state = 'follow';
     } else {
       const run = this.runs && this.runs.get(id);
       if (c.status !== 'running' || !run || run.finished || run.stdinClosed) {

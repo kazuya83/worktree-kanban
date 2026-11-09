@@ -290,7 +290,7 @@ You can open a shell inside the app and type commands yourself. Agents still run
 - During remote control, terminals opened on host tabs run on the host. The panel lists both the host's terminals and this machine's. From a phone, it can be used only after you allow it (see [Use from your phone](mobile.md))
 
 ## btw (send a message while running)
-From the "btw" tab of a running card, you can send a message to Claude without stopping its work. Once received, it shows "Delivered".
+From the "btw" tab of a running card, you can send a message to Claude without stopping its work. Once received, it shows "Delivered". Codex (when running on app-server) also receives it without stopping. CLIs that run over ACP, such as Cursor, Gemini, OpenCode, and Copilot CLI, stop the current work and continue with the message added (see [Agents](agents.md)).
 
 ![btw tab](images/en/btw.png)
 

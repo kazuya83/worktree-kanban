@@ -27,9 +27,20 @@ With "Agent" when you create a task, you choose whether it runs on **Claude Code
 - When a task is stopped in review or has failed, you can return to the point just before a step or a run. Files, Pipeline progress, and the conversation go back to that point, later changes are discarded, and work starts right away. See [Restore an earlier point](usage.md#restore-an-earlier-point)
 - Branch naming, conflict resolution, the spec check, conversations, and skill suggestions work on every agent (branch names and conflict resolution are handled by the task's agent)
 - Tasks created from an Issue can also choose an agent, Pipeline, or competition (with competition, each Issue gets one card per agent)
-- Codex runs as `codex exec --json` (`codex app-server` when you approve on the card), Antigravity as `agy --output-format stream-json`, Gemini as `gemini --output-format stream-json`, Cursor as `cursor-agent acp` (`cursor-agent -p --output-format stream-json` on versions without it), OpenCode as `opencode run --format json`, Copilot CLI as `copilot -p … --output-format json`, Amp as `amp -x --stream-json` (`amp threads continue` to continue), Pi as `pi --mode json`, and Droid as `droid exec -o stream-json`. Follow-up instructions continue the same conversation
-- Because of how their CLIs work, Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid do not support multiple-choice questions, btw (messages while running), continuing an existing conversation (from the terminal), or cost display
-- **In-card approval** works on Claude Code, Codex, and Cursor. "Always allow" is remembered only for that card. The allowed tools setting also applies (a prefix rule such as `Bash(npm test:*)` does not match commands chained with `;` or `|`). Each permission mode works as follows
+- Codex runs as `codex exec --json` (`codex app-server` when you approve on the card), Antigravity as `agy --output-format stream-json`, Gemini as `gemini --experimental-acp` (`gemini --output-format stream-json` on versions without it), Cursor as `cursor-agent acp` (`cursor-agent -p --output-format stream-json` on versions without it), OpenCode as `opencode acp` (`opencode run --format json` on versions without it), Copilot CLI as `copilot --acp` (`copilot -p … --output-format json` on versions without it), Amp as `amp -x --stream-json` (`amp threads continue` to continue), Pi as `pi --mode json`, and Droid as `droid exec -o stream-json`. Follow-up instructions continue the same conversation
+- Cursor, Gemini, OpenCode, and Copilot CLI run over **ACP** (Agent Client Protocol), so they get features close to Claude Code. Amp and Pi also run over ACP under "Allow everything automatically" when an ACP adapter (`amp-acp` / `pi-acp`) is on PATH (the adapters cannot take the list of tools to turn off, so in other modes they run the usual way with commands turned off). The available features are as follows (no CLI can continue an existing conversation from the terminal)
+
+| Feature | Claude Code | Codex | Cursor | Gemini, OpenCode, Copilot CLI | Amp, Pi (ACP) | Antigravity, Droid |
+| --- | --- | --- | --- | --- | --- | --- |
+| In-card approval | ✓ | ✓ (Ask every time / Auto-approve file edits) | ✓ | ✓ | — (only used with Allow everything automatically) | — |
+| Multiple-choice questions | ✓ | ✓ (when running on app-server) | ✓ | — | — | — |
+| btw (messages while running) | Passed without stopping the work | Passed without stopping the work (`turn/steer`, when running on app-server) | Stops the current work and continues with the message added | Same (stop and continue) | Same (stop and continue) | Follow-up after the run |
+| Cost | ✓ | — | When the CLI reports it | When the CLI reports it | When the CLI reports it | — |
+
+- Questions from Codex (`item/tool/requestUserInput`) and Cursor (its own `cursor/ask_question`) are shown in the question form on the card (standard ACP has no question exchange yet). Cursor only accepts options, so an answer that is not one of the options (free text) is passed as the "reason for skipping", with the text as is
+- ACP has no way to add a message to a running turn, so sending btw stops the current work with `session/cancel` and sends the message as the next turn, with a note to continue the work in light of it. Because the work is stopped, any approval waiting at that time is cancelled
+- Cost is taken from the conversation total (USD) in ACP's `usage_update`, and the increase is added to the card. Codex's app-server does not report cost, so none is shown
+- **In-card approval** works on Claude Code, Codex, Cursor, Gemini, OpenCode, and Copilot CLI. "Always allow" is remembered only for that card. The allowed tools setting also applies (a prefix rule such as `Bash(npm test:*)` does not match commands chained with `;` or `|`). Each permission mode works as follows
 
 | Permission mode | Codex | Cursor | Antigravity | Gemini |
 | --- | --- | --- | --- | --- |
@@ -38,7 +49,20 @@ With "Agent" when you create a task, you choose whether it runs on **Claude Code
 | Ask every time (`default`) | Commands and file changes are **approved on the card** | Commands not in allow are **approved on the card** (Cursor does not ask about file edits, so they are written directly) | Changes are denied (`default`) | `default` |
 | Allow everything automatically | `--dangerously-bypass-approvals-and-sandbox` | `--force --approve-mcps` | `--dangerously-skip-permissions` | `yolo` |
 
-OpenCode, Copilot CLI, Amp, Pi, and Droid do not support in-card approval, so the CLI allows actions according to the permission mode. Anything that needs confirmation is refused on the spot, because the CLI cannot ask in headless mode (it does not wait). OpenCode, Amp, and Pi run commands without asking by default, so commands are turned off in every mode except "Allow everything automatically" (tasks created from Issues or Slack never run with "Allow everything automatically", so instructions written by outsiders cannot run commands either)
+Gemini, OpenCode, and Copilot CLI over ACP are told how to ask for permission as follows, and what they ask is **approved on the card**
+
+| Permission mode | Gemini (ACP) | OpenCode (ACP) | Copilot CLI (ACP) |
+| --- | --- | --- | --- |
+| Plan only | `--approval-mode plan` and the conversation's plan mode | The conversation's plan mode (refuses file changes); commands are **approved on the card** | The conversation's plan mode; on versions without one, everything except reading is refused here |
+| Auto-approve file edits (`acceptEdits`) | `auto_edit` (commands and so on are **approved on the card**) | Commands are **approved on the card** | Only file writes are allowed (`--allow-tool=write`); the rest is **approved on the card** |
+| Ask every time (`default`) | `default` (**approved on the card**) | File edits, commands, and web fetches are **approved on the card** | **Approved on the card** |
+| Allow everything automatically | `yolo` | Whatever it asks is allowed | `--allow-all` |
+
+- The ACP launch arguments can differ between versions, so availability is checked just before running and the working arguments are remembered (Gemini tries `--experimental-acp` then `--acp`; Copilot CLI tries `--acp` then `--acp --stdio`). On versions where none works, the usual way in the table below is used, and the log says so
+- For OpenCode, Amp, and Pi, the model is set on the ACP conversation (matched as `provider/model` or just the `model` part). If it is not found, the CLI's default model is used and the log says so
+- ACP conversations and conversations from the usual way are stored separately, so a card started the usual way keeps going that way. When an ACP conversation would have to continue the usual way (for example after changing the permission mode on Amp or Pi), a new conversation is started
+
+When ACP cannot be used (Antigravity, Droid, versions without ACP, and Amp or Pi outside "Allow everything automatically"), in-card approval is not supported, so the CLI allows actions according to the permission mode. Anything that needs confirmation is refused on the spot, because the CLI cannot ask in headless mode (it does not wait). OpenCode, Amp, and Pi run commands without asking by default, so commands are turned off in every mode except "Allow everything automatically" (tasks created from Issues or Slack never run with "Allow everything automatically", so instructions written by outsiders cannot run commands either)
 
 | Permission mode | OpenCode | Copilot CLI | Amp | Pi | Droid |
 | --- | --- | --- | --- | --- | --- |
@@ -54,7 +78,7 @@ OpenCode, Copilot CLI, Amp, Pi, and Droid do not support in-card approval, so th
 - Droid needs `FACTORY_API_KEY` to run headless
 - Pi exits with code 0 even when a reply fails, so the `stopReason` in its output is used to detect errors. Pi does not report TODOs, so the TODO list in the Progress tab stays empty (the same goes for Copilot CLI, whose output does not include the TODO contents)
 - OpenCode decides its working folder from `PWD`, so it is started with the worktree path in `PWD` as well
-- The Codex app-server protocol changes between versions, so availability is checked just before running. The same goes for Cursor. On versions where it does not work, the previous behavior is used (a `workspace-write` sandbox on Codex, `--force` on Cursor), and the log says so. Verified versions are Codex 0.150.0 and 0.167.0, and Cursor 2026.11.05
+- The Codex app-server protocol changes between versions, so availability is checked just before running. The same goes for Cursor and the other ACP CLIs. On versions where it does not work, the previous behavior is used (a `workspace-write` sandbox on Codex, `--force` on Cursor), and the log says so. Verified versions are Codex 0.150.0 and 0.167.0, and Cursor 2026.11.05
 - Cursor stores `acp` and `-p` conversations separately, so a card started with `-p` by an earlier version keeps using `-p` (no in-card approval). Conversations started from now on can be approved on the card
 - Antigravity denies commands that are not allowed on the spot, because it cannot ask in headless mode. To let it run commands such as tests, list them under `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` (for example `"command(npm test)"`), or choose "Allow everything automatically"
 - For Antigravity, start `agy` once in a terminal and sign in first. Without that, the card shows an authentication error

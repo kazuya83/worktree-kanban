@@ -69,7 +69,9 @@ test('5つのエージェントが一覧にあり、コマンドとモデルの�
     assert.strictEqual(providers.agentCommand({}, a), a);
     assert.strictEqual(providers.agentCommand({ [`${a}Path`]: ' /x/y ' }, a), '/x/y');
     assert.strictEqual(providers.agentModel({ [`${a}Model`]: ' m1 ' }, a), 'm1');
-    assert.strictEqual(providers.rpcKindOf(a, 'default'), null, 'カードでの承認には対応していない');
+    // ACP に対応した CLI はカードで承認できる（Amp・Pi はアダプタで、すべて自動で許可のときだけ）
+    const acp = ['opencode', 'copilot'].includes(a) ? 'acp' : null;
+    assert.strictEqual(providers.rpcKindOf(a, 'default'), acp, a);
   }
   assert.deepStrictEqual(NEW_AGENTS.filter(providers.promptViaArg), ['copilot']);
   // 使うエージェントの並びは一覧の順
