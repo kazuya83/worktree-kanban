@@ -11,8 +11,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(__dirname, '../docs/download-stats.json');
 const REPO = process.env.GITHUB_REPOSITORY || 'kazuya83/worktree-kanban';
 const TOKEN = process.env.GITHUB_TOKEN;
-/** Keep roughly this many days of hourly points (cron = 1/hour). */
+/** Keep roughly this many days of hourly points (one point per hour). */
 const MAX_SNAPSHOT_DAYS = 120;
+/**
+ * The workflow runs several times an hour because GitHub drops many scheduled runs.
+ * Only the first successful run in an hour writes; later ones skip so main gets
+ * at most one commit per hour. FORCE=1 (manual runs) overwrites the current hour.
+ */
+const FORCE = process.env.FORCE === '1' || process.argv.includes('--force');
 
 async function fetchAllReleases() {
   const [owner, repo] = REPO.split('/');
@@ -63,7 +69,12 @@ function trimSnapshots(snapshots) {
   });
 }
 
-function upsertHourlySnapshot(snapshots, tIso, total) {
+export function hasSnapshotForHour(snapshots, tIso) {
+  const hourKey = tIso.slice(0, 13); // YYYY-MM-DDTHH (UTC)
+  return (snapshots || []).some((s) => typeof s.t === 'string' && s.t.slice(0, 13) === hourKey);
+}
+
+export function upsertHourlySnapshot(snapshots, tIso, total) {
   const hourKey = tIso.slice(0, 13); // YYYY-MM-DDTHH
   const next = [...snapshots];
   const idx = next.findIndex((s) => typeof s.t === 'string' && s.t.slice(0, 13) === hourKey);
@@ -75,11 +86,16 @@ function upsertHourlySnapshot(snapshots, tIso, total) {
 }
 
 async function main() {
+  const now = new Date().toISOString();
+  const data = loadExisting();
+  if (!FORCE && hasSnapshotForHour(data.snapshots, now)) {
+    console.log(`Snapshot for ${now.slice(0, 13)}h already exists; skipping (use FORCE=1 to overwrite).`);
+    return;
+  }
+
   const releases = await fetchAllReleases();
   const total = sumDownloads(releases);
-  const now = new Date().toISOString();
 
-  const data = loadExisting();
   data.repo = REPO;
   data.updatedAt = now;
   data.snapshots = trimSnapshots(data.snapshots || []);
@@ -90,7 +106,9 @@ async function main() {
   console.log(`Wrote ${OUT} (total downloads: ${total}, snapshots: ${data.snapshots.length})`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

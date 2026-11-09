@@ -280,6 +280,46 @@ test('ボード: レビューと完了のあいだをドラッグで動かす（
   assert.throws(() => agents.moveCard(c.id, 'review'), /戻せません/);
 });
 
+test('完了にする: git のタスクも、マージや PR を作らずに完了にできる（差分がなければ worktree とブランチを片付ける）', async () => {
+  const { agents, repo, g } = setup();
+  // 差分がない: worktree とブランチを片付けて完了にする
+  const [a] = agents.createTask({ title: '調べるだけ', prompt: '調べる', agent: 'claude' });
+  agents.moveCard(a.id, 'running');
+  await waitFor(() => a.status === 'review');
+  const wtA = a.worktreePath;
+  execFileSync('git', ['reset', '-q', '--hard', a.baseCommit], { cwd: wtA });
+  execFileSync('git', ['clean', '-qfd'], { cwd: wtA });
+  assert.deepStrictEqual(await agents.complete(a.id), { cleaned: true });
+  assert.strictEqual(a.status, 'done');
+  assert.strictEqual(a.manualDone, true);
+  assert.strictEqual(a.worktreePath, null);
+  assert.ok(!fs.existsSync(wtA), 'worktree を消す');
+  assert.ok(!g('branch', '--list', a.branch).trim(), 'ブランチを消す');
+  assert.strictEqual(g('rev-list', '--count', 'main').trim(), '1', 'マージはしない');
+  assert.strictEqual(agents.issueStatusKey(a), 'done');
+  assert.ok(a.logs.some((l) => /変更がなかったので/.test(l.text)));
+  await assert.rejects(async () => agents.complete(a.id), /レビュー中のタスクだけ/);
+  assert.throws(() => agents.moveCard(a.id, 'review'), /戻せません/);
+
+  // 差分がある: マージはせずに、worktree とブランチを残して完了にする
+  const [b] = agents.createTask({ title: 'ふつうの作業', prompt: '作業する', agent: 'claude' });
+  agents.moveCard(b.id, 'running');
+  await waitFor(() => b.status === 'review');
+  fs.writeFileSync(path.join(b.worktreePath, 'new.txt'), 'x\n');
+  assert.deepStrictEqual(await agents.complete(b.id), { cleaned: false });
+  assert.strictEqual(b.status, 'done');
+  assert.ok(b.worktreePath && fs.existsSync(b.worktreePath), 'マージしていないので worktree は残す');
+  assert.ok(g('branch', '--list', b.branch).trim());
+  assert.strictEqual(g('rev-list', '--count', 'main').trim(), '1');
+  agents.moveCard(b.id, 'review');
+  assert.strictEqual(b.status, 'review');
+
+  // コンフリクトの途中は完了にできない
+  b.conflict = { target: 'main', files: ['x'] };
+  await assert.rejects(async () => agents.complete(b.id), /コンフリクト/);
+  assert.ok(fs.existsSync(repo));
+});
+
 test('サブタスク: まだ始めていないサブタスクは、名前とやることを変えられ、開始するとその内容で動く', async () => {
   const { agents } = setup();
   const [p] = agents.createTask({ title: '直す作業', prompt: '全体の作業 [manual]', agent: 'claude' });

@@ -116,7 +116,7 @@ test('git なしのフォルダ: worktree を作らずにフォルダで直接�
   }
 });
 
-test('git なしのフォルダ: 競争は使えない。git のタスクは「完了にする」を使えない', () => {
+test('git なしのフォルダ: 競争は使えない。worktree のない git のタスクは「完了にする」でそのまま完了にする', async () => {
   const { store, agents } = setup();
   store.settings.enabledAgents = ['claude', 'codex'];
   store.settings.competes = [{ id: 'default', name: '競争', agents: ['claude', 'codex'], customAgents: [] }];
@@ -124,7 +124,8 @@ test('git なしのフォルダ: 競争は使えない。git のタスクは「�
   const c = agents.createCard({ prompt: 'y' });
   delete c.noGit;
   c.status = 'review';
-  assert.throws(() => agents.complete(c.id), /マージか PR/);
+  assert.deepStrictEqual(await agents.complete(c.id), { cleaned: false });
+  assert.strictEqual(c.status, 'done');
 });
 
 test('git なしのフォルダ: 中断した待機中のタスクは、一度動いていればレビューに戻す', () => {
