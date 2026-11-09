@@ -473,6 +473,27 @@ test('Codex: 答えずに続けると空の答えを返す', async (t) => {
   assert.strictEqual(c.lastText, '答え: {}');
 });
 
+test('Codex・Cursor: 質問の返事を待っているときの btw・追加指示は、質問への返事として渡す', async (t) => {
+  const { agents, sent } = setup(t, { FAKE_RPC_FLOW: 'ask' });
+  const [c] = agents.createTask({ title: 'cx', prompt: 'やって', agent: 'codex' });
+  agents.start(c.id);
+  await waitFor(() => (c.questions || []).length === 1);
+  const entry = agents.btw(c.id, '緑にして');
+  assert.strictEqual(entry.state, 'delivered');
+  await waitFor(() => c.status === 'review');
+  assert.match(c.lastText, /^答え: \{"color":\{"answers":\["（選択肢から選ばずに[^"]*\\n緑にして"\]\}\}$/);
+  assert.ok(!sent().some((m) => m.method === 'turn/steer'), '止まっているターンには足さない');
+
+  const [d] = agents.createTask({ title: 'cu', prompt: 'やって', agent: 'cursor' });
+  agents.start(d.id);
+  await waitFor(() => (d.questions || []).length === 1);
+  agents.send(d.id, '紫で');
+  await waitFor(() => d.status === 'review');
+  const r = sent().find((m) => m.result && m.result.outcome && m.result.outcome.outcome);
+  assert.strictEqual(r.result.outcome.outcome, 'skipped');
+  assert.match(r.result.outcome.reason, /どの色？ → （選択肢から選ばずに[^\n]*\n紫で/);
+});
+
 test('Codex: 実行中の btw は turn/steer で作業の途中に足す', async (t) => {
   const { agents, sent } = setup(t, { FAKE_RPC_FLOW: 'btw' });
   const [c] = agents.createTask({ title: 'cx', prompt: 'やって', agent: 'codex' });

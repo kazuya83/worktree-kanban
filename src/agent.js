@@ -2494,8 +2494,16 @@ class AgentManager extends EventEmitter {
   send(id, message, skill, files) {
     const c = this.must(id);
     this.assertNotRewinding(c);
-    if (!['review', 'failed', 'done'].includes(c.status)) throw new Error(tr('実行中・待機中は追加指示を送れません'));
     if (!message || !message.trim()) throw new Error(tr('追加指示を入力してください'));
+    // 質問の返事を待って止まっているときは、追加指示を質問への返事として渡す（実行中でも送れる）
+    if (this.waitingAnswer(c)) {
+      const parsed = attachments.parseAttachments(files);
+      const atts = attachments.saveAttachments(this.attachRoot, c.id, parsed);
+      this.log(c, 'user', message.trim(), userLogExtra(null, atts, parsed));
+      this.replyToQuestions(c, this.withAttachments(c, message.trim(), atts));
+      return;
+    }
+    if (!['review', 'failed', 'done'].includes(c.status)) throw new Error(tr('実行中・待機中は追加指示を送れません'));
     if (c.relay && c.relay.waiting) throw new Error(c.conflict ? tr('合流でのコンフリクトを、上の「コンフリクト」の欄から解消してください') : tr('Pipelineの並列の枝が終わるのを待っています。直したいときは、枝のタスクに追加指示を送ってください'));
     if (c.subtasks && c.subtasks.phase === 'run') throw new Error(c.conflict ? tr('サブタスクのマージでのコンフリクトを、上の「コンフリクト」の欄から解消してください') : tr('サブタスクが終わるのを待っています。直したいときは、サブタスクに追加指示を送ってください'));
     if (c.subtaskProposal) c.subtaskProposal = null; // 提案に文章で答えた: 提案は閉じて、エージェントに任せる
@@ -4085,6 +4093,15 @@ class AgentManager extends EventEmitter {
     if (c.status === 'queued') {
       c.pendingPrompt = `${c.pendingPrompt || ''}\n\n${wrapped}`;
       entry.state = 'queued';
+    } else if (this.waitingAnswer(c)) {
+      // 質問の返事を待って止まっているあいだは、stdin に書いても読まれない（ACP でも止める必要はない）。
+      // 質問への返事として、すぐに渡す
+      entry.state = 'delivered';
+      entry.deliveredAt = Date.now();
+      c.btw = [...(c.btw || []), entry];
+      this.log(c, 'user', `btw: ${text}`);
+      this.replyToQuestions(c, text);
+      return entry;
     } else if (c.status === 'running' && agentOf(c) !== 'claude') {
       // Codex（app-server）は動いているターンに足す。ACP の CLI は今のターンを止めて、btw を次のターンとして送る。
       // それ以外（いつもの起動のしかた）は実行中の stdin 追加に対応していないので、終了後の追加指示にする
@@ -4190,6 +4207,35 @@ class AgentManager extends EventEmitter {
         if (this.pending.has(id)) this.settle(id, { behavior: 'deny', message: tr('中断されました') }, null);
       });
     });
+  }
+
+  // 実行中に、選択肢の質問（AskUserQuestion など）の返事を待って止まっているか
+  waitingAnswer(c) {
+    return !!c && c.status === 'running' && (c.questions || []).some((r) => this.pending.has(r.id));
+  }
+
+  /**
+   * 質問の返事を待っているあいだに送られたメッセージ（追加指示・btw）を、質問への返事として渡す。
+   * エージェントは質問の返事が来るまで止まっているので、ほかの経路では届かない
+   * @returns {boolean} 渡したら true
+   */
+  replyToQuestions(c, text) {
+    const reqs = (c.questions || []).filter((r) => this.pending.has(r.id));
+    if (!reqs.length) return false;
+    const said = `${tr('（選択肢から選ばずに、ユーザーが次のメッセージを送りました。これを踏まえて進めてください）')}\n${text}`;
+    // メッセージは最初の質問の答えにだけ入れ、ほかの質問はそれを見てもらう（同じ文章を何度も渡さない）
+    const see = tr('（最初の質問への答えにある、ユーザーのメッセージを見てください）');
+    let first = true;
+    for (const r of reqs) {
+      const p = this.pending.get(r.id);
+      const answers = {};
+      for (const q of p.questions) {
+        answers[q.question] = first ? said : see;
+        first = false;
+      }
+      this.settle(r.id, { behavior: 'allow', updatedInput: { ...p.input, answers } }, tr('メッセージで答えました'));
+    }
+    return true;
   }
 
   /**

@@ -932,6 +932,50 @@ test('仕様の確認: 内容が詰まっていなければ開発を始めずに
   }
 });
 
+test('質問の返事を待っているあいだも、btw と追加指示を送れる（質問への返事として渡す）', async () => {
+  const { agents } = setup();
+  const server = new PermissionServer((p, s) => agents.requestPermission(p, s));
+  await server.start();
+  agents.setPermissionEndpoint(server.port, server.token);
+  try {
+    // btw: stdin に書かずに、質問への返事としてすぐに渡す
+    const c = agents.createCard({ title: 'ask-btw', prompt: '[ask] 設定して' });
+    agents.start(c.id);
+    await waitFor(() => (c.questions || []).length === 1);
+    assert.strictEqual(c.status, 'running');
+    const entry = agents.btw(c.id, 'テストも書いて');
+    assert.strictEqual(entry.state, 'delivered');
+    assert.strictEqual(c.questions.length, 0, '質問は閉じる');
+    assert.ok(c.logs.some((l) => l.kind === 'question' && l.text === 'メッセージで答えました'));
+    await waitFor(() => c.permissions.length === 1);
+    agents.answerPermission(c.id, c.permissions[0].id, 'allow');
+    await waitFor(() => c.status === 'review');
+    const d = await agents.diff(c.id);
+    assert.match(d, /"どの色にしますか？"="（選択肢から選ばずに[^"]*\n\+テストも書いて"/);
+    assert.match(d, /"対応する OS は？"="（最初の質問への答えにある/);
+
+    // 追加指示: 実行中でも、質問の返事を待っているときは送れる
+    agents.send(c.id, '[ask] もう一度');
+    await waitFor(() => (c.questions || []).length === 1);
+    agents.send(c.id, '赤にして');
+    assert.strictEqual(c.questions.length, 0);
+    assert.ok(c.logs.some((l) => l.kind === 'user' && l.text === '赤にして'));
+    await waitFor(() => c.permissions.length === 1);
+    agents.answerPermission(c.id, c.permissions[0].id, 'allow');
+    await waitFor(() => c.status === 'review');
+    assert.match(await agents.diff(c.id), /赤にして/);
+
+    // 質問がないときの実行中は、これまでどおり追加指示は送れない
+    agents.send(c.id, '[vague] もう少し');
+    await waitFor(() => c.permissions.length === 1);
+    assert.throws(() => agents.send(c.id, 'さらに'), /実行中・待機中は追加指示を送れません/);
+    agents.answerPermission(c.id, c.permissions[0].id, 'allow');
+    await waitFor(() => c.status === 'review');
+  } finally {
+    server.close();
+  }
+});
+
 test('エージェントからの質問: 選択肢（複数選択・その他）に答える / 答えずに続ける / 文章の質問は「回答待ち」', async () => {
   const { store, agents } = setup();
   const server = new PermissionServer((p, s) => agents.requestPermission(p, s));
