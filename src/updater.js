@@ -179,7 +179,8 @@ class Updater extends EventEmitter {
         const name = state === 'available' && assetName(this.platform, this.arch, latest);
         if (name) {
           const a = await this.fetch(`https://github.com/${REPO}/releases/download/v${latest}/${name}`, { method: 'HEAD', redirect: 'follow' });
-          if (!a.ok) state = 'preparing';
+          // 404 のときだけ「準備中」。504 などは GitHub 側の一時的な不調なので、install.ps1 / install.sh の取り直しに任せる
+          if (a.status === 404) state = 'preparing';
         }
         this.set({ state, latestVersion: latest, checkedAt: Date.now() });
       } catch (err) {
