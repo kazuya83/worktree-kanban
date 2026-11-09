@@ -1,13 +1,15 @@
 // 承認のやりとりができる起動のしかた（1行1つの JSON-RPC）で、エージェントの CLI を動かす
 //
-//   Codex:  codex app-server（独自の JSON-RPC。"jsonrpc" の欄はない）
-//   Cursor: cursor-agent acp（ACP = Agent Client Protocol）
+//   Codex: codex app-server（独自の JSON-RPC。"jsonrpc" の欄はない）
+//   ACP（Agent Client Protocol）: cursor-agent acp / gemini --experimental-acp / opencode acp / copilot --acp /
+//          amp-acp / pi-acp（起動のしかたは providers.js の ACP_LAUNCH）
 //
-// どちらも「stdin / stdout で話し続ける → エージェントが、操作の前にこちらへ許可を聞いてくる」形。
-// 許可は permit() に渡すので、Claude Code と同じカードの承認になる。
+// どれも「stdin / stdout で話し続ける → エージェントが、操作の前にこちらへ許可を聞いてくる」形。
+// 許可は permit() に、選択肢の質問は ask() に渡すので、Claude Code と同じカードの承認・質問になる。
+//   質問: Codex は item/tool/requestUserInput、Cursor は独自の cursor/ask_question（ACP の標準にはまだない）
+//   btw: Codex は turn/steer で作業の途中に足す。ACP は途中に足せないので、session/cancel で止めて、btw を次のターンとして送る
+//   金額: ACP の usage_update の cost（会話の合計）を { type: 'cost' } で渡す
 // 出力は providers.js と同じ共通の形（アクション）に直して emit() に渡す。
-//
-// ACP は Cursor 以外の CLI でも同じ形なので、対応する CLI は createRpcSession の acp にそのまま載せられる。
 
 const { createParser, todoItems, trunc } = require('./providers');
 const { tr } = require('../renderer/i18n');
@@ -132,6 +134,9 @@ function codexSession(o) {
   const changes = new Map(); // 項目の ID → 変更するファイル（承認の問い合わせには入っていない）
   const feed = (ev) => emit(parser.onEvent(ev));
   const policy = codexApprovalPolicy(o.mode);
+  let threadId = null;
+  let turnId = null; // 動いているターン（btw を turn/steer で足す先）
+  let turnDone = false;
 
   const rpc = new Rpc({
     write: o.write,
@@ -151,8 +156,15 @@ function codexSession(o) {
         const d = await permit({ toolName: 'Permissions', input: { description: p.reason || tr('追加の権限'), permissions: p.permissions } });
         return { permissions: allowed(d) ? p.permissions : {}, scope: 'turn' };
       },
-      // 選択肢の質問はカードに出さないので、答えずに進めてもらう
-      'item/tool/requestUserInput': async () => ({ answers: {} }),
+      // 選択肢の質問は、カードの質問のフォームに出す。答えずに続けるときは空の答えを返す
+      'item/tool/requestUserInput': async (p) => {
+        const qs = (Array.isArray(p.questions) ? p.questions : []).filter((q) => q && q.id && q.question);
+        if (!qs.length || !o.ask) return { answers: {} };
+        const got = await o.ask(qs.map((q) => ({ question: String(q.question), header: String(q.header || ''), multiSelect: false, options: Array.isArray(q.options) ? q.options : [] })));
+        const answers = {};
+        if (got) for (const q of qs) if (got[q.question]) answers[q.id] = { answers: [got[q.question]] };
+        return { answers };
+      },
       'mcpServer/elicitation/request': async () => ({ action: 'decline', content: null }),
     },
     onNotify(method, p) {
@@ -175,6 +187,8 @@ function codexSession(o) {
           break;
         case 'turn/completed': {
           const t = p.turn || {};
+          turnId = null;
+          turnDone = true;
           if (t.status === 'failed') finish((t.error && t.error.message) || tr('ターンが失敗しました'));
           else finish(null);
           break;
@@ -193,15 +207,26 @@ function codexSession(o) {
       rpc.notify('initialized');
       const params = { cwd: o.cwd, ...policy, ...(o.model ? { model: o.model } : {}) };
       const started = o.sessionId ? await rpc.call('thread/resume', { threadId: o.sessionId, ...params }) : await rpc.call('thread/start', params);
-      const threadId = started.thread && started.thread.id;
+      threadId = started.thread && started.thread.id;
       if (!threadId) throw new Error(tr('Codex の会話を始められませんでした'));
       emit([{ type: 'session', id: threadId, model: started.model }]);
-      await rpc.call('turn/start', { threadId, input: [{ type: 'text', text: o.prompt, text_elements: [] }] });
+      const r = await rpc.call('turn/start', { threadId, input: [{ type: 'text', text: o.prompt, text_elements: [] }] });
+      // ターンが終わったと先に知らせが来ていれば、もう足せない
+      if (r.turn && r.turn.id && !turnDone) turnId = r.turn.id;
+    },
+    // 動いているターンに、作業を止めずに指示を足す（btw）。足せないときは false
+    interject(text, btwId) {
+      if (!threadId || !turnId) return false;
+      rpc.call('turn/steer', { threadId, input: [{ type: 'text', text, text_elements: [] }], expectedTurnId: turnId }).then(
+        () => o.delivered && o.delivered(btwId),
+        (err) => o.undelivered && o.undelivered(btwId, err.message),
+      );
+      return true;
     },
   };
 }
 
-// ---------- ACP（cursor-agent acp） ----------
+// ---------- ACP（cursor-agent acp / gemini / opencode / copilot / amp-acp / pi-acp） ----------
 
 function acpToolName(kind, title) {
   switch (kind) {
@@ -244,12 +269,46 @@ function acpResultText(out) {
   return [out.stdout, out.stderr, out.output, out.content].filter((x) => typeof x === 'string' && x).join('\n');
 }
 
+// 計画だけで、エージェントに読み取りだけのモードがないときも許すツール
+const READ_TOOLS = new Set(['Read', 'Grep', 'WebFetch']);
+
+// ACP の会話のモードから、計画だけのモードを探す（一覧を返さない CLI は Cursor と同じ 'plan' を試す）
+function acpPlanMode(res) {
+  const list = res && res.modes && Array.isArray(res.modes.availableModes) ? res.modes.availableModes : null;
+  if (!list) return 'plan';
+  const m = list.find((x) => x && /plan/i.test(`${x.id || ''} ${x.name || ''}`));
+  return m ? m.id : null;
+}
+
+// 設定のモデル名に合うモデルの ID を探す（「provider/model」の形でも、後ろだけで合わせる）
+function acpModelId(res, model) {
+  const list = res && res.models && Array.isArray(res.models.availableModels) ? res.models.availableModels : [];
+  const want = String(model).toLowerCase();
+  const hit = (pick) => list.find((m) => m && pick(String(m.modelId || '').toLowerCase(), String(m.name || '').toLowerCase()));
+  const m = hit((id) => id === want) || hit((id, name) => name === want) || hit((id) => id.endsWith(`/${want}`) || id.split(/[/[]/)[0] === want);
+  return m ? m.modelId : null;
+}
+
+// 質問の答え（複数選択は「, 」でつないだもの）を、選択肢の ID に直す。選択肢にない答え（自由入力）なら null
+function optionIds(options, answer) {
+  const a = String(answer || '').trim();
+  const byLabel = (l) => options.find((x) => x.label === l);
+  if (byLabel(a)) return [byLabel(a).id];
+  const parts = a.split(/,\s*/).filter(Boolean);
+  const ids = parts.map((l) => byLabel(l)).filter(Boolean).map((x) => x.id);
+  return parts.length && ids.length === parts.length ? ids : null;
+}
+
 function acpSession(o) {
   const { emit, permit, finish } = o;
   const calls = new Map(); // toolCallId → そこまでに分かった中身
   let text = '';
   let replaying = false; // session/load の間は、前の会話が流れてくる
   let id = null;
+  let planGuard = false; // 計画だけのモードがないので、こちらで読み取り以外を断る
+  let cancelling = false; // btw のために今のターンを止めているところ
+  let ended = false;
+  const interjections = []; // 止めたあと、次のターンとして送る btw
 
   const flushText = () => {
     if (text.trim()) emit([{ type: 'text', text }]);
@@ -272,6 +331,13 @@ function acpSession(o) {
         if (items) emit([{ type: 'todos', items }]);
         break;
       }
+      case 'usage_update': {
+        // cost は会話の合計（ドル以外の通貨は足さない）
+        const cost = u.cost;
+        const amount = cost && Number(cost.amount);
+        if (Number.isFinite(amount) && amount >= 0 && (!cost.currency || /^usd$/i.test(cost.currency))) emit([{ type: 'cost', sessionId: id, total: amount }]);
+        break;
+      }
       case 'tool_call':
       case 'tool_call_update': {
         const call = { ...(calls.get(u.toolCallId) || {}), ...u };
@@ -291,19 +357,44 @@ function acpSession(o) {
     }
   };
 
+  // 権限モードで決まる答え（聞かなくてよければ { behavior }、聞くなら null）
+  const decided = (name) => {
+    if (o.mode === 'bypassPermissions') return { behavior: 'allow' };
+    if (planGuard && !READ_TOOLS.has(name)) return { behavior: 'deny' };
+    return null;
+  };
+  const CANCELLED = { outcome: { outcome: 'cancelled' } };
+
   const rpc = new Rpc({
     write: o.write,
     jsonrpc: true,
     requests: {
       'session/request_permission': async (p) => {
+        if (cancelling) return CANCELLED;
         const known = calls.get(p.toolCall && p.toolCall.toolCallId) || {};
         const { name, input } = acpToolInput({ ...known, ...(p.toolCall || {}) });
-        const d = await permit({ toolName: name, input });
+        const d = decided(name) || (await permit({ toolName: name, input }));
+        if (cancelling) return CANCELLED;
         const options = Array.isArray(p.options) ? p.options : [];
         const pick = (...kinds) => kinds.map((k) => options.find((x) => x.kind === k)).find(Boolean);
         // 「常に許可」はカードの中で覚える。CLI の設定には書き残さない
         const opt = allowed(d) ? pick('allow_once', 'allow_always') : pick('reject_once', 'reject_always');
-        return opt ? { outcome: { outcome: 'selected', optionId: opt.optionId } } : { outcome: { outcome: 'cancelled' } };
+        return opt ? { outcome: { outcome: 'selected', optionId: opt.optionId } } : CANCELLED;
+      },
+      // Cursor の選択肢の質問。選択肢にない答え（自由入力）は、飛ばした理由として渡す
+      'cursor/ask_question': async (p) => {
+        const qs = (Array.isArray(p.questions) ? p.questions : [])
+          .filter((q) => q && q.id != null && q.prompt)
+          .map((q) => ({ id: q.id, question: String(q.prompt), header: '', multiSelect: !!q.allowMultiple, options: (Array.isArray(q.options) ? q.options : []).map((x) => ({ id: x.id, label: String(x.label || ''), description: '' })) }));
+        if (!qs.length || !o.ask || cancelling) return { outcome: { outcome: cancelling ? 'cancelled' : 'skipped' } };
+        flushText();
+        const got = await o.ask(qs.map(({ question, header, multiSelect, options }) => ({ question, header, multiSelect, options: options.map(({ label, description }) => ({ label, description })) })));
+        if (cancelling) return CANCELLED;
+        if (!got) return { outcome: { outcome: 'skipped', reason: 'The user skipped the questions. Continue as you see fit.' } };
+        const answers = qs.map((q) => ({ questionId: q.id, selectedOptionIds: optionIds(q.options, got[q.question]) }));
+        if (answers.every((x) => x.selectedOptionIds)) return { outcome: { outcome: 'answered', answers } };
+        const said = qs.map((q) => `${q.question} → ${got[q.question] || ''}`).join('\n');
+        return { outcome: { outcome: 'skipped', reason: `The user answered in their own words:\n${said}` } };
       },
     },
     onNotify(method, p) {
@@ -317,12 +408,23 @@ function acpSession(o) {
       flushText();
       return [];
     },
+    // 今のターンを止めて、btw を次のターンとして送る（ACP は動いているターンに足せない）。送れないときは false
+    interject(textIn, btwId) {
+      if (!id || ended) return false;
+      interjections.push({ text: textIn, btwId });
+      if (!cancelling) {
+        cancelling = true;
+        rpc.notify('session/cancel', { sessionId: id });
+      }
+      return true;
+    },
     async start() {
       await rpc.call('initialize', { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'worktree-kanban', version: o.version || '0' } });
+      let res = null;
       if (o.sessionId) {
         replaying = true;
         try {
-          await rpc.call('session/load', { sessionId: o.sessionId, cwd: o.cwd, mcpServers: [] });
+          res = await rpc.call('session/load', { sessionId: o.sessionId, cwd: o.cwd, mcpServers: [] });
           id = o.sessionId;
         } catch (err) {
           emit([{ type: 'log_error', text: tr('前の会話を読み込めなかったので、新しい会話で始めます: {message}', { message: err.message }) }]);
@@ -330,17 +432,39 @@ function acpSession(o) {
         replaying = false;
       }
       if (!id) {
-        const s = await rpc.call('session/new', { cwd: o.cwd, mcpServers: [] });
-        id = s.sessionId;
+        res = await rpc.call('session/new', { cwd: o.cwd, mcpServers: [] });
+        id = res.sessionId;
         if (!id) throw new Error(tr('会話を始められませんでした'));
       }
       emit([{ type: 'session', id }]);
-      if (o.mode === 'plan') await rpc.call('session/set_mode', { sessionId: id, modeId: 'plan' });
-      const r = await rpc.call('session/prompt', { sessionId: id, prompt: [{ type: 'text', text: o.prompt }] });
-      flushText();
-      const stop = r.stopReason;
-      if (stop === 'end_turn' || stop === 'cancelled' || !stop) finish(null);
-      else finish(tr('途中で止まりました（{reason}）', { reason: stop }));
+      if (o.mode === 'plan') {
+        const mode = acpPlanMode(res);
+        if (mode) await rpc.call('session/set_mode', { sessionId: id, modeId: mode }).catch(() => (planGuard = true));
+        else planGuard = true;
+      }
+      // モデルを起動の引数で渡せない CLI は、会話に設定する
+      if (o.sessionModel) {
+        const modelId = acpModelId(res, o.sessionModel);
+        if (!modelId) emit([{ type: 'log_error', text: tr('モデル {model} が見つからないので、CLI の既定のモデルで動かします', { model: o.sessionModel }) }]);
+        else await rpc.call('session/set_model', { sessionId: id, modelId }).catch((err) => emit([{ type: 'log_error', text: tr('モデルを {model} にできませんでした: {message}', { model: o.sessionModel, message: err.message }) }]));
+      }
+      let prompt = o.prompt;
+      for (;;) {
+        const r = await rpc.call('session/prompt', { sessionId: id, prompt: [{ type: 'text', text: prompt }] });
+        flushText();
+        cancelling = false;
+        if (interjections.length) {
+          const next = interjections.splice(0);
+          for (const b of next) if (o.delivered) o.delivered(b.btwId);
+          prompt = next.map((b) => b.text).join('\n\n');
+          continue;
+        }
+        ended = true;
+        const stop = r.stopReason;
+        if (stop === 'end_turn' || stop === 'cancelled' || !stop) finish(null);
+        else finish(tr('途中で止まりました（{reason}）', { reason: stop }));
+        return;
+      }
     },
   };
 }
@@ -351,9 +475,13 @@ function acpSession(o) {
  *   write(text)               stdin に書く
  *   emit(actions)             共通の形のアクションを渡す
  *   permit({toolName,input})  カードで許可を聞く（{ behavior } を返す）
+ *   ask(questions)            カードで選択肢の質問をする（質問文 → 答え を返す。答えずに続けるときは null）
+ *   delivered(btwId)          btw をエージェントに渡した
+ *   undelivered(btwId, msg)   btw を途中に足せなかった（Codex）
  *   done()                    ターンが終わった（CLI を閉じてよい）
- *   mode / model / sessionId / cwd / prompt / summarize / version
- * @returns {{ start(): Promise<void>, onMessage(m): void, flush(): object[], close(): void, ended: boolean }}
+ *   mode / model / sessionModel / sessionId / cwd / prompt / summarize / version
+ *     sessionModel: 起動の引数で渡せないモデル（ACP の session/set_model で設定する）
+ * @returns {{ start(): Promise<void>, onMessage(m): void, flush(): object[], close(): void, interject(text, btwId): boolean, ended: boolean }}
  */
 function createRpcSession(kind, opts) {
   const state = { ended: false };
@@ -375,6 +503,7 @@ function createRpcSession(kind, opts) {
       }),
     onMessage: (m) => impl.rpc.onMessage(m),
     flush: () => impl.flush(),
+    interject: (text, btwId) => !state.ended && !impl.rpc.closed && impl.interject(text, btwId),
     close: (reason) => impl.rpc.close(reason),
   };
 }
@@ -399,4 +528,4 @@ function probeRpc(kind, { write, cwd, version }) {
   return { onMessage: (m) => rpc.onMessage(m), close: (reason) => rpc.close(reason), run: steps() };
 }
 
-module.exports = { createRpcSession, probeRpc, codexApprovalPolicy, codexCommand, codexItem, acpToolInput };
+module.exports = { createRpcSession, probeRpc, codexApprovalPolicy, codexCommand, codexItem, acpToolInput, acpPlanMode, acpModelId, optionIds };

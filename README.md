@@ -56,11 +56,11 @@ flowchart LR
 
 - **1 task = 1 worktree = 1 branch.** It creates a worktree at `<repo>.worktrees/<id>` next to the repository and works on a branch named `agent/<summary>-<id>`. Tasks do not collide with each other or with the working tree you have open
 - **The agent is the CLI, started as-is.** Claude Code runs as `claude -p --input-format stream-json --output-format stream-json`, and its output is shown on the card as the log. Sign-in, model, `CLAUDE.md`, and skills are the same ones you use in the terminal
-- **Approval goes through Claude Code's `--permission-prompt-tool`, Codex's `codex app-server`, and Cursor's `cursor-agent acp`.** Only actions that the permission mode or `--allowedTools` (the allowed tools setting in Worktree Kanban) does not auto-allow show up on the card as waiting for approval
+- **Approval goes through Claude Code's `--permission-prompt-tool`, Codex's `codex app-server`, and ACP for Cursor, Gemini, OpenCode, and Copilot (`cursor-agent acp` and so on).** Only actions that the permission mode or `--allowedTools` (the allowed tools setting in Worktree Kanban) does not auto-allow show up on the card as waiting for approval
 - **When it finishes, you bring the work in by merging (`--no-ff`) or opening a PR / MR (`gh` for GitHub, the API for GitLab).** You can choose the target branch, and you can push to origin after the merge
 - Board state is stored in `board.json` in Electron's userData folder. There is no external server
 
-On Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid, multiple-choice questions, btw, and cost display are unavailable because of CLI limits. In-card approval works on Codex and Cursor, but not on Antigravity, Gemini, OpenCode, Copilot, Amp, Pi, or Droid (see [docs/agents.md](docs/agents.md)).
+Outside Claude Code, the available features depend on the CLI. In-card approval works on Codex, Cursor, Gemini, OpenCode, and Copilot, and multiple-choice questions on Codex and Cursor. btw is passed to Codex without stopping its work, and CLIs over ACP (Cursor, Gemini, OpenCode, Copilot, and Amp or Pi with an adapter) stop the current work and continue with the message. Cost is shown when an ACP CLI reports it. None of these are available on Antigravity or Droid (see [docs/agents.md](docs/agents.md)).
 
 ## Features
 

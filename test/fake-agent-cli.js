@@ -13,7 +13,8 @@ const opt = (name) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 // 対応していない版のふりをするときの確かめの起動は、数えない
-const rpcMode = args.includes('app-server') || args.includes('acp');
+//（codex app-server / cursor-agent acp / gemini --experimental-acp / opencode acp / copilot --acp / amp-acp / pi-acp）
+const rpcMode = ['app-server', 'acp', '--acp', '--experimental-acp'].some((x) => args.includes(x)) || /-acp$/.test(kind);
 if (rpcMode && !process.env.FAKE_RPC) process.exit(1);
 if (process.env.FAKE_ARGS_LOG) fs.appendFileSync(process.env.FAKE_ARGS_LOG, `${JSON.stringify({ kind, args })}\n`);
 

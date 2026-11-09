@@ -15,7 +15,8 @@
 // Claude Code は承認（--permission-prompt-tool）や実行中のメッセージ（btw）に対応しているので、
 // これまでどおり agent.js の中で直接扱う
 //
-// Codex（codex app-server）と Cursor（cursor-agent acp）のカードの承認は、agent-rpc.js が JSON-RPC で話す。
+// Codex（codex app-server）と、ACP に対応した CLI（Cursor・Gemini・OpenCode・Copilot、アダプタがあれば Amp・Pi）の
+// カードの承認・質問・btw・金額は、agent-rpc.js が JSON-RPC で話す。
 // 動かす手前で使えるかを確かめ、使えない版は、ここの buildArgs の起動のしかたに戻す
 
 const fs = require('fs');
@@ -161,26 +162,75 @@ function agentEnv(a, mode) {
   return {};
 }
 
+// ACP（Agent Client Protocol）で動かす起動のしかた。版によって引数が違うものは、上から順に試して、使えたものを覚える。
+// cmd があるものは、CLI とは別のコマンド（ACP に直すアダプタ）を動かす
+const ACP_LAUNCH = {
+  cursor: [{ args: ['acp'] }],
+  gemini: [{ args: ['--experimental-acp'] }, { args: ['--acp'] }],
+  opencode: [{ args: ['acp'] }],
+  copilot: [{ args: ['--acp'] }, { args: ['--acp', '--stdio'] }],
+  amp: [{ cmd: 'amp-acp', args: [] }],
+  pi: [{ cmd: 'pi-acp', args: [] }],
+};
+// アダプタは CLI の許可の設定（止めるツール）を渡せないので、もともと何でも許す「すべて自動で許可」のときだけ使う
+const ACP_BYPASS_ONLY = new Set(['amp', 'pi']);
+// モデルを起動の引数で渡せない CLI（ACP の session/set_model で会話に設定する）
+const ACP_SESSION_MODEL = new Set(['opencode', 'amp', 'pi']);
+
 // カードで承認できる起動のしかたの種類（なければ null）。
 //   codex: 途中で許可を聞くモードだけ app-server で動かす（計画だけ・すべて許可は聞くことがない。会話は codex exec と共通）
-//   cursor: acp と -p は会話の保存場所が別で、互いに続きができない。-p で始めた会話は -p のまま続ける
+//   ACP の CLI: acp とふだんの起動のしかたは会話の保存場所が別で、互いに続きができない。ふだんの起動で始めた会話は、そのまま続ける
 function rpcKindOf(a, mode, { sessionId, sessionVia } = {}) {
   if (a === 'codex') return mode === 'default' || mode === 'acceptEdits' ? 'codex' : null;
-  if (a === 'cursor') return sessionId && sessionVia !== 'acp' ? null : 'acp';
-  return null;
+  if (!ACP_LAUNCH[a]) return null;
+  if (sessionId && sessionVia !== 'acp') return null;
+  if (ACP_BYPASS_ONLY.has(a) && mode !== 'bypassPermissions') return null;
+  return 'acp';
 }
-function rpcArgs(a, { mode, model } = {}) {
+// 試す起動のしかたの数
+function rpcVariants(a) {
+  return a === 'codex' ? 1 : (ACP_LAUNCH[a] || []).length;
+}
+// CLI とは別に動かすコマンド（なければ null）
+function rpcCommand(a, variant = 0) {
+  const v = ACP_LAUNCH[a] && ACP_LAUNCH[a][variant];
+  return (v && v.cmd) || null;
+}
+// ACP の会話にモデルを設定するか（起動の引数で渡せない CLI）
+function rpcSessionModel(a) {
+  return ACP_SESSION_MODEL.has(a);
+}
+function rpcArgs(a, { mode, model, includeDirs = [], variant = 0 } = {}) {
   if (a === 'codex') {
     return ['app-server'];
   }
+  const v = ACP_LAUNCH[a] && ACP_LAUNCH[a][variant];
+  if (!v) throw new Error(tr('このエージェントには対応していません: {a}', { a }));
   if (a === 'cursor') {
     // モデルは session/set_model だと版ごとの長い名前が要るので、起動の引数で渡す
     const args = mode === 'bypassPermissions' ? ['--force', '--approve-mcps'] : [];
     if (model) args.push('--model', model);
-    args.push('acp');
+    args.push(...v.args);
     return args;
   }
-  throw new Error(tr('このエージェントには対応していません: {a}', { a }));
+  if (a === 'gemini') {
+    // 許可を聞くかどうかは、ふだんと同じく --approval-mode で決める（聞くものはカードに出る）
+    const args = [...v.args, '--skip-trust'];
+    if (mode) args.push('--approval-mode', geminiApproval(mode));
+    if (model) args.push('-m', model);
+    if (includeDirs.length) args.push('--include-directories', includeDirs.join(','));
+    return args;
+  }
+  if (a === 'copilot') {
+    const args = [...v.args];
+    if (mode === 'bypassPermissions') args.push('--allow-all');
+    else if (mode === 'acceptEdits') args.push('--allow-tool=write');
+    if (model) args.push(`--model=${model}`);
+    for (const d of includeDirs) args.push(`--add-dir=${d}`);
+    return args;
+  }
+  // OpenCode の許可は agentEnv（OPENCODE_CONFIG_CONTENT）で渡す。「確認」にしたものがカードに出る
+  return [...v.args];
 }
 
 // 設定の「許可しておくツール」（Bash(npm test:*) など）に入っている操作か。
@@ -1195,6 +1245,9 @@ module.exports = {
   buildArgs,
   rpcKindOf,
   rpcArgs,
+  rpcVariants,
+  rpcCommand,
+  rpcSessionModel,
   isAllowedTool,
   createParser,
   trunc,

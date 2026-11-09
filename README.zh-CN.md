@@ -56,11 +56,11 @@ flowchart LR
 
 - **1 个任务 = 1 个 worktree = 1 个分支。** 在仓库旁边的 `<repo>.worktrees/<id>` 创建 worktree，并在名为 `agent/<概要>-<id>` 的分支上工作。进行中的任务彼此不会冲突，也不会和你手头的工作树冲突
 - **智能体就是原样启动的 CLI。** Claude Code 以 `claude -p --input-format stream-json --output-format stream-json` 运行，输出作为日志显示在卡片上。登录、模型、`CLAUDE.md` 和技能，与你在终端里使用的是同一套
-- **批准通过 Claude Code 的 `--permission-prompt-tool`、Codex 的 `codex app-server` 和 Cursor 的 `cursor-agent acp` 接收。** 只有权限模式或 `--allowedTools`（Worktree Kanban 的“允许的工具”设置）不会自动允许的操作，才会在卡片上显示为等待批准
+- **批准通过 Claude Code 的 `--permission-prompt-tool`、Codex 的 `codex app-server`，以及 Cursor、Gemini、OpenCode、Copilot 的 ACP（`cursor-agent acp` 等）接收。** 只有权限模式或 `--allowedTools`（Worktree Kanban 的“允许的工具”设置）不会自动允许的操作，才会在卡片上显示为等待批准
 - **结束后，用合并（`--no-ff`）或创建 PR / MR（GitHub 用 `gh`，GitLab 用 API）把结果收进来。** 可以选择合并到哪条分支，合并之后也可以 push 到 origin
 - 看板状态保存在 Electron 的 userData 文件夹里的 `board.json`。不使用外部服务器
 
-在 Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid 上，由于 CLI 的限制，不能使用选择题提问、btw 和金额显示。卡片上的批准可在 Codex 和 Cursor 上使用，但不能在 Antigravity、Gemini、OpenCode、Copilot、Amp、Pi 和 Droid 上使用（详见 [docs/agents.md](docs/agents.md) (English)）。
+除 Claude Code 外，可用的功能因 CLI 而异。卡片上的批准可在 Codex、Cursor、Gemini、OpenCode 和 Copilot 上使用，选择题提问可在 Codex 和 Cursor 上使用。btw 会在不停止工作的情况下传给 Codex；通过 ACP 运行的 CLI（Cursor、Gemini、OpenCode、Copilot，以及装有适配器的 Amp 或 Pi）会先停止当前工作，再带上消息继续。ACP 的 CLI 报告金额时会显示金额。Antigravity 和 Droid 不支持这些功能（详见 [docs/agents.md](docs/agents.md) (English)）。
 
 ## 主要功能
 

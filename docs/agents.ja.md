@@ -27,9 +27,20 @@
 - レビューや失敗で止まっているときは、工程や各回の直前の時点へ戻せます。ファイル・進み具合・会話をその時点に戻し、あとの変更は捨てて、すぐに動き始めます。くわしくは [途中の状態に戻す](usage.ja.md#途中の状態に戻す)
 - ブランチの命名・コンフリクトの解消・仕様の確認・会話・スキルの提案も、どのエージェントでも動きます（ブランチ名とコンフリクトの解消は、そのタスクのエージェントが行います）
 - Issue から作るときも、同じようにエージェント・Pipeline・競争を選べます（競争なら、1つの Issue につきエージェントの数だけカードができます）
-- Codex は `codex exec --json`（カードで承認するときは `codex app-server`）、Antigravity は `agy --output-format stream-json`、Gemini は `gemini --output-format stream-json`、Cursor は `cursor-agent acp`（使えない版では `cursor-agent -p --output-format stream-json`）、OpenCode は `opencode run --format json`、Copilot CLI は `copilot -p … --output-format json`、Amp は `amp -x --stream-json`（続きは `amp threads continue`）、Pi は `pi --mode json`、Droid は `droid exec -o stream-json` で動かし、追加指示は同じ会話の続きから動きます
-- Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid は、CLI の作りの都合で、選択肢の質問・btw（実行中のメッセージ）・既存の会話（ターミナルの会話）の引き継ぎ・使った金額の表示には対応していません
-- **カードでの承認**は Claude Code・Codex・Cursor で使えます。「常に許可」はそのカードの中だけ覚えます。設定の「許可しておくツール」も効きます（`Bash(npm test:*)` のような前方一致は、`;` や `|` でつないだコマンドには効きません）。権限モードごとの動きは次のとおりです
+- Codex は `codex exec --json`（カードで承認するときは `codex app-server`）、Antigravity は `agy --output-format stream-json`、Gemini は `gemini --experimental-acp`（使えない版では `gemini --output-format stream-json`）、Cursor は `cursor-agent acp`（使えない版では `cursor-agent -p --output-format stream-json`）、OpenCode は `opencode acp`（使えない版では `opencode run --format json`）、Copilot CLI は `copilot --acp`（使えない版では `copilot -p … --output-format json`）、Amp は `amp -x --stream-json`（続きは `amp threads continue`）、Pi は `pi --mode json`、Droid は `droid exec -o stream-json` で動かし、追加指示は同じ会話の続きから動きます
+- Cursor・Gemini・OpenCode・Copilot CLI は **ACP**（Agent Client Protocol）で動かすので、Claude Code に近い機能が使えます。Amp・Pi も、「すべて自動で許可」のときに ACP のアダプタ（`amp-acp`・`pi-acp`）が PATH にあれば ACP で動かします（アダプタには止めるツールを渡せないので、ほかのモードでは、コマンドを止めたいつもの起動のしかたで動かします）。使える機能は次のとおりです（どの CLI も、既存の会話〈ターミナルの会話〉の引き継ぎには対応していません）
+
+| 機能 | Claude Code | Codex | Cursor | Gemini・OpenCode・Copilot CLI | Amp・Pi（ACP） | Antigravity・Droid |
+| --- | --- | --- | --- | --- | --- | --- |
+| カードでの承認 | ✓ | ✓（毎回確認・ファイル編集は自動のとき） | ✓ | ✓ | —（すべて自動で許可のときだけ使うため） | — |
+| 選択肢の質問 | ✓ | ✓（app-server で動くとき） | ✓ | — | — | — |
+| btw（実行中のメッセージ） | 作業を止めずに渡す | 作業を止めずに渡す（`turn/steer`。app-server で動くとき） | 今の作業を止めて、メッセージを足した指示で続ける | 同じ（止めて続ける） | 同じ（止めて続ける） | 終わったあとの追加指示 |
+| 使った金額 | ✓ | — | CLI が知らせるとき | CLI が知らせるとき | CLI が知らせるとき | — |
+
+- 質問は、Codex は `item/tool/requestUserInput`、Cursor は独自の `cursor/ask_question` を、カードの質問のフォームに出します（ACP の標準には、まだ質問のやりとりがありません）。Cursor は選択肢だけを受け取るので、選択肢にない答え（自由入力）は「飛ばした理由」として、答えの文章をそのまま渡します
+- ACP には、動いているターンにメッセージを足すやりとりがないので、btw を送ると `session/cancel` で今の作業を止め、「作業を一度止めたので、これを踏まえて続きを進めてください」と添えて次のターンとして送ります。作業を止めるので、そのとき待っている承認は取り消されます
+- 金額は、ACP の `usage_update` に入っている会話の合計（ドル）から、増えた分をカードに足します。Codex の app-server は金額を知らせないので、表示しません
+- **カードでの承認**は Claude Code・Codex・Cursor・Gemini・OpenCode・Copilot CLI で使えます。「常に許可」はそのカードの中だけ覚えます。設定の「許可しておくツール」も効きます（`Bash(npm test:*)` のような前方一致は、`;` や `|` でつないだコマンドには効きません）。権限モードごとの動きは次のとおりです
 
 | 権限モード | Codex | Cursor | Antigravity | Gemini |
 | --- | --- | --- | --- | --- |
@@ -38,7 +49,20 @@
 | 毎回確認する（`default`） | コマンドとファイルの変更を **カードで承認** | allow にないコマンドを **カードで承認**（ファイル編集は Cursor が承認を聞いてこないので、そのまま書かれます） | 変更は拒否（`default`） | `default` |
 | すべて自動で許可 | `--dangerously-bypass-approvals-and-sandbox` | `--force --approve-mcps` | `--dangerously-skip-permissions` | `yolo` |
 
-OpenCode・Copilot CLI・Amp・Pi・Droid はカードでの承認に対応していないので、権限モードに合わせて CLI 側で許可します。確認が要る操作は、ヘッドレスでは聞き返せないので、その場で断られます（待ち続けません）。OpenCode・Amp・Pi はもともと確認なしでコマンドを動かすので、「すべて自動で許可」以外ではコマンドを止めて動かします（Issue・Slack から作ったタスクは「すべて自動で許可」にならないので、外の人が書いた指示からコマンドが動くこともありません）
+ACP で動かす Gemini・OpenCode・Copilot CLI は、次のとおりに CLI へ許可の聞き方を渡し、聞いてきたものを **カードで承認** します
+
+| 権限モード | Gemini（ACP） | OpenCode（ACP） | Copilot CLI（ACP） |
+| --- | --- | --- | --- |
+| 計画だけ | `--approval-mode plan` と、会話の plan モード | 会話の plan モード（ファイルの変更を断る）。コマンドは **カードで承認** | 会話の plan モード。plan モードがない版では、読み取り以外をこちらで断る |
+| ファイル編集は自動（`acceptEdits`） | `auto_edit`（コマンドなどを **カードで承認**） | コマンドを **カードで承認** | ファイルの書き込みだけ許可（`--allow-tool=write`）、ほかを **カードで承認** |
+| 毎回確認する（`default`） | `default`（**カードで承認**） | ファイル編集・コマンド・Web の取得を **カードで承認** | **カードで承認** |
+| すべて自動で許可 | `yolo` | 聞いてきたものも許可 | `--allow-all` |
+
+- ACP は版によって起動の引数が違うことがあるので、動かす手前で使えるかを確かめ、使えた引数を覚えます（Gemini は `--experimental-acp` → `--acp`、Copilot CLI は `--acp` → `--acp --stdio` の順に試します）。どれも使えない版では、下の表のいつもの起動のしかたで動かし、ログにそのことを出します
+- OpenCode・Amp・Pi のモデルは、ACP の会話に設定します（`provider/model` の形でも、`model` の部分だけでも合わせます）。見つからないときは CLI の既定のモデルで動かし、ログに出します
+- ACP の会話と、いつもの起動のしかたの会話は保存場所が別なので、いつもの起動のしかたで始めたカードはそのまま続けます。ACP で始めた会話を、いつもの起動のしかたで続けることになったとき（Amp・Pi で権限モードを変えたときなど）は、新しい会話で始めます
+
+ACP を使えないとき（Antigravity・Droid、ACP に対応していない版、Amp・Pi の「すべて自動で許可」以外）はカードでの承認に対応していないので、権限モードに合わせて CLI 側で許可します。確認が要る操作は、ヘッドレスでは聞き返せないので、その場で断られます（待ち続けません）。OpenCode・Amp・Pi はもともと確認なしでコマンドを動かすので、「すべて自動で許可」以外ではコマンドを止めて動かします（Issue・Slack から作ったタスクは「すべて自動で許可」にならないので、外の人が書いた指示からコマンドが動くこともありません）
 
 | 権限モード | OpenCode | Copilot CLI | Amp | Pi | Droid |
 | --- | --- | --- | --- | --- | --- |
@@ -54,7 +78,7 @@ OpenCode・Copilot CLI・Amp・Pi・Droid はカードでの承認に対応し�
 - Droid をヘッドレスで動かすには `FACTORY_API_KEY` が要ります
 - Pi は応答が失敗しても終了コードが 0 なので、出力の `stopReason` を見てエラーにします。TODO は出さないので、進捗タブの TODO は空のままです（Copilot CLI も、出力に TODO の中身が入らないので空のままです）
 - OpenCode は作業フォルダを `PWD` から決めるので、worktree のパスを `PWD` にも入れて起動します
-- Codex は app-server の仕様が版によって変わるので、動かす手前で使えるかを確かめます。Cursor も同じです。使えない版では、前のやり方（Codex は `workspace-write` の sandbox、Cursor は `--force`）で動かし、ログにそのことを出します。確かめた版は Codex 0.150.0 と 0.167.0、Cursor 2026.11.05 です
+- Codex は app-server の仕様が版によって変わるので、動かす手前で使えるかを確かめます。Cursor などの ACP の CLI も同じです。使えない版では、前のやり方（Codex は `workspace-write` の sandbox、Cursor は `--force`）で動かし、ログにそのことを出します。確かめた版は Codex 0.150.0 と 0.167.0、Cursor 2026.11.05 です
 - Cursor の `acp` と `-p` は会話の保存場所が別なので、前の版で `-p` で始めたカードは、そのまま `-p` で続けます（カードで承認はできません）。新しく始めた会話から承認できます
 - Antigravity は、許可されていないコマンドをその場で拒否します（ヘッドレスでは確認を出せないため）。テストなどのコマンドを動かしたいときは、`~/.gemini/antigravity-cli/settings.json` の `permissions.allow` に `"command(npm test)"` のように書くか、「すべて自動で許可」を選びます
 - Antigravity は、最初に一度ターミナルで `agy` を起動してログインしておきます。ログインしていないと、カードに認証のエラーが出ます

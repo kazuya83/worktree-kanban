@@ -3222,10 +3222,14 @@ function updateBtwTab(c) {
   $('btwTab').textContent = n ? `btw (${n})` : 'btw';
   const live = c && (c.status === 'running' || c.status === 'queued');
   $('btwTab').classList.toggle('live', !!live);
-  // Codex / Antigravity / Gemini / Cursor は実行中の stdin 追加に対応していない（終了後に追加指示／待機中は開始の指示に付け足す）
-  $('btwTab').title = c && agentOf(c) !== 'claude'
-    ? tr('{v} では、実行中に送ると今の作業のあと追加指示として送ります（待機中なら開始するときの指示に付け足します）', { v: (agentLabel(agentOf(c))) })
-    : tr('実行中のエージェントに、作業を止めずにメッセージを送ります');
+  // Codex（app-server）は作業の途中に足し、ACP で動く CLI は今の作業を止めて続きから渡す。
+  // Antigravity / Droid や、それが使えないときは、終了後に追加指示／待機中は開始の指示に付け足す
+  const a = c ? agentOf(c) : 'claude';
+  $('btwTab').title = a === 'claude'
+    ? tr('実行中のエージェントに、作業を止めずにメッセージを送ります')
+    : a === 'antigravity' || a === 'droid'
+      ? tr('{v} では、実行中に送ると今の作業のあと追加指示として送ります（待機中なら開始するときの指示に付け足します）', { v: (agentLabel(a)) })
+      : tr('{v} では、承認のやりとりができる起動のしかたで動いているときは、実行中のエージェントに渡します（Codex は作業を止めずに、ACP の CLI は今の作業を止めて続きから）。それ以外は、今の作業のあと追加指示として送ります', { v: (agentLabel(a)) });
 }
 
 async function renderDetailBody() {
@@ -3483,8 +3487,15 @@ document.addEventListener('keydown', (e) => {
 });
 
 // エージェントの注意書き（Claude Code 以外は、CLI の作りの都合でできないことがある）
+//   Codex は app-server、Cursor・Gemini・OpenCode・Copilot は ACP（Amp・Pi はアダプタ）で動かすと、使える機能が増える
 function agentLimitHint(a) {
-  return a === 'claude' ? '' : tr('{agent} は CLI の作りの都合で、カードでの承認・選択肢の質問・作業途中へのメッセージ差し込み・既存の会話の引き継ぎに対応していません（btw は終了後の追加指示として送られます）。権限は設定の権限モードに合わせて CLI 側で許可します。', { agent: agentLabel(a) });
+  if (a === 'claude') return '';
+  const agent = agentLabel(a);
+  if (a === 'codex') return tr('{agent} は、カードでの承認・選択肢の質問・作業途中へのメッセージ差し込み（btw）に対応しています（「計画だけ」「すべて自動で許可」のときは CLI 側の許可で動き、btw は終了後の追加指示になります）。使った金額の表示と、既存の会話の引き継ぎには対応していません。', { agent });
+  if (a === 'cursor') return tr('{agent} は、カードでの承認・選択肢の質問・使った金額の表示（CLI が知らせるとき）に対応しています。btw は、今の作業を止めて、メッセージを足した指示で続けます。既存の会話の引き継ぎには対応していません。', { agent });
+  if (a === 'gemini' || a === 'opencode' || a === 'copilot') return tr('{agent} は、ACP に対応した版なら、カードでの承認・使った金額の表示（CLI が知らせるとき）に対応します。btw は、今の作業を止めて、メッセージを足した指示で続けます。選択肢の質問と、既存の会話の引き継ぎには対応していません。ACP に対応していない版では、権限は CLI 側で許可し、btw は終了後の追加指示として送ります。', { agent });
+  if (a === 'amp' || a === 'pi') return tr('{agent} は、「すべて自動で許可」のときに {cmd} が入っていれば ACP で動かし、使った金額の表示（知らせるとき）と btw（今の作業を止めて続ける）に対応します。カードでの承認・選択肢の質問・既存の会話の引き継ぎには対応していません。権限は設定の権限モードに合わせて CLI 側で許可します。', { agent, cmd: `${a}-acp` });
+  return tr('{agent} は CLI の作りの都合で、カードでの承認・選択肢の質問・作業途中へのメッセージ差し込み・既存の会話の引き継ぎに対応していません（btw は終了後の追加指示として送られます）。権限は設定の権限モードに合わせて CLI 側で許可します。', { agent });
 }
 
 // Pipelineのフローの要点（工程の並び・直すところ・最初の工程・分岐などの数）

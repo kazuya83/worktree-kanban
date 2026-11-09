@@ -56,11 +56,11 @@ flowchart LR
 
 - **1 tâche = 1 worktree = 1 branche.** Elle crée un worktree dans `<repo>.worktrees/<id>`, à côté du dépôt, et travaille sur une branche `agent/<résumé>-<id>`. Les tâches ne se gênent pas entre elles, ni avec l'arbre de travail que vous avez ouvert
 - **L'agent est la CLI, lancée telle quelle.** Claude Code s'exécute avec `claude -p --input-format stream-json --output-format stream-json`, et sa sortie s'affiche sur la carte comme journal. La connexion, le modèle, `CLAUDE.md` et les skills sont ceux que vous utilisez dans le terminal
-- **L'approbation passe par `--permission-prompt-tool` de Claude Code, `codex app-server` de Codex et `cursor-agent acp` de Cursor.** Seules les actions que le mode de permission ou `--allowedTools` (le réglage des outils autorisés de Worktree Kanban) n'autorise pas tout seul apparaissent sur la carte comme attente d'approbation
+- **L'approbation passe par `--permission-prompt-tool` de Claude Code, `codex app-server` de Codex et ACP pour Cursor, Gemini, OpenCode et Copilot (`cursor-agent acp`, etc.).** Seules les actions que le mode de permission ou `--allowedTools` (le réglage des outils autorisés de Worktree Kanban) n'autorise pas tout seul apparaissent sur la carte comme attente d'approbation
 - **Une fois terminé, vous intégrez le travail par un merge (`--no-ff`) ou en ouvrant une PR / MR (`gh` pour GitHub, l'API pour GitLab).** Vous choisissez la branche cible, et vous pouvez pousser vers origin après le merge
 - L'état du tableau est enregistré dans `board.json`, dans le dossier userData d'Electron. Il n'y a pas de serveur externe
 
-Sur Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid, les limites de la CLI empêchent les questions à choix multiples, btw et l'affichage du coût. L'approbation sur la carte fonctionne avec Codex et Cursor, mais pas avec Antigravity, Gemini, OpenCode, Copilot, Amp, Pi ni Droid (voir [docs/agents.md](docs/agents.md) (English)).
+En dehors de Claude Code, les fonctions disponibles dépendent de la CLI. L'approbation sur la carte fonctionne avec Codex, Cursor, Gemini, OpenCode et Copilot, et les questions à choix multiples avec Codex et Cursor. btw est transmis à Codex sans interrompre son travail, et les CLI passant par ACP (Cursor, Gemini, OpenCode, Copilot, et Amp ou Pi avec un adaptateur) interrompent le travail en cours puis continuent avec le message. Le coût s'affiche quand une CLI ACP le signale. Rien de cela n'est disponible avec Antigravity ni Droid (voir [docs/agents.md](docs/agents.md) (English)).
 
 ## Fonctions principales
 
