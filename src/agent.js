@@ -1116,6 +1116,9 @@ class AgentManager extends EventEmitter {
 
   log(card, kind, text, extra) {
     const entry = { t: Date.now(), kind, text, ...(extra || {}) };
+    // 画面の進捗の見える化（ロボット）が、いまの作業（ツールを使っている・返事を書いている）を出すのに使う
+    if (kind === 'tool') card.activity = { kind: 'tool', name: String(text || '').trim().split(/\s+/)[0].slice(0, 60), at: entry.t };
+    else if (kind === 'text') card.activity = { kind: 'text', at: entry.t };
     card.logs = card.logs || [];
     card.logs.push(entry);
     if (card.logs.length > MAX_LOGS) card.logs.splice(0, card.logs.length - MAX_LOGS);

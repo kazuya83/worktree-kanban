@@ -1262,3 +1262,9 @@ body.term-resizing { cursor: ns-resize; user-select: none; }
 .bv-pick img { width: 40px; height: 28px; object-fit: contain; }
 .bv-picks textarea { resize: vertical; }
 .bv-pick-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* 進捗の見える化（agent-sprite.js）: カードのロボットと、進捗タブの道 */
+.agent-sprite { display: block; width: 100%; image-rendering: pixelated; }
+.agent-sprite.mini { height: 36px; margin: 6px 0 4px; border-radius: 6px; background: color-mix(in srgb, var(--panel) 60%, transparent); }
+.pg-stage { padding: 0; }
+.agent-sprite.stage { height: 164px; border-radius: 10px; border: 1px solid var(--line); }
