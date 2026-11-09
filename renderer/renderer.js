@@ -2253,6 +2253,7 @@ function renderDetailHead() {
   $('followBtn').disabled = !canFollow;
   $('followInput').placeholder =
     chat ? (canFollow ? tr('メッセージを送る（Ctrl/⌘ + Enter で送信）。同じ会話の続きとして話せます') : tr('返事が来たら、続きを話せます'))
+    : waitingAnswer(c) ? tr('{v} が質問しています。選択肢で答えるか、ここにメッセージを書いて送ると、質問への返事として渡します（Ctrl/⌘ + Enter で送信）', { v: (agentShort(agentOf(c))) })
     : canFollow && isSpecPending(c) ? tr('質問への答えを書く（Ctrl/⌘ + Enter で送信）。分からないところは「おまかせ」と書いてもかまいません')
     : canFollow && c.awaitingReply ? tr('{v} への回答を書く（Ctrl/⌘ + Enter で送信）', { v: (agentShort(agentOf(c))) })
     : s === 'done' ? tr('完了したタスクについて話す（Ctrl/⌘ + Enter で送信）。ファイルは変えずに答えます。修正が必要なときは「修正タスクを作る」から別のタスクにしてください')
@@ -3247,6 +3248,21 @@ function updateBtwTab(c) {
       : tr('{v} では、承認のやりとりができる起動のしかたで動いているときは、実行中のエージェントに渡します（Codex は作業を止めずに、ACP の CLI は今の作業を止めて続きから）。それ以外は、今の作業のあと追加指示として送ります', { v: (agentLabel(a)) });
 }
 
+// btw のタブの下に出す案内（実行中か・質問の返事を待っているかで変わる）
+function btwHint(c) {
+  const live = c.status === 'running' || c.status === 'queued';
+  const nonClaude = agentOf(c) !== 'claude';
+  return waitingAnswer(c)
+    ? tr('{v} が質問の返事を待っているので、送ると質問への返事として渡します', { v: (agentShort(agentOf(c))) })
+    : !live
+      ? (c.status === 'todo' ? tr('開始すると送れるようになります') : tr('作業が終わったあとは、下の「追加指示」を使ってください'))
+      : c.status === 'queued'
+        ? tr('待機中なので、開始するときの指示に付け足します')
+        : nonClaude
+          ? tr('今の作業は続け、終わったあとに追加指示として送ります')
+          : tr('送ると、すぐに実行中のエージェントに届きます');
+}
+
 async function renderDetailBody() {
   const c = card(state.selected);
   if (!c) return;
@@ -3280,13 +3296,7 @@ async function renderDetailBody() {
     const help = nonClaude
       ? tr('{v} では、作業の途中にはメッセージを差し込めません。実行中に送ると今の作業は続け、終わったあとに「追加指示」として送ります。待機中なら、開始するときの指示に付け足します。', { v: (agentLabel(agentOf(c))) })
       : tr('エージェントの作業を止めずに、メッセージを送れます（例:「テストも書いて」「その API は使わないで」）。Claude Code は今の作業の途中で読み、そのまま反映します。');
-    const hint = !live
-      ? (c.status === 'todo' ? tr('開始すると送れるようになります') : tr('作業が終わったあとは、下の「追加指示」を使ってください'))
-      : c.status === 'queued'
-        ? tr('待機中なので、開始するときの指示に付け足します')
-        : nonClaude
-          ? tr('今の作業は続け、終わったあとに追加指示として送ります')
-          : tr('送ると、すぐに実行中のエージェントに届きます');
+    const hint = btwHint(c);
     body.innerHTML = tr('<div class="pad btw">\n      <p class="muted small">{help}</p>\n      <div id="btwList" class="btw-list">{v}</div>\n      <div class="composer">\n        <textarea id="btwInput" rows="3" placeholder="{v2}" {v3}></textarea>\n        <button class="composer-send" id="btwSend" title="送信（Ctrl/⌘ + Enter）" aria-label="送信" {v3}>{v4}</button>\n      </div>\n      <div class="btw-actions"><span class="muted small">{hint}</span></div>\n    </div>', { help, v: (btwListHtml(c)), v2: (live ? tr('btw: …（Ctrl/⌘ + Enter で送信）') : tr('エージェントが実行中のときに送れます')), v3: (live ? '' : 'disabled'), v4: (icon('send')), hint });
     const send = async () => {
       const text = $('btwInput').value.trim();
@@ -3425,14 +3435,21 @@ function attachFilesHtml(atts, { all = false } = {}) {
 }
 
 // 追加指示を送れる状態か（完了したタスクにも送れる。送ると、タスクは完了のまま、ファイルを変えずに話す）
+// 実行中でも、選択肢の質問の返事を待って止まっているときは送れる（質問への返事として渡す）
 function canSendFollow(c) {
-  return !!c && (c.status === 'review' || c.status === 'failed' || c.status === 'done');
+  return !!c && (c.status === 'review' || c.status === 'failed' || c.status === 'done' || waitingAnswer(c));
+}
+
+// 実行中に、エージェントが選択肢の質問の返事を待っているか
+function waitingAnswer(c) {
+  return !!c && c.status === 'running' && !!(c.questions || []).length;
 }
 
 function drawFollowSkill() {
   const c = card(state.selected);
   const can = canSendFollow(c);
-  renderSkillSlot('followSkill', state.followSkill, (v) => ((state.followSkill = v), drawFollowSkill()), { disabled: !can });
+  // 質問への返事として渡すときは、スキルは使わない
+  renderSkillSlot('followSkill', state.followSkill, (v) => ((state.followSkill = v), drawFollowSkill()), { disabled: !can || waitingAnswer(c) });
 }
 
 // 入力欄で Ctrl/⌘ + Enter を押したら送る（Claude Desktop のように）。
@@ -3462,7 +3479,7 @@ async function sendFollow() {
   const msg = $('followInput').value.trim();
   if (!c || !msg) return;
   const files = isChat(c) ? followAttach.list() : [];
-  const ok = await run(() => api.send(c.id, msg, state.followSkill, files.length ? files : undefined).then(() => true));
+  const ok = await run(() => api.send(c.id, msg, waitingAnswer(c) ? null : state.followSkill, files.length ? files : undefined).then(() => true));
   if (ok) {
     $('followInput').value = '';
     followAttach.clear();
@@ -6302,6 +6319,10 @@ api.onBoard((board) => {
         // 実行中かどうかが変わったら作り直す
         const live = c.status === 'running' || c.status === 'queued';
         if ($('btwInput') && $('btwInput').disabled === live) renderDetailBody();
+        else {
+          const hint = $('detailBody').querySelector('.btw-actions span');
+          if (hint) hint.textContent = btwHint(c); // 質問の返事を待っているかで変わる
+        }
       }
     }
   }

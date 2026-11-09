@@ -1177,7 +1177,9 @@
     const nonClaude = BM.agentOf(c) !== 'claude';
     const ph =
       mode === 'btw'
-        ? c.status === 'queued'
+        ? c.status === 'running' && (c.questions || []).length
+          ? tr('{v} が質問の返事を待っています。送ると、質問への返事として渡します', { v: who })
+          : c.status === 'queued'
           ? tr('待機中なので、開始するときの指示に付け足します')
           : nonClaude
             ? tr('今の作業は続け、終わったあとに追加指示として送ります')
