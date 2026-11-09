@@ -26,6 +26,10 @@ Each release that changes the app raises the last number of the version. There i
 
 - Tasks created from Issues and tasks requested from Slack, including their subtasks and relay branches, never run with "Allow everything automatically". They run with `acceptEdits` (file edits automatic, commands need approval) even when the project's permission mode is `bypassPermissions`, so a malicious Issue cannot run commands without approval. The card log says so when this applies.
 
+### Fixed
+
+- Claude Code: an instruction starting with `/chrome` no longer ends with "/chrome isn't available in this environment.". The app removes `/chrome` and starts Claude Code with `--chrome` (Claude in Chrome), and keeps it on for later runs of the same task. Skills (`/skill-name`) now also work when the app language is not Japanese.
+
 ## 0.1.96
 
 ### Changed

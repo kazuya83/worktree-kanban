@@ -9,7 +9,7 @@ const I18n = require('../renderer/i18n');
 const { tr } = I18n;
 const { Store, languageForBoardFile, assertLanguage, defaultRepoSettings } = require('../src/store');
 const { isLocalChannel, isProxyChannel, stripLocalSettings, redactForRemote, restoreLocalLanguage, RemoteHost, RemoteClient } = require('../src/remote');
-const { parseMarkdownQuestions, isOtherOption, withReplyLanguage, isQuitInterrupt, buildBranchNamePrompt, buildRelayStepPrompt, relayStepsOf, AgentManager } = require('../src/agent');
+const { parseMarkdownQuestions, isOtherOption, withReplyLanguage, takeChromeCommand, isQuitInterrupt, buildBranchNamePrompt, buildRelayStepPrompt, relayStepsOf, AgentManager } = require('../src/agent');
 const FlowModel = require('../renderer/flow-model');
 const providers = require('../src/providers');
 const git = require('../src/git');
@@ -169,6 +169,12 @@ test('返事の言語の指示は ja 以外だけ、空や二度目は足さな�
     assert.match(withReplyLanguage('x'), /français/);
     I18n.setLanguage('zh');
     assert.match(withReplyLanguage('x'), /简体中文/);
+    // 「/スキル名 指示」は、/スキル名 を先頭に残す（先頭にないと Claude Code がスキルとして読まない）
+    const skilled = withReplyLanguage('/release 本文');
+    assert.match(skilled, /^\/release 【返事の言語】[\s\S]*简体中文/);
+    assert.ok(skilled.endsWith('本文'));
+    assert.strictEqual(withReplyLanguage(skilled), skilled);
+    assert.match(withReplyLanguage('/plugin:skill\n本文'), /^\/plugin:skill 【返事の言語】/);
     const branch = buildBranchNamePrompt('feature/{slug}', { title: '直す', issue: null });
     assert.doesNotMatch(branch, /返事の言語/);
     assert.match(branch, /命名規則/);
@@ -809,4 +815,17 @@ test('英語にすると、判定ログ・分けずに進める・拒否理由�
     I18n.setLanguage(prev);
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('/chrome は claude -p では使えないので、外して --chrome で動かす', () => {
+  assert.deepStrictEqual(takeChromeCommand('/chrome ページを開いて確かめて'), { prompt: 'ページを開いて確かめて', chrome: true });
+  assert.deepStrictEqual(takeChromeCommand('/chrome\n本文'), { prompt: '本文', chrome: true });
+  const only = takeChromeCommand('/chrome');
+  assert.strictEqual(only.chrome, true);
+  assert.match(only.prompt, /Claude in Chrome/);
+  // 仕様の確認の指示に包まれたタスクの本文の行頭
+  assert.deepStrictEqual(takeChromeCommand('# 指示\n\n## タスク\n\n/chrome で画面を見て'), { prompt: '# 指示\n\n## タスク\n\n/chrome で画面を見て', chrome: true });
+  assert.deepStrictEqual(takeChromeCommand('/chromebook を調べて'), { prompt: '/chromebook を調べて', chrome: false });
+  assert.deepStrictEqual(takeChromeCommand('a/chrome b'), { prompt: 'a/chrome b', chrome: false });
+  assert.deepStrictEqual(takeChromeCommand(null), { prompt: '', chrome: false });
 });

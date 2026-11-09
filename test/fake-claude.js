@@ -13,6 +13,8 @@ const opt = (name) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
 };
+// 受け取った引数は FAKE_ARGS_LOG があればそこに1行ずつ追記する
+if (process.env.FAKE_ARGS_LOG) fs.appendFileSync(process.env.FAKE_ARGS_LOG, `${JSON.stringify({ kind: 'claude', args })}\n`);
 const out = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

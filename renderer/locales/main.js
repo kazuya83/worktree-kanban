@@ -239,6 +239,7 @@
   "時間がかかりすぎました": {"en":"This took too long","es":"Tardó demasiado","fr":"Cela a pris trop de temps","zh":"花费的时间太长"},
   "フォルダが見つかりません: {path}": {"en":"Folder not found: {path}","es":"No se encuentra la carpeta: {path}","fr":"Dossier introuvable : {path}","zh":"找不到文件夹：{path}"},
   "リポジトリのフォルダが見つかりません: {path}": {"en":"Repository folder not found: {path}","es":"No se encuentra la carpeta del repositorio: {path}","fr":"Dossier du dépôt introuvable : {path}","zh":"找不到仓库文件夹：{path}"},
+  "Claude in Chrome を使えるようにして動かします（このタスクでは、このあとも使えます）": {"en":"Running with Claude in Chrome enabled (it stays enabled for this task)","es":"Se ejecuta con Claude in Chrome activado (seguirá activado en esta tarea)","fr":"Exécution avec Claude in Chrome activé (il reste activé pour cette tâche)","zh":"已启用 Claude in Chrome 运行（此任务之后也可使用）"},
   "{label} で動かします（会話 {id} の続き）": {"en":"Running with {label} (continuing chat {id})","es":"Se mueve con {label} (continuación de la conversación {id})","fr":"Exécution avec {label} (suite de la conversation {id})","zh":"使用 {label} 运行（接着对话 {id}）"},
   "{label} で動かします": {"en":"Running with {label}","es":"Se mueve con {label}","fr":"Exécution avec {label}","zh":"使用 {label} 运行"},
   "変更を worktree のブランチにコミットしました": {"en":"Committed the changes on the worktree branch","es":"Se confirmaron los cambios en la rama del worktree","fr":"Les changements ont été validés sur la branche du worktree","zh":"已把更改提交到 worktree 的分支"},
