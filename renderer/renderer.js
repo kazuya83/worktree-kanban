@@ -544,9 +544,9 @@ function spriteInfo(c) {
   let label;
   if (mood === 'work') label = SPRITE_LABEL[tool] || SPRITE_LABEL.tool;
   else if (mood === 'think') label = tr('考え中…');
-  else if (mood === 'wait') label = tool === 'perm' ? tr('承認を待っています') : tr('あなたの返事を待っています');
+  else if (mood === 'wait') label = tool === 'perm' ? tr('承認を待っています') : tool === 'review' ? tr('あなたの確認待ち') : tr('あなたの返事を待っています');
   else if (mood === 'queued') label = tr('順番を待っています');
-  else if (mood === 'done') label = c.status === 'done' ? tr('完了！') : tr('できました！');
+  else if (mood === 'done') label = tr('完了！');
   else if (mood === 'fail') label = tr('止まってしまいました');
   else label = tr('開始を待っています');
   const detail = progress.now ? `▶ ${progress.now}` : c.lastMessage && mood !== 'done' ? plainText(c.lastMessage) : '';

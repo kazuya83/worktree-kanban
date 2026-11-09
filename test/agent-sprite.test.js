@@ -33,7 +33,8 @@ test('様子: 待っているのが最優先、実行中はツールなら作業
   assert.deepStrictEqual(m({ status: 'running', activity: { kind: 'tool', name: 'Edit', at: 5 }, startedAt: 10 }), { mood: 'think', tool: null });
   assert.deepStrictEqual(m({ status: 'running', activity: { kind: 'text', at: 20 }, startedAt: 10 }), { mood: 'think', tool: null });
   assert.strictEqual(m({ status: 'queued' }).mood, 'queued');
-  assert.strictEqual(m({ status: 'review' }).mood, 'done');
+  // レビューはゴールではなく、あなたの確認待ち
+  assert.deepStrictEqual(m({ status: 'review' }), { mood: 'wait', tool: 'review' });
   assert.strictEqual(m({ status: 'done' }).mood, 'done');
   assert.strictEqual(m({ status: 'failed' }).mood, 'fail');
   assert.strictEqual(m({ status: 'todo' }).mood, 'idle');

@@ -535,7 +535,7 @@
   "あなたの返事を待っています": {"en": "Waiting for your reply", "es": "Esperando tu respuesta", "fr": "En attente de votre réponse", "zh": "等待你的回复"},
   "順番を待っています": {"en": "Waiting in line", "es": "Esperando turno", "fr": "En attente de son tour", "zh": "排队等待中"},
   "完了！": {"en": "Done!", "es": "¡Hecho!", "fr": "Terminé !", "zh": "完成！"},
-  "できました！": {"en": "Finished!", "es": "¡Listo!", "fr": "C’est fait !", "zh": "做好了！"},
+  "あなたの確認待ち": {"en": "Waiting for your review", "es": "Esperando tu revisión", "fr": "En attente de votre vérification", "zh": "等待你确认"},
   "止まってしまいました": {"en": "It stopped", "es": "Se ha detenido", "fr": "Arrêté", "zh": "已停止"},
   "開始を待っています": {"en": "Waiting to start", "es": "Esperando para empezar", "fr": "En attente de démarrage", "zh": "等待开始"},
 });
