@@ -20,6 +20,7 @@
   "ターミナルの部品（xterm.js）を読み込めませんでした": {"en":"Could not load the terminal component (xterm.js)","es":"No se pudo cargar el componente de terminal (xterm.js)","fr":"Impossible de charger le composant de terminal (xterm.js)","zh":"无法加载终端组件（xterm.js）"},
   "開始すると worktree ができ、ここでターミナルを開けます": {"en":"Once the task starts, a worktree is created and you can open a terminal here","es":"Al iniciar la tarea se crea un worktree y podrá abrir una terminal aquí","fr":"Au démarrage de la tâche, un worktree est créé et vous pourrez ouvrir un terminal ici","zh":"开始后会创建 worktree，即可在这里打开终端"},
   "ターミナルを開いています…": {"en":"Opening the terminal…","es":"Abriendo la terminal…","fr":"Ouverture du terminal…","zh":"正在打开终端…"},
+  "ドラッグで並べ替えられます": {"en":"Drag to reorder","es":"Arrastre para reordenar","fr":"Faites glisser pour réorganiser","zh":"拖动可调整顺序"},
   "閉じる（シェルを終わらせます）": {"en":"Close (ends the shell)","es":"Cerrar (termina la shell)","fr":"Fermer (termine le shell)","zh":"关闭（结束 shell）"},
   "ターミナルはまだありません。「＋」で開きます（今のリポジトリのフォルダで開きます）": {"en":"No terminals yet. Click \"+\" to open one (it opens in the current repository's folder).","es":"Aún no hay terminales. Pulse «+» para abrir una (se abre en la carpeta del repositorio actual).","fr":"Aucun terminal pour l'instant. Cliquez sur « + » pour en ouvrir un (il s'ouvre dans le dossier du dépôt actuel).","zh":"还没有终端。点「＋」打开（在当前仓库的文件夹中打开）。"},
   "もう一度開く": {"en":"Open again","es":"Abrir de nuevo","fr":"Rouvrir","zh":"重新打开"},

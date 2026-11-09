@@ -13,6 +13,7 @@
 
   const PANEL_H_KEY = 'termPanelHeight';
   const PANEL_OPEN_KEY = 'termPanelOpen';
+  const TAB_ORDER_KEY = 'termTabOrder';
   const MIN_PANEL_H = 120;
 
   let api = null;
@@ -20,7 +21,39 @@
   let toast = () => {};
   let currentCard = () => null; // 今開いているタスク（パネルの「このタスク」用）
   const sessions = new Map(); // id → { id, info, term, fit, el, ro, exited, place }
-  const panel = { open: false, active: null, list: [] }; // list: terminal:list の結果（ホストのものも含む）
+  const panel = { open: false, active: null, list: [], order: [] }; // list: terminal:list の結果（ホストのものも含む）。order: タブの並び（ドラッグで変えたもの）
+  let dragId = null; // ドラッグして動かしているタブ
+
+  // ---- タブの並び ----
+  // order に入っているものはその順に、入っていない（新しく開いた）ものは、もとの順のまま後ろに並べる
+  function orderTabs(list, order) {
+    const pos = new Map((order || []).map((id, i) => [id, i]));
+    return list
+      .map((t, i) => ({ t, i }))
+      .sort((a, b) => {
+        const pa = pos.has(a.t.id) ? pos.get(a.t.id) : Infinity;
+        const pb = pos.has(b.t.id) ? pos.get(b.t.id) : Infinity;
+        return pa !== pb ? pa - pb : a.i - b.i;
+      })
+      .map((x) => x.t);
+  }
+
+  // ids の並びで、id を target の前（after なら後ろ）へ動かす
+  function moveTab(ids, id, target, after) {
+    if (id === target || !ids.includes(id) || !ids.includes(target)) return ids.slice();
+    const rest = ids.filter((x) => x !== id);
+    const at = rest.indexOf(target) + (after ? 1 : 0);
+    rest.splice(at, 0, id);
+    return rest;
+  }
+
+  function saveOrder() {
+    try {
+      localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(panel.order));
+    } catch {
+      /* 保存できなくてもよい */
+    }
+  }
 
   // ---- xterm の作成 ----
   function cssVar(name, def) {
@@ -271,8 +304,14 @@
     } catch {
       panel.list = [];
     }
+    panel.list = orderTabs(panel.list, panel.order);
     // 一覧から消えた（閉じた・タスクを消した）ものは、画面からも消す
     const ids = new Set(panel.list.map((t) => t.id));
+    const order = panel.list.map((t) => t.id);
+    if (order.join('\n') !== panel.order.join('\n')) {
+      panel.order = order;
+      saveOrder();
+    }
     for (const id of [...sessions.keys()]) if (!ids.has(id)) dispose(id);
     if (panel.active && !ids.has(panel.active)) panel.active = panel.list.length ? panel.list[panel.list.length - 1].id : null;
     if (panel.open) renderPanel();
@@ -284,13 +323,14 @@
   }
 
   function renderPanelTabs() {
+    if (dragId) return; // ドラッグ中に作り直すと、ドラッグが切れる（終わったときに作り直す）
     const tabs = panelEl('termTabs');
     tabs.innerHTML = panel.list
       .map((t) => {
         const cls = ['term-tabbtn', t.id === panel.active ? 'active' : '', t.exited ? 'exited' : ''].filter(Boolean).join(' ');
         const kind = t.kind === 'card' ? `<span class="term-kind">${esc(tr('タスク'))}</span>` : '';
         const host = t.remote ? `<span class="term-kind">${esc(tr('ホスト'))}</span>` : '';
-        return `<div class="${cls}" data-term-sel="${esc(t.id)}" title="${esc(t.cwd || '')}" role="tab" aria-selected="${t.id === panel.active}">${iconFn('terminal')}${host}${kind}<span class="term-name">${esc(tabLabel(t))}</span><button type="button" class="term-x" data-term-close="${esc(t.id)}" title="${esc(tr('閉じる（シェルを終わらせます）'))}" aria-label="${esc(tr('閉じる'))}">${iconFn('x')}</button></div>`;
+        return `<div class="${cls}" data-term-sel="${esc(t.id)}" title="${esc([t.cwd, tr('ドラッグで並べ替えられます')].filter(Boolean).join('\n'))}" role="tab" aria-selected="${t.id === panel.active}" draggable="true">${iconFn('terminal')}${host}${kind}<span class="term-name">${esc(tabLabel(t))}</span><button type="button" class="term-x" data-term-close="${esc(t.id)}" title="${esc(tr('閉じる（シェルを終わらせます）'))}" aria-label="${esc(tr('閉じる'))}">${iconFn('x')}</button></div>`;
       })
       .join('');
     const c = currentCard();
@@ -460,6 +500,12 @@
     } catch {
       /* */
     }
+    try {
+      const o = JSON.parse(localStorage.getItem(TAB_ORDER_KEY) || '[]');
+      if (Array.isArray(o)) panel.order = o.filter((x) => typeof x === 'string');
+    } catch {
+      /* */
+    }
     panelEl('termNew').onclick = () => newFree();
     panelEl('termCardBtn').onclick = () => openCardInPanel();
     panelEl('termHide').onclick = () => showPanel(false);
@@ -475,6 +521,55 @@
         panel.active = sel.dataset.termSel;
         renderPanel();
       }
+    });
+    // タブをドラッグして並べ替える
+    const tabsEl = panelEl('termTabs');
+    const clearMark = () => tabsEl.querySelectorAll('.drop-before, .drop-after').forEach((el) => el.classList.remove('drop-before', 'drop-after'));
+    // マウスの横の位置から、どのタブの前（後ろ）に入れるかを決める（タブのすき間・右の空きに落としても効く）
+    const dropAt = (e) => {
+      const els = [...tabsEl.querySelectorAll('[data-term-sel]')].filter((el) => el.dataset.termSel !== dragId);
+      for (const el of els) {
+        const r = el.getBoundingClientRect();
+        if (e.clientX < r.left + r.width / 2) return { el, after: false };
+      }
+      return els.length ? { el: els[els.length - 1], after: true } : null;
+    };
+    tabsEl.addEventListener('dragstart', (e) => {
+      const el = e.target.closest && e.target.closest('[data-term-sel]');
+      if (!el) return;
+      dragId = el.dataset.termSel;
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try {
+        e.dataTransfer.setData('application/x-term-tab', dragId); // text/plain にすると、入力欄に落としたとき id が入ってしまう
+      } catch {
+        /* */
+      }
+    });
+    tabsEl.addEventListener('dragover', (e) => {
+      if (!dragId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      clearMark();
+      const at = dropAt(e);
+      if (at) at.el.classList.add(at.after ? 'drop-after' : 'drop-before');
+    });
+    tabsEl.addEventListener('dragleave', (e) => {
+      if (!tabsEl.contains(e.relatedTarget)) clearMark();
+    });
+    tabsEl.addEventListener('drop', (e) => {
+      if (!dragId) return;
+      e.preventDefault();
+      const at = dropAt(e);
+      if (!at) return;
+      panel.order = moveTab(panel.list.map((t) => t.id), dragId, at.el.dataset.termSel, at.after);
+      panel.list = orderTabs(panel.list, panel.order);
+      saveOrder();
+    });
+    tabsEl.addEventListener('dragend', () => {
+      dragId = null;
+      clearMark();
+      renderPanelTabs();
     });
     // 上の線をドラッグして高さを変える（ダブルクリックで元の高さ）
     const rz = panelEl('termResizer');
@@ -529,5 +624,6 @@
     if (panel.open) renderPanelTabs();
   }
 
-  root.TerminalView = { init, renderCardTab, togglePanel, showPanel, boardChanged, refreshList, _sessions: sessions };
+  root.TerminalView = { init, renderCardTab, togglePanel, showPanel, boardChanged, refreshList, orderTabs, moveTab, _sessions: sessions };
+  if (typeof module === 'object' && module.exports) module.exports = root.TerminalView;
 })(typeof window !== 'undefined' ? window : globalThis);

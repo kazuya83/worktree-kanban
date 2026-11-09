@@ -1217,6 +1217,9 @@ body.term-resizing { cursor: ns-resize; user-select: none; }
 .term-tabbtn.active { background: var(--panel-2); color: var(--text); border-color: var(--line); }
 .term-tabbtn.exited .term-name { text-decoration: line-through; opacity: 0.7; }
 .term-tabbtn .ic { width: 13px; height: 13px; flex: none; }
+.term-tabbtn.dragging { opacity: 0.45; }
+.term-tabbtn.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.term-tabbtn.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .term-name { overflow: hidden; text-overflow: ellipsis; }
 .term-kind { font-size: 10px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
 .term-x { background: none; border: 0; padding: 1px; border-radius: 4px; cursor: pointer; color: var(--muted); display: inline-flex; }
