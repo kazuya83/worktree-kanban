@@ -2531,11 +2531,14 @@ class AgentManager extends EventEmitter {
     return c.issue ? `agent: ${IssueRef.stripKey(c.title, c.issue)} (${IssueRef.keyOf(c.issue)})` : `agent: ${c.title}`;
   }
 
+  // タイトルはいつでも変えられる（ブランチ名は開始したときのまま）。最初の指示とスキルは開始前だけ
   updateCard(id, { title, prompt, skill }) {
     const c = this.must(id);
-    if (c.status !== 'todo') throw new Error(tr('開始前のタスクだけ編集できます'));
+    const body = prompt !== undefined || skill !== undefined;
+    if (body && c.status !== 'todo') throw new Error(tr('開始前のタスクだけ編集できます'));
+    if (title !== undefined && !body && !(typeof title === 'string' && title.trim())) throw new Error(tr('タイトルを入力してください'));
     if (skill !== undefined) c.skill = cleanSkill(skill);
-    if (typeof title === 'string' && title.trim()) c.title = title.trim();
+    if (typeof title === 'string' && title.trim()) c.title = title.trim().replace(/\s*\n\s*/g, ' ');
     if (typeof prompt === 'string' && prompt.trim()) c.prompt = prompt.trim();
     this.changed(c);
   }

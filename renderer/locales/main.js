@@ -217,6 +217,7 @@
   "消す会話を選んでください": {"en":"Choose the chat to delete","es":"Elija la conversación que quiere borrar","fr":"Choisissez la conversation à supprimer","zh":"请选择要删除的对话"},
   "マージしたので、このタスクの会話（{length} 件）を消しました": {"en":"Deleted this task's chats ({length}) because it was merged","es":"Se borraron las conversaciones de esta tarea ({length}) porque se fusionó","fr":"Les conversations de cette tâche ({length}) ont été supprimées parce qu'elle a été fusionnée","zh":"已合并，因此删除了此任务的对话（{length} 个）"},
   "会話を消せませんでした: {message}": {"en":"Could not delete the chat: {message}","es":"No se pudo borrar la conversación: {message}","fr":"Impossible de supprimer la conversation : {message}","zh":"无法删除对话：{message}"},
+  "タイトルを入力してください": {"en":"Enter a title","es":"Introduzca un título","fr":"Saisissez un titre","zh":"请输入标题"},
   "開始前のタスクだけ編集できます": {"en":"Only a task that has not started can be edited","es":"Solo se puede editar una tarea que aún no ha empezado","fr":"Seule une tâche pas encore commencée peut être modifiée","zh":"只有尚未开始的任务才能编辑"},
   "このタスクはもう開始しています": {"en":"This task has already started","es":"Esta tarea ya ha empezado","fr":"Cette tâche a déjà commencé","zh":"此任务已经开始"},
   "実行中・待機中は追加指示を送れません": {"en":"A follow-up cannot be sent while running or queued","es":"No se puede enviar una instrucción adicional mientras está en ejecución o en espera","fr":"Impossible d'envoyer une instruction supplémentaire pendant l'exécution ou l'attente","zh":"运行中或排队中不能发送后续指示"},

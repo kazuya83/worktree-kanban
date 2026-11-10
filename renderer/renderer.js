@@ -2253,6 +2253,45 @@ function competeBoxHtml(c) {
   return tr('<div class="compete-box"><b>{v}競争: 同じタスクを {length} つのエージェントで解いています</b>\n    <div class="compete-list">{rows}</div>\n    <small>{v2}差分タブでそれぞれの変更を見比べて、よいものを採用してください。採用すると、ほかの候補は worktree とブランチごと破棄します。</small>\n    <div class="d-actions">\n      {v3}\n      <button class="btn" data-act="compare" {v4}>{v5}{v6}{v7} に比べてもらう</button>\n      {v8}\n    </div></div>', { v: (icon('flag')), length: (list.length), rows, v2: (busy ? tr('まだ動いている候補があります。') : tr('すべての候補が終わりました。')), v3: (canAdopt ? tr('<button class="btn primary" data-act="adopt">{v}この案（{v2}）を採用</button>', { v: (icon('flag')), v2: (esc(agentShort(agentOf(c)))) }) : ''), v4: (busy ? tr('title="終わっていない候補は、その時点の内容で比べます"') : ''), v5: (icon('compare')), v6: (agentIcon(defaultAgent())), v7: (esc(agentShort(defaultAgent()))), v8: (c.compete.compareChat && card(c.compete.compareChat) ? tr('<button class="btn ghost" data-goto="{compareChat}">比較の会話を開く</button>', { compareChat: (c.compete.compareChat) }) : '') });
 }
 
+// 詳細のいちばん上のタイトルを、その場で書き換える（Enter・欄の外で保存、Esc でやめる）。開始したあとでも変えられる
+function startTitleEdit(id) {
+  const c = card(id);
+  const h = $('detailTitleText');
+  if (!c || !h || state.titleEdit) return;
+  state.titleEdit = id;
+  const input = document.createElement('input');
+  input.className = 'd-title-input';
+  input.id = 'detailTitleInput';
+  input.value = c.title;
+  input.setAttribute('aria-label', tr('タイトル'));
+  h.replaceWith(input);
+  $('renameTitle').hidden = true;
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    const title = input.value.trim();
+    state.titleEdit = null;
+    state.headSig = null; // 元の表示に描き直す
+    if (save && title && title !== c.title) {
+      try {
+        await api.updateCard({ id, title });
+      } catch (err) {
+        toast(err.message || String(err), 'error');
+      }
+    }
+    if (state.selected === id) renderDetailHead();
+  };
+  input.onkeydown = (e) => {
+    if (e.isComposing || e.keyCode === 229) return; // 日本語の変換を確定する Enter では保存しない
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+  };
+  input.onblur = () => finish(true);
+}
+
 function renderDetailHead() {
   const c = card(state.selected);
   if (!c) return closeDetailOrBack();
@@ -2286,7 +2325,13 @@ function renderDetailHead() {
     // 完了したタスク（完了後の会話の途中も含む）は削除できない
     s !== 'done' && !c.afterDone && tr('<button class="btn danger" data-act="discard">破棄</button>'),
   ].filter(Boolean);
-  $('detailTitle').innerHTML = tr('\n    <div class="d-title-row">\n      <span class="badge b-{v}">{v2}</span>\n      <h2 class="d-title" id="detailTitleText" title="{title}">{title}</h2>\n      <button class="icon" id="closeDetail" title="閉じる">✕</button>\n    </div>', { v: (badgeFor(c)[0] + (BADGE_TONE[badgeFor(c)[0]] ? ` tone-${BADGE_TONE[badgeFor(c)[0]]}` : '')), v2: (badgeFor(c)[1]), title: (esc(c.title)) });
+  // タイトルを書き換えている途中は、タイトルの段を描き直さない（入力が消えないように）
+  if (state.titleEdit && state.titleEdit !== c.id) state.titleEdit = null; // 書き換えの途中でほかのタスクを開いた
+  if (state.titleEdit !== c.id) {
+    $('detailTitle').innerHTML = tr('\n    <div class="d-title-row">\n      <span class="badge b-{v}">{v2}</span>\n      <h2 class="d-title" id="detailTitleText" title="{title}">{title}</h2>\n      <button class="icon" id="renameTitle" title="タイトルを変える">{v3}</button>\n      <button class="icon" id="closeDetail" title="閉じる">✕</button>\n    </div>', { v: (badgeFor(c)[0] + (BADGE_TONE[badgeFor(c)[0]] ? ` tone-${BADGE_TONE[badgeFor(c)[0]]}` : '')), v2: (badgeFor(c)[1]), title: (esc(c.title)), v3: (icon('note')) });
+    $('renameTitle').onclick = () => startTitleEdit(c.id);
+    $('detailTitleText').ondblclick = () => startTitleEdit(c.id);
+  }
   // 上の段はボタンだけ（1行・高さは固定）。Pipeline・全体の進み具合と競争は「進捗」タブ、サブタスクの一覧は「サブタスク」タブ、
   // 中断・エラー・コンフリクト・サブタスクの提案は「チャット」タブの最後に出す
   $('detailHead').innerHTML = `<div class="d-actions">${btns.join('')}</div>`;

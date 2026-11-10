@@ -1520,3 +1520,18 @@ test('ほかのプロジェクトに切り替えても、タスクはそのタ�
   assert.strictEqual(c.baseBranch, 'develop');
   assert.ok(!c.permissions || !c.permissions.length, '承認なし（bypassPermissions）で動いた');
 });
+
+test('タイトルは開始したあとでも変えられる。最初の指示は開始前だけ', () => {
+  const { agents } = setup();
+  const c = agents.createCard({ title: '元のタイトル', prompt: 'やること' });
+  agents.updateCard(c.id, { title: '  開始前に変えた  ', prompt: '直した指示' });
+  assert.strictEqual(c.title, '開始前に変えた');
+  assert.strictEqual(c.prompt, '直した指示');
+  c.status = 'review'; // 開始したあと
+  agents.updateCard(c.id, { title: 'あとから\n変えた' });
+  assert.strictEqual(c.title, 'あとから 変えた');
+  assert.throws(() => agents.updateCard(c.id, { title: '   ' }), /タイトルを入力してください/);
+  assert.throws(() => agents.updateCard(c.id, { prompt: '指示も変える' }), /開始前のタスクだけ編集できます/);
+  assert.strictEqual(c.title, 'あとから 変えた');
+  assert.strictEqual(c.prompt, '直した指示');
+});
