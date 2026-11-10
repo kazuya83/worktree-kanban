@@ -177,7 +177,7 @@
     S.loaded = true;
     S.board = { settings: {}, notifications: [], repoTabs: [], ...board };
     if (!S.board.settings) S.board.settings = {};
-    S.model = BM.model(S.board.cards);
+    S.model = BM.model(S.board.cards, S.board.boardColumns && S.board.boardColumns.config);
     // セッションの言語が無いとき（古いアプリ）は、ボードの設定の言語を使う
     if (!(S.session && S.session.language) && S.board.settings.language && setLanguage(S.board.settings.language)) renderAll();
   }
@@ -414,9 +414,15 @@
 
   function defaultColumn() {
     const m = S.model;
-    const withAttn = BM.COLUMNS.find((col) => m.columnCards(col.key).some((c) => m.needsYou(c)));
+    const cols = m.columns();
+    const withAttn = cols.find((col) => m.columnCards(col.key).some((c) => m.needsYou(c)));
     if (withAttn) return withAttn.key;
-    return m.columnCards('running').length ? 'running' : m.columnCards('review').length ? 'review' : 'todo';
+    // 動いている → レビュー → Todo の段階の列で、カードがあるもの
+    for (const stage of ['running', 'review']) {
+      const col = cols.find((x) => x.stage === stage && m.columnCards(x.key).length);
+      if (col) return col.key;
+    }
+    return (cols.find((x) => x.stage === 'todo') || cols[0] || {}).key || '';
   }
 
   // パソコンのアプリで「スマホからのターミナルを許可」にしているか（ターミナルは別の画面 terminal.html）
@@ -474,11 +480,12 @@
       return;
     }
     const m = S.model;
-    if (!S.col || !BM.COLUMNS.some((c) => c.key === S.col)) S.col = defaultColumn();
+    const cols = m.columns();
+    if (!S.col || !cols.some((c) => c.key === S.col)) S.col = defaultColumn();
     const colTabs = h(
       'nav.col-tabs',
       { role: 'tablist' },
-      BM.COLUMNS.map((col) => {
+      cols.map((col) => {
         const cards = m.columnCards(col.key);
         const attn = cards.some((c) => m.needsYou(c));
         return h(
@@ -507,7 +514,19 @@
     root.appendChild(colTabs);
     const cards = m.columnCards(S.col);
     const unread = BM.unreadCardIds(S.board.notifications);
-    const listEl = h('div.card-list', null, cards.length ? cards.map((c) => cardEl(c, unread)) : h('p.muted.pad.center', { text: S.col === 'todo' ? tr('右下の「＋」からタスクを作れます') : tr('なし') }));
+    const curCol = cols.find((x) => x.key === S.col) || {};
+    const emptyText = () => (curCol.stage === 'todo' ? tr('右下の「＋」からタスクを作れます') : tr('なし'));
+    // レーンが2つ以上ある列は、レーンごとに見出しを付けて上下に区切る
+    const body =
+      curCol.lanes && curCol.lanes.length > 1
+        ? curCol.lanes.map((l) => {
+            const cs = cards.filter((c) => m.laneOf(c) === l.id);
+            return h('section.lane-sec', null, h('h3.lane-title', null, h('span', { text: l.name }), h('span.count', { text: String(cs.length) })), cs.length ? cs.map((c) => cardEl(c, unread)) : h('p.muted.pad.center.small', { text: tr('なし') }));
+          })
+        : cards.length
+          ? cards.map((c) => cardEl(c, unread))
+          : h('p.muted.pad.center', { text: emptyText() });
+    const listEl = h('div.card-list', null, body);
     root.appendChild(listEl);
     root.appendChild(h('button.fab', { type: 'button', 'aria-label': tr('新しいタスク'), title: tr('新しいタスク'), onclick: () => go('create') }, icon('plus')));
     root.dataset.col = S.col;

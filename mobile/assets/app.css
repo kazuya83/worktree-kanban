@@ -1215,3 +1215,7 @@ select:focus {
 .toast.ok {
   background: #14532d;
 }
+
+/* 列の中のレーン（上下に区切る） */
+.lane-sec + .lane-sec { border-top: 1px dashed var(--line, #444); margin-top: 6px; padding-top: 6px; }
+.lane-title { display: flex; justify-content: space-between; gap: 8px; margin: 4px 4px 6px; font-size: 13px; font-weight: 600; opacity: .8; }

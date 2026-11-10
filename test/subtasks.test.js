@@ -280,6 +280,35 @@ test('ボード: レビューと完了のあいだをドラッグで動かす（
   assert.throws(() => agents.moveCard(c.id, 'review'), /戻せません/);
 });
 
+test('ボード: 設定した列とレーンへ動かす（次に進んでよい列だけ。置いた場所は状態が変わるまで覚える）', async () => {
+  const BC = require('../renderer/board-columns');
+  const { agents } = setup();
+  const cfg = BC.cleanConfig({
+    columns: [
+      { id: 'todo', name: 'Todo', description: 'まだ', stage: 'todo', next: ['run'] },
+      { id: 'run', name: '実行中', description: '作業中', stage: 'running' },
+      { id: 'rev', name: 'レビュー', description: '確かめる', stage: 'review', next: ['qa', 'done'] },
+      { id: 'qa', name: 'QA', description: '手で確かめる', stage: 'review', next: ['rev'] },
+      { id: 'done', name: '完了', description: '終わった', stage: 'done', next: [], lanes: [{ id: 'd', name: 'Done', description: 'マージ', when: { merged: true } }, { id: 'c', name: 'Close', description: '閉じた' }] },
+    ],
+  });
+  agents.opts.boardColumnsOf = () => cfg;
+  const [c] = agents.createTask({ title: '列の作業', prompt: '作業する', agent: 'claude' });
+  await assert.rejects(agents.placeCard(c.id, 'rev'), /動かせません/);
+  await agents.placeCard(c.id, 'run');
+  await waitFor(() => c.status === 'review');
+  assert.strictEqual(BC.placeOf(cfg, c).col, 'rev', '状態が変わったら条件で振り分け直す');
+  await agents.placeCard(c.id, 'qa');
+  assert.strictEqual(c.status, 'review', '同じ段階なら状態は変えない');
+  assert.strictEqual(BC.placeOf(cfg, c).col, 'qa');
+  await assert.rejects(agents.placeCard(c.id, 'done'), /動かせません/, 'QA から完了へは進めない設定');
+  await agents.placeCard(c.id, 'rev');
+  await agents.placeCard(c.id, 'done', 'c');
+  assert.strictEqual(c.status, 'done');
+  assert.deepStrictEqual(BC.placeOf(cfg, c), { col: 'done', lane: 'c', manual: true });
+  await assert.rejects(agents.placeCard(c.id, 'nope'), /知らない列/);
+});
+
 test('完了にする: git のタスクも、マージや PR を作らずに完了にできる（差分がなければ worktree とブランチを片付ける）', async () => {
   const { agents, repo, g } = setup();
   // 差分がない: worktree とブランチを片付けて完了にする

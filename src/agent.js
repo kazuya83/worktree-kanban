@@ -28,6 +28,7 @@ const Checkpoints = require('./checkpoints');
 const { SCRIPT_KINDS, SCRIPT_SETTINGS, PORT_START, PORT_END, PORT_COUNT, portsFree, cleanScript, appendOutput, startScript } = require('./worktree-scripts');
 const { SHARED_REL } = require('./shared-settings');
 const I18n = require('../renderer/i18n');
+const BoardColumns = require('../renderer/board-columns');
 const APP_VERSION = require('../package.json').version;
 const RPC_PROBE_TIMEOUT_MS = 20000; // 承認のやりとりができるかを確かめるときに、CLI の返事を待つ長さ
 const RPC_RECHECK_MS = 10 * 60 * 1000; // 使えなかった CLI を、もう一度確かめるまでの長さ
@@ -2166,6 +2167,34 @@ class AgentManager extends EventEmitter {
       return;
     }
     throw new Error(tr('知らない列です'));
+  }
+
+  // そのプロジェクトのボードの列とレーン（.worktree-kanban/board.json。なければ今までの4つの列）
+  boardColumnsOf(repoPath) {
+    const get = this.opts && this.opts.boardColumnsOf;
+    return (get && get(repoPath)) || BoardColumns.defaultConfig();
+  }
+
+  /**
+   * ボードのカードを、手で列（とレーン）へ動かす。動かせるのは今の列の「次に進んでよい列」と、同じ列の中のレーンだけ。
+   * 段階が変わるときは moveCard と同じ決まりで状態を変える。置いた場所は、次に状態が変わるまで覚えておく
+   * @param {string|null} lane 省くと、列の中のレーンは条件で決める
+   */
+  async placeCard(id, col, lane) {
+    const c = this.must(id);
+    this.assertNotRewinding(c);
+    if (isChat(c)) throw new Error(tr('会話は列を動かせません'));
+    if (this.subtaskParentOf(c)) throw new Error(tr('サブタスクの状態は、親のタスクの「サブタスク」タブで変えてください'));
+    const cfg = this.boardColumnsOf(c.repoPath);
+    const to = cfg.columns.find((x) => x.id === col);
+    if (!to) throw new Error(tr('知らない列です'));
+    const want = lane && to.lanes.some((l) => l.id === lane) ? lane : null;
+    if (!BoardColumns.canPlace(cfg, c, to.id, want)) throw new Error(tr('その列へは動かせません（列の設定の「次に進んでよい列」に入っていません）'));
+    if (BoardColumns.stageOf(c) !== to.stage) await this.moveCard(id, to.stage);
+    const cur = this.store.card(id);
+    if (!cur) return;
+    cur.boardPlace = { col: to.id, lane: want, sig: BoardColumns.signatureOf(cur) };
+    this.changed(cur);
   }
 
   // 競争の同じグループのカード（自分も含む）
