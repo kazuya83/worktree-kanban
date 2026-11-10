@@ -584,7 +584,8 @@ function spriteInfo(c) {
   else if (mood === 'fail') label = tr('止まってしまいました');
   else label = tr('開始を待っています');
   const detail = progress.now ? `▶ ${progress.now}` : c.lastMessage && mood !== 'done' ? plainText(c.lastMessage) : '';
-  return { mood, tool, label, detail, progress, color: AgentSprite.colorFor(agentOf(c), c.persona) };
+  const { kind, color } = AgentSprite.characterFor({ agent: agentOf(c), persona: c.persona, character: c.character });
+  return { mood, tool, label, detail, progress, kind, color };
 }
 // ボードのカードに出すのは、始めたあとのタスク（実行中・待ち・レビュー・完了・失敗）。
 // カードではチャットの最後の一言の代わりに、このロボットを出す（チャットのカードは一言のまま）

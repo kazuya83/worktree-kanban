@@ -113,3 +113,57 @@ test('カード: スキルの下・ブランチの上に、チャットの一言
   assert.strictEqual(fn({ status: 'todo' }), false);
   assert.strictEqual(fn({ status: 'review', chat: true }), false);
 });
+
+// ---- キャラクター（作ったときにランダムで決めて、カードに残す） ----
+test('randomCharacter: 種類と色を一覧から選ぶ。8種類 × 12色', () => {
+  const A = require('../renderer/agent-sprite.js');
+  assert.strictEqual(A.CHARACTER_KINDS.length, 8);
+  assert.strictEqual(A.CHARACTER_COLORS.length, 12);
+  assert.deepStrictEqual(A.randomCharacter(() => 0), { kind: A.CHARACTER_KINDS[0], color: A.CHARACTER_COLORS[0] });
+  assert.deepStrictEqual(A.randomCharacter(() => 0.9999999), { kind: A.CHARACTER_KINDS[7], color: A.CHARACTER_COLORS[11] });
+  assert.deepStrictEqual(A.randomCharacter(() => 1), { kind: A.CHARACTER_KINDS[7], color: A.CHARACTER_COLORS[11] }, '1 が来ても範囲の外に出ない');
+  const seen = new Set();
+  for (let i = 0; i < 400; i++) seen.add(A.randomCharacter().kind);
+  assert.strictEqual(seen.size, 8, 'どの種類も出る');
+});
+
+test('characterFor: character のない前からのタスクは、エージェントの色のロボットのまま', () => {
+  const A = require('../renderer/agent-sprite.js');
+  assert.deepStrictEqual(A.characterFor({ agent: 'codex' }), { kind: 'robot', color: A.AGENT_COLORS.codex });
+  assert.deepStrictEqual(A.characterFor({ agent: 'codex', character: { kind: 'cat', color: '#ec4899' } }), { kind: 'cat', color: '#ec4899' });
+  // 知らない種類・色は、ロボット・エージェントの色に戻す
+  assert.deepStrictEqual(A.characterFor({ agent: 'claude', character: { kind: 'dragon', color: 'red' } }), { kind: 'robot', color: A.AGENT_COLORS.claude });
+  // カスタムエージェントは、選んだ色を使う（種類はランダムのまま）
+  assert.deepStrictEqual(A.characterFor({ agent: 'claude', persona: { color: '#123456' }, character: { kind: 'frog', color: '#ec4899' } }), { kind: 'frog', color: '#123456' });
+  assert.deepStrictEqual(A.characterFor(), { kind: 'robot', color: A.AGENT_COLORS.claude });
+});
+
+test('タスク・枝・サブタスク・会話を作るところで、キャラクターを決めて残す', () => {
+  const src = read('src/agent.js');
+  const pushes = src.match(/this\.store\.cards\.push\(card\);/g).length;
+  assert.strictEqual(src.match(/card\.character = AgentSprite\.randomCharacter\(\);\n {4}this\.store\.cards\.push\(card\);/g).length, pushes);
+  // 描くときは card.character を使う
+  assert.match(read('renderer/renderer.js'), /AgentSprite\.characterFor\(\{ agent: agentOf\(c\), persona: c\.persona, character: c\.character \}\)/);
+});
+
+test('どのキャラクターも、どの様子でも 9 × 11 マスの中に描く', () => {
+  const A = require('../renderer/agent-sprite.js');
+  const src = read('renderer/agent-sprite.js');
+  const body = src.slice(src.indexOf('  const INK ='), src.indexOf('  // 吹き出し（9 × 7 マス'));
+  const fn = new Function('shade', 'drawBot', `${body}; return drawCharacter;`)(A.shade, () => {});
+  const th = { ok: '#0f0', err: '#f00', warn: '#ff0', run: '#00f', line: '#333', panel: '#111', text: '#eee', muted: '#888', accent: '#55f' };
+  for (const kind of A.CHARACTER_KINDS.filter((k) => k !== 'robot')) {
+    for (const mood of ['idle', 'queued', 'think', 'work', 'wait', 'done', 'fail']) {
+      for (const f of [0, 1, 2, 3, 5, 9]) {
+        for (const walking of [false, true]) {
+          let n = 0;
+          fn((x, y, w, h) => {
+            n++;
+            assert.ok(x >= 0 && y >= 0 && x + w <= 9 && y + h <= 11, `${kind}/${mood}/${f}: ${x},${y} ${w}x${h}`);
+          }, 0, 0, kind, '#4285f4', mood, f, th, { walking });
+          assert.ok(n > 5, `${kind} を描いていない`);
+        }
+      }
+    }
+  }
+});
