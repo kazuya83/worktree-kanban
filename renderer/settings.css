@@ -1,6 +1,48 @@
-/* 設定の画面（左に項目の一覧、右に全項目を縦に並べる）。
+/* 設定の画面（上に範囲のタブ、その下の左に項目の一覧、右に選んだタブの項目を縦に並べる）。
    入力欄などの --panel-2 が見分けられるように、モーダルと同じ --panel を土台にする（ライトの --bg とはほぼ同じ色） */
-.settings-view { flex: 1; display: flex; min-width: 0; min-height: 0; background: var(--panel); }
+.settings-view { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); }
+.settings-body { flex: 1; display: flex; min-width: 0; min-height: 0; }
+
+/* 範囲のタブ（すべてのリポジトリ共通 / このリポジトリ） */
+.settings-tabs { flex: none; display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--line); }
+.settings-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 420px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  margin-bottom: -1px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.settings-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-tab .ic { width: 16px; height: 16px; margin-right: 0; }
+.settings-tab:hover { color: var(--text); background: var(--panel-2); }
+.settings-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.settings-tab.active { color: var(--text); font-weight: 600; background: var(--panel); border-color: var(--line); box-shadow: inset 0 2px 0 var(--accent); }
+
+/* タブの頭の説明（どこに効いて、どこに保存するか） */
+.scope-intro { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 28px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.scope-intro > .ic { flex: none; width: 20px; height: 20px; margin: 2px 0 0; color: var(--accent); }
+.scope-intro > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.scope-intro small { color: var(--muted); }
+.scope-legend { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.scope-legend small { display: flex; align-items: center; gap: 6px; }
+
+/* 項目の印（チームで共有 / この PC で上書き） */
+.scope-mark { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; vertical-align: middle; }
+.field > .scope-mark { display: flex; margin: 0 0 6px; }
+.scope-badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; font-weight: 500; line-height: 18px; white-space: nowrap; color: var(--muted); }
+.scope-badge .ic { width: 12px; height: 12px; margin-right: 0; }
+.scope-badge.shared { color: var(--accent); border-color: var(--accent); }
+.scope-badge.override { color: var(--warn); border-color: var(--warn); }
+.settings-title .scope-badge { margin-left: 10px; vertical-align: middle; }
+.scope-revert { padding: 0 6px; font-size: 11px; }
 
 /* 左の項目の一覧。右とは別にスクロールする */
 .settings-nav { flex: none; width: 240px; padding: 16px 8px 16px 12px; overflow-y: auto; }
@@ -41,12 +83,14 @@
 /* .modal-box の外なので、モーダルと同じ見た目をここで付ける */
 .settings-view code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 
+.settings-actions small { margin-right: auto; }
 .settings-actions {
   position: sticky;
   bottom: 0;
   z-index: 1;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
   max-width: 860px;
   padding: 10px 32px;
@@ -56,7 +100,8 @@
 
 /* 狭いときは、項目の一覧を上にたたむ。折り返して、現在地がいつも見えるようにする */
 @media (max-width: 720px) {
-  .settings-view { flex-direction: column; }
+  .settings-body { flex-direction: column; }
+  .settings-tabs { padding: 8px 8px 0; }
   .settings-nav { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; padding: 8px 12px; border-bottom: 1px solid var(--line); }
   .settings-nav-heading { display: none; }
   .settings-nav-item { flex: none; white-space: nowrap; }

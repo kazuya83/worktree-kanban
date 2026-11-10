@@ -29,6 +29,7 @@ const { SCRIPT_KINDS, SCRIPT_SETTINGS, PORT_START, PORT_END, PORT_COUNT, portsFr
 const { SHARED_REL } = require('./shared-settings');
 const I18n = require('../renderer/i18n');
 const BoardColumns = require('../renderer/board-columns');
+const AgentSprite = require('../renderer/agent-sprite');
 const APP_VERSION = require('../package.json').version;
 const RPC_PROBE_TIMEOUT_MS = 20000; // 承認のやりとりができるかを確かめるときに、CLI の返事を待つ長さ
 const RPC_RECHECK_MS = 10 * 60 * 1000; // 使えなかった CLI を、もう一度確かめるまでの長さ
@@ -1437,6 +1438,8 @@ class AgentManager extends EventEmitter {
     // 内容が詰まっていなければ、開発を始める前にエージェントと対話して仕様を詰める
     if (!skipSpecCheck && this.store.repoSettings(repo).specCheck !== false) card.specState = 'checking';
     this.saveCardAttachments(card, parsed);
+    // キャラクターは作ったときに決めて残す（開き直しても同じ。前からのタスクには付けない）
+    card.character = AgentSprite.randomCharacter();
     this.store.cards.push(card);
     this.changed(card);
     return card;
@@ -1617,6 +1620,8 @@ class AgentManager extends EventEmitter {
       delete card.flowBase;
       if (parent.readOnly) card.readOnly = true;
     }
+    // キャラクターは作ったときに決めて残す（開き直しても同じ。前からのタスクには付けない）
+    card.character = AgentSprite.randomCharacter();
     this.store.cards.push(card);
     this.changed(card);
     return card;
@@ -1870,6 +1875,8 @@ class AgentManager extends EventEmitter {
       flowBase: p.branch,
       subtaskOf: { parent: p.id, key: item.key },
     };
+    // キャラクターは作ったときに決めて残す（開き直しても同じ。前からのタスクには付けない）
+    card.character = AgentSprite.randomCharacter();
     this.store.cards.push(card);
     item.cardId = card.id;
     item.state = 'running';
@@ -2278,6 +2285,8 @@ class AgentManager extends EventEmitter {
     if (session && session.id && a === 'claude') this.applySession(card, session);
     card.skill = cleanSkill(skill);
     this.saveCardAttachments(card, parsed);
+    // キャラクターは作ったときに決めて残す（開き直しても同じ。前からのタスクには付けない）
+    card.character = AgentSprite.randomCharacter();
     this.store.cards.push(card);
     this.changed(card);
     this.start(card.id);

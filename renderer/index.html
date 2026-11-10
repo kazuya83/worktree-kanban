@@ -25,11 +25,16 @@
       <span id="remoteInfo" class="pill remote-pill hidden" title="遠隔操作の状態"></span>
       <span id="runInfo" class="pill"></span>
       <button id="rcBtn" class="btn ghost" title="遠隔操作（RC）: ホストの開始・別の PC への接続・SSH の鍵"><span data-icon="monitor"></span><span class="btn-label">RC設定</span></button>
-      <button id="mobileBtn" class="btn ghost" title="スマホから使う: 外からスマホのブラウザでボードを見て、指示・承認・回答をします"><span data-icon="phone"></span><span class="btn-label">スマホ</span></button>
       <button id="termBtn" class="btn ghost" title="ターミナル: タスクと関係なく使えるシェルを、画面の下に開きます（Ctrl + `）"><span data-icon="terminal"></span><span class="btn-label">ターミナル</span></button>
-      <button id="sessionsBtn" class="btn ghost" title="Claude Code の会話（セッション）を一覧して消します（タスクとは別に管理できます）"><span data-icon="clock"></span><span class="btn-label">セッション</span></button>
       <button id="chatBtn" class="btn chat-btn" title="タスクを作らずに、このリポジトリについてエージェントと話します"><span data-icon="chat"></span><span class="btn-label">会話</span><span id="chatCount" class="chat-count hidden"></span></button>
       <button id="newBtn" class="btn primary" title="新しいタスク"><span data-icon="plus"></span><span class="btn-label">新しいタスク</span></button>
+      <div class="more-wrap">
+        <button id="moreBtn" class="btn ghost more-btn" type="button" title="その他" aria-label="その他" aria-haspopup="menu" aria-expanded="false" aria-controls="moreMenu"><span data-icon="more"></span></button>
+        <div id="moreMenu" class="nav-menu more-menu hidden" role="menu" aria-label="その他">
+          <button id="mobileBtn" class="nav-item" role="menuitem" title="スマホから使う: 外からスマホのブラウザでボードを見て、指示・承認・回答をします"><span data-icon="phone"></span><span>スマホ</span></button>
+          <button id="sessionsBtn" class="nav-item" role="menuitem" title="Claude Code の会話（セッション）を一覧して消します（タスクとは別に管理できます）"><span data-icon="clock"></span><span>セッション</span></button>
+        </div>
+      </div>
       <div class="notif-wrap">
         <button id="notifBtn" class="btn ghost notif-btn" title="通知"><span data-icon="bell"></span><span id="notifCount" class="notif-count hidden"></span></button>
         <div id="notifPanel" class="notif-panel hidden" role="dialog" aria-label="通知"></div>

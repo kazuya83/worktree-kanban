@@ -22,11 +22,22 @@ const media = (query) => {
 };
 
 test('画面はトップバーの下いっぱいに広がり、中身の高さで押し広げない', () => {
-  const b = rule('.settings-view');
-  assert.match(b, /flex:\s*1/);
-  assert.match(b, /display:\s*flex/);
-  assert.match(b, /min-height:\s*0/);
-  assert.match(b, /min-width:\s*0/);
+  for (const sel of ['.settings-view', '.settings-body']) {
+    const b = rule(sel);
+    assert.match(b, /flex:\s*1/, sel);
+    assert.match(b, /display:\s*flex/, sel);
+    assert.match(b, /min-height:\s*0/, sel);
+    assert.match(b, /min-width:\s*0/, sel);
+  }
+  // 上に範囲のタブ、その下に一覧と本文
+  assert.match(rule('.settings-view'), /flex-direction:\s*column/);
+  assert.match(rule('.settings-tabs'), /flex:\s*none/);
+});
+
+test('選んでいるタブと、項目の印（共有 / 上書き）は色で見分けられる', () => {
+  assert.match(rule('.settings-tab.active'), /var\(--accent\)/);
+  assert.match(rule('.scope-badge.shared'), /color:\s*var\(--accent\)/);
+  assert.match(rule('.scope-badge.override'), /color:\s*var\(--warn\)/);
 });
 
 test('左の一覧と右の本文は別々にスクロールする', () => {
@@ -89,7 +100,7 @@ test('モーダルの外で効かなくなる見た目を持つ', () => {
 
 test('720px 以下では一覧を上にたたみ、折り返して全項目を見せる', () => {
   const m = media('(max-width: 720px)');
-  assert.match(rule('.settings-view', m), /flex-direction:\s*column/);
+  assert.match(rule('.settings-body', m), /flex-direction:\s*column/);
   const nav = rule('.settings-nav', m);
   assert.match(nav, /width:\s*100%/);
   assert.match(nav, /flex-wrap:\s*wrap/);

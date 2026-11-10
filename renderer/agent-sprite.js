@@ -27,6 +27,23 @@
     return AGENT_COLORS[agent] || AGENT_COLORS.claude;
   }
 
+  // キャラクターの種類と色。タスクを作ったときに randomCharacter() で決めて、カードの character に残す
+  // （開き直しても同じキャラクターになる）。character のない前からのタスクは、エージェントの色のロボットのまま
+  const CHARACTER_KINDS = ['robot', 'cat', 'ghost', 'slime', 'bear', 'penguin', 'alien', 'frog'];
+  const CHARACTER_COLORS = ['#d97757', '#10a37f', '#4285f4', '#8957e5', '#ff6b6b', '#22b8cf', '#e6b422', '#f5a524', '#ec4899', '#84cc16', '#a0a8ba', '#14b8a6'];
+  function randomCharacter(rand = Math.random) {
+    const pick = (list) => list[Math.min(list.length - 1, Math.floor(rand() * list.length))];
+    return { kind: pick(CHARACTER_KINDS), color: pick(CHARACTER_COLORS) };
+  }
+  // カードから、描くキャラクターを決める。カスタムエージェントの色は、選んだ色をそのまま使う
+  function characterFor({ agent, persona, character } = {}) {
+    const ch = character && typeof character === 'object' ? character : {};
+    const kind = CHARACTER_KINDS.includes(ch.kind) ? ch.kind : 'robot';
+    const own = persona && typeof persona.color === 'string' && HEX.test(persona.color);
+    const color = own ? persona.color : typeof ch.color === 'string' && HEX.test(ch.color) ? ch.color : colorFor(agent);
+    return { kind, color };
+  }
+
   // ツールの名前から、吹き出しに出す作業の種類を決める（CLI ごとに名前が違うので、名前の一部で見る）
   function toolKind(name) {
     const n = String(name || '').toLowerCase();
@@ -179,6 +196,150 @@
       R(5, 10, 1, 1, dark);
     }
   }
+  // ロボット以外のキャラクター（9マス × 11マス。左上が x, y）。目・腕・足の動きはロボットと同じ決まりで動かす
+  const INK = '#1b1e27';
+  function drawEyes(R, mood, f, th, { ex = [3, 5], ey = 4, color = INK } = {}) {
+    const blink = f % 37 === 0;
+    const eye = mood === 'fail' ? th.err : color;
+    if (mood === 'idle' || mood === 'queued' || blink) {
+      for (const x of ex) R(x, ey, 1, 1, '#5b6275');
+    } else if (mood === 'think') {
+      const dx = f % 16 < 8 ? 0 : 1;
+      for (const x of ex) R(x + dx, ey, 1, 1, eye); // 考え中は、目を左右に動かす
+    } else if (mood === 'done') {
+      for (const x of ex) R(x, ey, 1, 1, eye);
+      R(ex[0], ey + 1, ex[1] - ex[0] + 1, 1, th.ok);
+    } else {
+      for (const x of ex) R(x, ey, 1, 1, eye);
+    }
+  }
+  function drawArms(R, mood, f, color, light, { top = 7 } = {}) {
+    if (mood === 'work') {
+      R(0, top + (f % 2), 2, 1, color);
+      R(7, top + 1 - (f % 2), 2, 1, color);
+    } else if (mood === 'wait') {
+      R(1, top, 1, 2, color);
+      R(7, top - 5 + (f % 4 < 2 ? 0 : 1), 1, 5, color);
+      R(7, top - 6 + (f % 4 < 2 ? 0 : 1), 2, 1, light);
+    } else if (mood === 'done') {
+      R(0, top - 4, 1, 4, color);
+      R(8, top - 4, 1, 4, color);
+    } else {
+      R(1, top, 1, 2, color);
+      R(7, top, 1, 2, color);
+    }
+  }
+  function drawFeet(R, walking, f, color, { left = 3, right = 5, w = 1 } = {}) {
+    if (walking) {
+      R(f % 2 ? left - 1 : left, 10, w, 1, color);
+      R(f % 2 ? right + 1 : right, 10, w, 1, color);
+    } else {
+      R(left, 10, w, 1, color);
+      R(right, 10, w, 1, color);
+    }
+  }
+  const CHARACTERS = {
+    cat(R, c, dark, light, mood, f, th, walking) {
+      R(1, 1, 2, 2, c);
+      R(6, 1, 2, 2, c);
+      R(2, 2, 1, 1, '#f49ac1');
+      R(6, 2, 1, 1, '#f49ac1');
+      R(1, 2, 7, 5, c);
+      R(3, 5, 3, 1, light);
+      R(4, 5, 1, 1, '#f49ac1');
+      drawEyes(R, mood, f, th);
+      R(2, 7, 5, 3, c);
+      R(3, 8, 3, 2, light);
+      // しっぽ（ゆらゆら）
+      R(7, 9, 1, 1, c);
+      R(8, f % 8 < 4 ? 7 : 8, 1, 2, c);
+      drawArms(R, mood, f, dark, light);
+      drawFeet(R, walking, f, dark);
+    },
+    ghost(R, c, dark, light, mood, f, th) {
+      R(2, 1, 5, 1, c);
+      R(1, 2, 7, 8, c);
+      R(2, 2, 2, 1, light);
+      // すそ（波打つ）
+      for (let i = 1; i < 8; i++) if ((i + (f >> 1)) % 2 === 0) R(i, 10, 1, 1, c);
+      drawEyes(R, mood, f, th);
+      if (mood === 'fail' || mood === 'wait') R(4, 6, 1, 1, INK);
+      drawArms(R, mood, f, c, light);
+    },
+    slime(R, c, dark, light, mood, f, th) {
+      // ぷるぷる（作業中は上下に伸び縮みする）
+      const sq = mood === 'work' && f % 4 < 2 ? 1 : 0;
+      R(3, 4 + sq, 3, 1, c);
+      R(2, 5 + sq, 5, 1, c);
+      R(1, 6 + sq, 7, 4 - sq, c);
+      R(0, 8, 9, 2, c);
+      R(0, 10, 9, 1, dark);
+      R(2, 6 + sq, 1, 1, light);
+      R(3, 5 + sq, 1, 1, light);
+      drawEyes(R, mood, f, th, { ey: 7 + sq });
+      if (mood === 'wait') R(8, 4 + (f % 4 < 2 ? 0 : 1), 1, 3, light);
+    },
+    bear(R, c, dark, light, mood, f, th, walking) {
+      R(1, 1, 2, 2, c);
+      R(6, 1, 2, 2, c);
+      R(1, 1, 1, 1, dark);
+      R(7, 1, 1, 1, dark);
+      R(1, 2, 7, 5, c);
+      R(3, 5, 3, 2, light);
+      R(4, 5, 1, 1, INK);
+      drawEyes(R, mood, f, th);
+      R(2, 7, 5, 3, c);
+      R(3, 8, 3, 2, light);
+      drawArms(R, mood, f, dark, light);
+      drawFeet(R, walking, f, dark);
+    },
+    penguin(R, c, dark, light, mood, f, th, walking) {
+      R(2, 1, 5, 1, c);
+      R(1, 2, 7, 8, c);
+      R(2, 3, 5, 7, '#f4f4f4');
+      R(4, 5, 1, 1, '#f5a524');
+      drawEyes(R, mood, f, th);
+      drawArms(R, mood, f, dark, light);
+      drawFeet(R, walking, f, '#f5a524', { left: 2, right: 5, w: 2 });
+    },
+    alien(R, c, dark, light, mood, f, th, walking) {
+      const glow = mood === 'wait' ? (f % 4 < 2 ? th.warn : light) : mood === 'work' ? (f % 6 < 3 ? th.run : light) : light;
+      R(2, 1, 1, 2, dark);
+      R(6, 1, 1, 2, dark);
+      R(2, 0, 1, 1, glow);
+      R(6, 0, 1, 1, glow);
+      R(1, 2, 7, 5, c);
+      R(0, 3, 9, 3, c);
+      R(2, 3, 2, 2, INK);
+      R(5, 3, 2, 2, INK);
+      drawEyes(R, mood, f, th, { ex: [3, 5], ey: 3, color: '#b6ff8a' });
+      R(3, 7, 3, 3, c);
+      R(4, 8, 1, 1, light);
+      drawArms(R, mood, f, dark, light);
+      drawFeet(R, walking, f, dark);
+    },
+    frog(R, c, dark, light, mood, f, th, walking) {
+      R(1, 2, 3, 2, c);
+      R(5, 2, 3, 2, c);
+      R(2, 2, 1, 1, '#f4f4f4');
+      R(6, 2, 1, 1, '#f4f4f4');
+      R(1, 4, 7, 3, c);
+      R(2, 6, 5, 1, dark);
+      drawEyes(R, mood, f, th, { ex: [2, 6], ey: 3 });
+      R(2, 7, 5, 3, c);
+      R(3, 8, 3, 2, light);
+      drawArms(R, mood, f, c, light);
+      drawFeet(R, walking, f, dark, { left: 2, right: 5, w: 2 });
+    },
+  };
+  // キャラクターを描く（kind がロボットか知らない種類なら、今までのロボット）
+  function drawCharacter(r, x, y, kind, color, mood, f, th, opts = {}) {
+    const draw = CHARACTERS[kind];
+    if (!draw) return drawBot(r, x, y, color, mood, f, th, opts);
+    const R = (a, b, w, h, c) => r(x + a, y + b, w, h, c);
+    draw(R, color, shade(color, -0.35), shade(color, 0.35), mood, f, th, !!opts.walking);
+  }
+
   // 吹き出し（9 × 7 マス。しっぽは左下）
   function drawBubble(r, x, y, mood, tool, f, th) {
     r(x, y, 9, 7, th.line);
@@ -308,7 +469,7 @@
       if (f % 4 < 2) r(16, 9, 1, 3, th.warn);
     }
     r(10, 12, 3, 1, th.text); // キーボード
-    drawBot(r, 1, 6 - jump, info.color, mood, f, th);
+    drawCharacter(r, 1, 6 - jump, info.kind, info.color, mood, f, th);
     drawBubble(r, 11, -0.5, mood, info.tool, f, th);
     // 右側: 今の作業と、TODO のマス
     const x0 = 24 * u + 6;
@@ -433,7 +594,7 @@
     // 影
     ctx.fillStyle = th.line;
     ctx.fillRect(bx + u * 2, groundY - 2, u * 5, 2);
-    drawBot(r, 0, 0, info.color, walking ? 'work' : mood, f, th, { walking });
+    drawCharacter(r, 0, 0, info.kind, info.color, walking ? 'work' : mood, f, th, { walking });
     // 作業中: 前に箱を組み立てていて、火花が出る
     if (!walking && mood === 'work') {
       const hx = bx + 10 * u;
@@ -584,5 +745,5 @@
     if (typeof window !== 'undefined') paint(false);
   }
 
-  return { AGENT_COLORS, colorFor, toolKind, moodOf, progressOf, shade, fitText, start, drawNow };
+  return { AGENT_COLORS, CHARACTER_KINDS, CHARACTER_COLORS, randomCharacter, characterFor, drawCharacter, colorFor, toolKind, moodOf, progressOf, shade, fitText, start, drawNow };
 });

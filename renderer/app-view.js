@@ -45,7 +45,8 @@
   }
 
   // ハンバーガーメニュー。button で開け閉めし、項目（data-view）を選ぶか、Esc・外側のクリックで閉じる
-  function bindNavMenu({ button, menu, doc, onSelect }) {
+  // item は選べる項目のセレクタ（既定は画面の切り替え）。onSelect には data-view と項目の要素を渡す
+  function bindNavMenu({ button, menu, doc, onSelect, item: itemSel = '[data-view]' }) {
     const isOpen = () => !menu.classList.contains('hidden');
     const setOpen = (open) => {
       menu.classList.toggle('hidden', !open);
@@ -53,10 +54,10 @@
     };
     button.addEventListener('click', () => setOpen(!isOpen()));
     menu.addEventListener('click', (e) => {
-      const item = e.target.closest('[data-view]');
+      const item = e.target.closest(itemSel);
       if (!item) return;
       setOpen(false);
-      onSelect(item.dataset.view);
+      onSelect(item.dataset.view, item);
     });
     doc.addEventListener('mousedown', (e) => {
       if (isOpen() && !button.contains(e.target) && !menu.contains(e.target)) setOpen(false);
@@ -75,9 +76,12 @@
     return { isOpen, setOpen };
   }
 
-  // 設定画面の左の一覧。id は節の要素 settings-<id> と対応する
+  // 設定画面の左の一覧。id は節の要素 settings-<id> と対応する。
+  // scope は効く範囲で、画面の上のタブで切り替える（app: どのリポジトリでも同じ / repo: 今のリポジトリだけ）
+  const SETTINGS_SCOPES = ['app', 'repo'];
   const SETTINGS_NAV = [
     {
+      scope: 'app',
       heading: null,
       items: [
         { id: 'general', label: tr('全般'), icon: 'settings' },
@@ -87,37 +91,61 @@
       ],
     },
     {
-      heading: tr('このプロジェクト'),
+      scope: 'app',
+      heading: tr('エージェント'),
+      items: [{ id: 'agents', label: tr('使うエージェント'), icon: 'bot' }],
+    },
+    {
+      scope: 'app',
+      heading: tr('このアプリ'),
+      items: [{ id: 'about', label: tr('このアプリについて'), icon: 'heart' }],
+    },
+    {
+      scope: 'repo',
+      heading: null,
       items: [
         { id: 'branch', label: tr('ブランチと取り込み'), icon: 'branch' },
         { id: 'issue', label: tr('Issue 連携'), icon: 'zap' },
         { id: 'permission', label: tr('権限'), icon: 'lock' },
         { id: 'task', label: tr('タスクの既定'), icon: 'note' },
         { id: 'columns', label: tr('ボードの列'), icon: 'logo' },
-        { id: 'share', label: tr('チームで共有'), icon: 'file' },
       ],
     },
     {
+      scope: 'repo',
       heading: tr('エージェント'),
       items: [
-        { id: 'agents', label: tr('使うエージェント'), icon: 'bot' },
         { id: 'custom', label: tr('カスタムエージェント'), icon: 'wrench' },
         { id: 'orchestration', label: tr('オーケストレーション'), icon: 'pipeline' },
       ],
     },
     {
-      heading: tr('このアプリ'),
-      items: [{ id: 'about', label: tr('このアプリについて'), icon: 'heart' }],
+      scope: 'repo',
+      heading: tr('チーム'),
+      items: [{ id: 'share', label: tr('チームで共有'), icon: 'file' }],
     },
   ];
+  const normalizeSettingsScope = (v) => (SETTINGS_SCOPES.includes(v) ? v : SETTINGS_SCOPES[0]);
+  // 節がどちらのタブにあるか（知らない節は null）
+  function sectionScope(id) {
+    const g = SETTINGS_NAV.find((x) => x.items.some((i) => i.id === id));
+    return g ? g.scope : null;
+  }
+  // そのタブの節の ID を、上から順に
+  const scopeSectionIds = (scope) => SETTINGS_NAV.filter((g) => g.scope === scope).flatMap((g) => g.items.map((i) => i.id));
   // 節の先頭がスクロール位置のこの距離まで近づいたら、その節を現在地にする
   const SECTION_TOP_MARGIN = 24;
 
-  function settingsNavHtml(iconFn) {
-    return SETTINGS_NAV.map(({ heading, items }) => {
-      const head = heading ? `<div class="settings-nav-heading">${heading}</div>` : '';
-      const links = items.map(({ id, label, icon }) => `<a class="settings-nav-item" href="#settings-${id}" data-section="${id}">${iconFn(icon)}<span>${label}</span></a>`);
-      return head + links.join('');
+  // タブごとに <div class="settings-nav-scope" data-scope="…"> でまとめる（見えるのは選んでいるタブの分だけ）
+  function settingsNavHtml(iconFn, active) {
+    const current = normalizeSettingsScope(active);
+    return SETTINGS_SCOPES.map((scope) => {
+      const groups = SETTINGS_NAV.filter((g) => g.scope === scope).map(({ heading, items }) => {
+        const head = heading ? `<div class="settings-nav-heading">${heading}</div>` : '';
+        const links = items.map(({ id, label, icon }) => `<a class="settings-nav-item" href="#settings-${id}" data-section="${id}">${iconFn(icon)}<span>${label}</span></a>`);
+        return head + links.join('');
+      });
+      return `<div class="settings-nav-scope${scope === current ? '' : ' hidden'}" data-scope="${scope}">${groups.join('')}</div>`;
     }).join('');
   }
 
@@ -163,8 +191,22 @@
     return { scrollTo, sync };
   }
 
+  // タスク詳細で隠すタブ（状態によって使えないものは出さない）。
+  // noRepo: 会話と、git で管理していないフォルダのタスク（worktree も差分もタスクごとのポートで動かすブラウザもない）
+  const WORKTREE_TABS = ['worktree', 'diff', 'browser'];
+  function hiddenDetailTabs(c, { noRepo = false } = {}) {
+    if (!c) return [];
+    const hide = new Set(noRepo ? WORKTREE_TABS : []);
+    // 開始前は worktree がまだないので、worktree の中を見る・動かすタブは出さない
+    if (c.status === 'todo' && !c.worktreePath) for (const t of [...WORKTREE_TABS, 'terminal']) hide.add(t);
+    // btw は動いているあいだだけ送れる（送ったものがあれば、あとから見られるように残す）
+    const live = c.status === 'running' || c.status === 'queued';
+    if (!live && !(c.btw || []).length) hide.add('btw');
+    return [...hide];
+  }
+
   // ボードの余白か（カードや操作できる部品の上でなければ、押すと詳細パネルを閉じる）
   const isBoardBackground = (target) => !target.closest('.card, button, a, input, textarea, select, label, summary');
 
-  return { VIEWS, DEFAULT_VIEW, VIEW_KEY, SETTINGS_NAV, normalizeView, loadView, saveView, isPipelineSubtask, canSchedule, bindNavMenu, settingsNavHtml, activeSection, bindSettingsNav, isBoardBackground };
+  return { VIEWS, DEFAULT_VIEW, VIEW_KEY, SETTINGS_NAV, SETTINGS_SCOPES, normalizeSettingsScope, sectionScope, scopeSectionIds, normalizeView, loadView, saveView, isPipelineSubtask, canSchedule, bindNavMenu, settingsNavHtml, activeSection, bindSettingsNav, isBoardBackground, WORKTREE_TABS, hiddenDetailTabs };
 });

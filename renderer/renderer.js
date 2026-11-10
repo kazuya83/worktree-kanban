@@ -290,6 +290,21 @@ function isInterrupted(c) {
 function isSpecPending(c) {
   return c.specState === 'pending' && (c.status === 'review' || c.status === 'failed');
 }
+// バッジの色の分け方。act: 自分の操作が要る / err: うまくいっていない。どちらも同じ色とアイコンで出す
+const BADGE_TONE = { question: 'act', waiting: 'act', spec: 'act', awaiting: 'act', interrupted: 'act', conflict: 'err', failed: 'err' };
+const TONE_ICON = { act: 'bell', err: 'alert' };
+function badgeHtml(c) {
+  const [cls, label] = badgeFor(c);
+  const tone = BADGE_TONE[cls];
+  return `<span class="badge b-${cls}${tone ? ` tone-${tone}` : ''}">${tone ? icon(TONE_ICON[tone]) : ''}${esc(label)}</span>`;
+}
+// カードを「自分の操作が要る」見た目にするか（仕様の確認中も、開いて答えるまで進まないので含める）
+const needsYouLook = (c) => !!needsYou(c) || isSpecPending(c);
+// 列の見出しの「自分の操作が要る」件数
+function colAttnHtml(list) {
+  const n = list.filter(needsYouLook).length;
+  return n ? `<span class="col-attn" title="${tr('自分の操作が要るタスク')}">${icon('bell')}${n}</span>` : '';
+}
 function badgeFor(c) {
   if (isInterrupted(c)) return ['interrupted', tr('中断')];
   if ((c.questions || []).length) return ['question', tr('質問')];
@@ -507,12 +522,14 @@ async function sendAnswer(cardId, reqId, answers) {
 
 function cardHtml(c) {
   const waiting = needsYou(c);
-  const [bcls, blabel] = badgeFor(c);
+  const [bcls] = badgeFor(c);
   const since = c.status === 'running' ? c.startedAt : null;
+  // 自分の操作が要るカードは同じ色でそろえる。承認と質問はエージェントが止まって待っているので、目立たせる
+  const look = bcls === 'conflict' && waiting ? 'conflicting' : needsYouLook(c) ? `needs-you${(c.questions || []).length || (c.permissions || []).length ? ' blocking' : ''}` : '';
   return `
-    <div class="card s-${c.status} ${isChat(c) ? 'chat' : ''} ${waiting ? (bcls === 'waiting' ? 'waiting' : bcls === 'conflict' ? 'conflicting' : 'asking') : ''} ${state.selected === c.id ? 'selected' : ''}" draggable="${canDragCard(c) || CycleView.canDrag(c)}" data-id="${c.id}">
+    <div class="card s-${c.status} ${isChat(c) ? 'chat' : ''} ${look} ${state.selected === c.id ? 'selected' : ''}" draggable="${canDragCard(c) || CycleView.canDrag(c)}" data-id="${c.id}">
       <div class="card-top">
-        <span class="badge b-${bcls}">${blabel}</span>
+        ${badgeHtml(c)}
         ${isUnreadChat(c) ? tr('<span class="unread-chip" title="まだ読んでいない返事があります">未読</span>') : ''}
         ${since ? `<span class="elapsed" data-since="${since}">${elapsed(since)}</span>` : ''}
       </div>
@@ -521,12 +538,12 @@ function cardHtml(c) {
       ${CycleView.chipsHtml(c)}
       ${c.readOnly ? tr('<div class="card-skill-row"><span class="readonly-chip" title="ソースを変更しないタスク: worktree を作らず、ファイルを書き換えるツールを止めて動かします。確かめたら「完了にする」で完了にします">{v}ソース変更なし</span></div>', { v: (icon('lock')) }) : ''}
       ${c.skill ? tr('<div class="card-skill-row"><span class="skill-chip small" title="最初の指示で使うスキル">{v}/{skill}</span></div>', { v: (icon('zap')), skill: (esc(c.skill)) }) : ''}
-      ${c.error && c.status === 'failed' ? `<div class="card-err">${esc(c.error)}</div>` : ''}
+      ${c.error && c.status === 'failed' ? `<div class="card-err">${icon('alert')}<span>${esc(c.error)}</span></div>` : ''}
       ${showCardSprite(c) ? spriteCanvasHtml(c, 'mini') : ''}
       ${isChat(c) && c.lastMessage && !waiting ? `<div class="card-msg">${esc(plainText(c.lastMessage))}</div>` : ''}
       ${isSpecPending(c) ? tr('<div class="card-msg card-spec">{v}内容が詰まっていないので、開発を開始できません。開いて質問に答えてください</div>', { v: (icon('note')) }) : ''}
       ${hasSubtaskProposal(c) ? tr('<div class="card-msg card-spec">{v}サブタスクに分けて進めることを提案しています。開いて、サブタスクでやるかを選んでください</div>', { v: (icon('branch')) }) : ''}
-      ${subtasksRunning(c) ? `<div class="card-msg card-sub">${esc(subPhaseText(c))}</div>` : ''}
+      ${subtasksRunning(c) ? `<div class="card-msg card-sub${subNeedsYou(c) ? ' card-act' : ''}">${icon('branch')}<span>${esc(subPhaseText(c))}</span></div>` : ''}
       ${isInterrupted(c) ? tr('<div class="int-quick"><button class="btn small primary" data-resume="{id}" title="中断したところから続けます">{v}再開</button></div>', { id: (c.id), v: (icon('play')) }) : ''}
       ${canCompleteNoGit(c) ? tr('<div class="int-quick"><button class="btn small primary" data-complete="{id}" title="{COMPLETE_TITLE}">{v}完了にする</button></div>', { id: (c.id), COMPLETE_TITLE, v: (icon('check')) }) : ''}
       ${questionCompactHtml(c)}
@@ -567,7 +584,8 @@ function spriteInfo(c) {
   else if (mood === 'fail') label = tr('止まってしまいました');
   else label = tr('開始を待っています');
   const detail = progress.now ? `▶ ${progress.now}` : c.lastMessage && mood !== 'done' ? plainText(c.lastMessage) : '';
-  return { mood, tool, label, detail, progress, color: AgentSprite.colorFor(agentOf(c), c.persona) };
+  const { kind, color } = AgentSprite.characterFor({ agent: agentOf(c), persona: c.persona, character: c.character });
+  return { mood, tool, label, detail, progress, kind, color };
 }
 // ボードのカードに出すのは、始めたあとのタスク（実行中・待ち・レビュー・完了・失敗）。
 // カードではチャットの最後の一言の代わりに、このロボットを出す（チャットのカードは一言のまま）
@@ -840,7 +858,7 @@ function renderBoard() {
       const list = columnCards(shown, col);
       return `
       <section class="column${col.lanes.length > 1 ? ' has-slots' : ''}" data-col="${esc(col.key)}">
-        <header title="${esc(col.description)}"><span>${col.label}</span><span class="count">${list.length}</span></header>
+        <header title="${esc(col.description)}"><span>${col.label}</span>${colAttnHtml(list)}<span class="count">${list.length}</span></header>
         ${columnInnerHtml(list, col, true)}
       </section>`;
     }).join('');
@@ -1167,14 +1185,13 @@ async function select(id, { subFrom = null } = {}) {
   renderDetailBody();
 }
 
-// 会話と git で管理していないフォルダのタスクには worktree も差分も（タスクごとのポートで動かす）ブラウザもないので、そのタブは隠す
-const WORKTREE_TABS = ['worktree', 'diff', 'browser'];
+// 状態によって使えないタブは隠す（会話・git で管理していないフォルダ・開始前・動いていないときの btw。決め方は AppView.hiddenDetailTabs）
 function updateTabsFor(c) {
-  const chat = isChat(c) || isNoGit(c);
+  const hide = AppView.hiddenDetailTabs(c, { noRepo: isChat(c) || isNoGit(c) });
   document.querySelectorAll('#tabs .tab').forEach((t) => {
-    if (WORKTREE_TABS.includes(t.dataset.tab)) t.classList.toggle('hidden', chat);
+    if (t.dataset.tab !== 'subtasks') t.classList.toggle('hidden', hide.includes(t.dataset.tab));
   });
-  if (chat && WORKTREE_TABS.includes(state.tab)) setTab('chat');
+  if (hide.includes(state.tab)) setTab('chat');
   // 「サブタスク」タブは、サブタスクがあるタスクにだけ出す
   const subs = hasSubtasks(c);
   $('subtasksTab').classList.toggle('hidden', !subs);
@@ -2269,7 +2286,7 @@ function renderDetailHead() {
     // 完了したタスク（完了後の会話の途中も含む）は削除できない
     s !== 'done' && !c.afterDone && tr('<button class="btn danger" data-act="discard">破棄</button>'),
   ].filter(Boolean);
-  $('detailTitle').innerHTML = tr('\n    <div class="d-title-row">\n      <span class="badge b-{v}">{v2}</span>\n      <h2 class="d-title" id="detailTitleText" title="{title}">{title}</h2>\n      <button class="icon" id="closeDetail" title="閉じる">✕</button>\n    </div>', { v: (badgeFor(c)[0]), v2: (badgeFor(c)[1]), title: (esc(c.title)) });
+  $('detailTitle').innerHTML = tr('\n    <div class="d-title-row">\n      <span class="badge b-{v}">{v2}</span>\n      <h2 class="d-title" id="detailTitleText" title="{title}">{title}</h2>\n      <button class="icon" id="closeDetail" title="閉じる">✕</button>\n    </div>', { v: (badgeFor(c)[0] + (BADGE_TONE[badgeFor(c)[0]] ? ` tone-${BADGE_TONE[badgeFor(c)[0]]}` : '')), v2: (badgeFor(c)[1]), title: (esc(c.title)) });
   // 上の段はボタンだけ（1行・高さは固定）。Pipeline・全体の進み具合と競争は「進捗」タブ、サブタスクの一覧は「サブタスク」タブ、
   // 中断・エラー・コンフリクト・サブタスクの提案は「チャット」タブの最後に出す
   $('detailHead').innerHTML = `<div class="d-actions">${btns.join('')}</div>`;
@@ -3735,6 +3752,27 @@ function toggleSessionField(idp, agent) {
   if (box) box.classList.toggle('hidden', agent !== 'claude');
 }
 
+// 「新しいタスク」の「詳しい設定」の開け閉め。開いたかどうかを覚えておき、次に開いたときも同じにする。
+// 会話や完了したタスクから続けるときは、引き継ぐ会話・モデルを確かめられるように開いておく
+const MORE_OPTS_KEY = 'agent-kanban.newTaskMore';
+function bindMoreOpts(el, forceOpen) {
+  if (!el) return;
+  let saved = false;
+  try {
+    saved = localStorage.getItem(MORE_OPTS_KEY) === '1';
+  } catch {
+    /* 覚えられないだけ */
+  }
+  el.open = forceOpen || saved;
+  el.addEventListener('toggle', () => {
+    try {
+      localStorage.setItem(MORE_OPTS_KEY, el.open ? '1' : '0');
+    } catch {
+      /* 覚えられないだけ */
+    }
+  });
+}
+
 function newTask(opts = {}) {
   if (!state.board.settings.repoPath) return chooseRepo();
   const from = opts.fromChat;
@@ -3746,15 +3784,19 @@ function newTask(opts = {}) {
      : from ? `<p class="muted small">${tr('会話「{title}」の続きとして、タスクを始めます（会話の内容をエージェントが引き継ぎます。会話そのものはそのまま残ります）。', { title: esc(from.title) })}</p>` : ''}
      <label class="field"><span>${tr('タイトル（省略すると指示の1行目）')}</span><input id="nTitle" placeholder="${esc(tr('例: ログイン画面にパスワード表示ボタンを追加'))}" /></label>
      ${agentFieldHtml('n', from && from.persona && findCustomAgent(from.persona.id) && !from.relay ? CUSTOM_PREFIX + from.persona.id : from && enabledAgents().includes(agentOf(from)) ? agentOf(from) : undefined)}
-     ${modelFieldHtml('n', from && enabledAgents().includes(agentOf(from)) ? from.model || '' : '')}
      <div class="field"><span>${tr('エージェントへの指示')}</span><div id="nSkill" class="skill-slot"></div><textarea id="nPrompt" rows="10" placeholder="${esc(tr('やってほしいことを具体的に書いてください。テストの実行方法なども書いておくと確実です。画像やファイルは貼り付け・ドラッグ＆ドロップでも添付できます。'))}"></textarea><div id="nAttach" class="attach-bar"></div></div>
-     ${sessionFieldHtml('n')}
-     ${CycleView.fieldHtml('n', fromDone ? CycleModel.cardCycleIds(from, state.board.cards) : CycleView.newTaskIds())}
-     <label class="check" title="${esc(tr('SQL を作るだけ・調べるだけなど、ソースコードを変えないタスクにします。worktree とブランチは作らず、リポジトリのフォルダでファイルを書き換えるツールを止めて動かします。作ったものはチャットの返事に出るので、確かめてから「完了にする」を押します'))}"><input type="checkbox" id="nReadOnly" /> ${tr('ソースを変更しない（調べもの・SQL などの生成だけ）')}</label>
+     <details class="more-opts" id="nMore">
+       <summary>${icon('settings')}<span>${tr('詳しい設定')}</span><small class="muted">${tr('モデル・引き継ぐ会話・スプリント・ソースを変えないタスク')}</small></summary>
+       ${modelFieldHtml('n', from && enabledAgents().includes(agentOf(from)) ? from.model || '' : '')}
+       ${sessionFieldHtml('n')}
+       ${CycleView.fieldHtml('n', fromDone ? CycleModel.cardCycleIds(from, state.board.cards) : CycleView.newTaskIds())}
+       <label class="check" title="${esc(tr('SQL を作るだけ・調べるだけなど、ソースコードを変えないタスクにします。worktree とブランチは作らず、リポジトリのフォルダでファイルを書き換えるツールを止めて動かします。作ったものはチャットの返事に出るので、確かめてから「完了にする」を押します'))}"><input type="checkbox" id="nReadOnly" /> ${tr('ソースを変更しない（調べもの・SQL などの生成だけ）')}</label>
+     </details>
      <label class="check"><input type="checkbox" id="nStart" checked /> ${tr('作成したらすぐに開始する')}</label>
      <div class="modal-actions"><button class="btn ghost" id="nCancel">${tr('キャンセル')}</button><button class="btn primary" id="nOk">${tr('作成（Ctrl/⌘ + Enter）')}</button></div>`,
     () => {
       if (!from) bindTaskModeTabs();
+      bindMoreOpts($('nMore'), !!from);
       $('nPrompt').focus();
       if (from) $('nPrompt').value = fromDone ? `${tr('完了したタスクの内容をもとに、次の点を修正してください。')}\n\n` : tr('ここまでの会話の内容をもとに、作業を進めてください。');
       if (fromDone) $('nTitle').value = tr('修正: {title}', { title: from.title });
@@ -4743,6 +4785,7 @@ function openMobileSettings() {
 // 入力中の値が消えないよう、開いたときと、見ているプロジェクトが変わったときにだけ描く（renderBoard は頻繁に呼ばれる）
 let settingsViewKey = null; // いま描いてある設定画面のプロジェクト（描いていなければ null）
 let settingsNav = null;
+let settingsScope = 'app'; // 設定画面で選んでいるタブ（AppView.SETTINGS_SCOPES）。画面を離れても覚えておく
 const currentSettingsKey = () => `${viewingHost()}:${state.board.settings.repoPath}`;
 
 // 別のプロジェクトの値が画面に残っていると、そのまま今のプロジェクトに保存してしまうので描き直す
@@ -4759,8 +4802,28 @@ function clearSettingsView() {
 
 // 設定画面を開く。section を渡すと、その節までスクロールする（もう開いていても、スクロールは動かす）
 function openSettings(section) {
+  const sc = section && AppView.sectionScope(section);
+  if (sc) settingsScope = sc;
   setView('settings');
+  if (sc) showSettingsScope(sc, { keepScroll: true });
   if (section) settingsNav?.scrollTo(section);
+}
+
+// 設定画面の上のタブ（すべてのリポジトリ共通 / このリポジトリ）を切り替える。
+// 入力中の値を消さないよう描き直さず、見せる節と左の一覧だけを入れ替える
+function showSettingsScope(scope, { keepScroll = false } = {}) {
+  settingsScope = AppView.normalizeSettingsScope(scope);
+  const view = $('settingsView');
+  if (!view || !view.querySelectorAll) return;
+  view.querySelectorAll('.settings-tab').forEach((b) => {
+    const on = b.dataset.scope === settingsScope;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  view.querySelectorAll('.settings-scope, .settings-nav-scope').forEach((el) => el.classList.toggle('hidden', el.dataset.scope !== settingsScope));
+  const main = $('settingsMain');
+  if (main && !keepScroll) main.scrollTop = 0;
+  settingsNav?.sync();
 }
 
 // 設定の「このアプリについて」: 版の番号・リポジトリ・ライセンスと、寄付のボタン。リンク先は renderer/links.js にまとめる
@@ -4800,8 +4863,7 @@ function renderSettingsView() {
       .join('');
   // 節の中身。並びと見出しは AppView.SETTINGS_NAV に合わせる
   const sections = {
-    general: `<small class="muted s-note">${tr('ここの項目は、どのプロジェクトでも同じです。')}</small>
-      <label class="field"><span>${tr('言語')}</span>
+    general: `<label class="field"><span>${tr('言語')}</span>
         <select id="sLanguage">${I18n.LANGUAGES.map((l) => `<option value="${l.code}" ${l.code === I18n.getLanguage() ? 'selected' : ''}>${esc(l.label)}</option>`).join('')}</select>
         <small>${tr('表示の言語です。選ぶとすぐに保存して、画面を読み直します。')}</small></label>
       <label class="field">${tr('<span>同時に動かす数</span>')}<input id="sMax" type="number" min="1" max="10" value="${esc(s.maxParallel)}" /></label>
@@ -4811,12 +4873,11 @@ function renderSettingsView() {
       <label class="check"><input type="checkbox" id="sSuggestSkills" ${s.suggestSkillsOnDone !== false ? 'checked' : ''} /> ${tr('タスクが完了したとき、前に完了したタスクと似た作業が続いていたら、スキルにしないか通知で聞く（右上のベル）')}</label>
       <label class="check"><input type="checkbox" id="sDeleteSessions" ${s.deleteSessionsOnMerge !== false ? 'checked' : ''} /> ${tr('マージして完了したら、そのタスクの作業に使った Claude Code の会話（セッション）を消す（引き継いだ元の会話は残します）')}</label>`,
     update: `<div id="updPanel" class="gh-panel upd-panel">${updatePanelHtml(state.update)}</div>`,
-    integrations: `<small class="muted s-note">${tr('ここの項目は、どのプロジェクトでも同じです。トークンは OS の安全な保存先の鍵で暗号化して保存し、保存したあとは画面に出しません。')}</small>
+    integrations: `<small class="muted s-note">${tr('トークンは OS の安全な保存先の鍵で暗号化して保存し、保存したあとは画面に出しません。')}</small>
       <div id="sTrackers" class="tracker-list">${tr('連携先を確かめています…')}</div>`,
-    cli: `<small class="muted s-note">${tr('エージェントや外のスクリプトから、タスクを作る・状態を見る・操作する（開始・承認・マージ・削除・Pipeline の起動など）ためのコマンド（wtk）と MCP サーバーです。ここの項目は、どのプロジェクトでも同じです。')}</small>
+    cli: `<small class="muted s-note">${tr('エージェントや外のスクリプトから、タスクを作る・状態を見る・操作する（開始・承認・マージ・削除・Pipeline の起動など）ためのコマンド（wtk）と MCP サーバーです。')}</small>
       <div id="sCli" class="remote-box">${tr('状態を読み込み中…')}</div>`,
-    branch: `<small class="muted s-note">${tr('「このプロジェクト」の項目{v1}は、プロジェクト（リポジトリ）ごとに覚えます。タブを切り替えると、そのプロジェクトの設定に変わります。初めて開いたプロジェクトは初期値から始まります。', { v1: (projectName ? tr('（<code>{v1}</code>）', { v1: (esc(projectName)) }) : '') })}</small>
-      <label class="field">${tr('<span>ベースブランチ（worktree の作成元・マージ先）</span>')}
+    branch: `<label class="field">${tr('<span>ベースブランチ（worktree の作成元・マージ先）</span>')}
         <select id="sBase">${baseOptions({ branches: [], current: '' })}</select></label>
       <label class="field">${tr('<span>レビュー後の取り込み方</span>')}
         <select id="sIntegration">
@@ -4868,7 +4929,10 @@ function renderSettingsView() {
         <small>${tr('自動で許可されない操作は、カードに「承認待ち」として表示されます。')} ${tr('「すべて自動で許可する」を選んでも、Issue から作ったタスクと Slack から頼んだタスク（そのサブタスクも）は、ファイル編集は自動・コマンドは承認で動かします。外の人が書いた指示から、承認なしでコマンドが動くのを防ぐためです。')}</small></label>
       <label class="field">${tr('<span>Claude Code に最初から許可しておくツール（カンマか改行で区切る）</span>')}
         <textarea id="sAllowed" rows="2" placeholder="${tr('例: Bash(npm test:*), Bash(git status), WebSearch')}">${esc(s.allowedTools)}</textarea></label>`,
-    task: `<div class="field">${tr('<span>新しいタスクで最初から選んでおくスキル</span>')}<div id="sSkill" class="skill-slot"></div>
+    task: `<label class="field">${tr('<span>新しいタスク・会話で最初から選んでおくもの</span>')}
+        <select id="sDefaultAgent"></select>
+        <small>${tr('タスクを作るときの「エージェント」の欄で、これを最初から選んでおきます。このプロジェクトのカスタムエージェント・Pipeline・競争も選べます（Pipeline・競争が使えない状態のときと会話では、使うエージェントの先頭）。競争の比較も、このエージェントに頼みます（カスタムエージェントなら元にするエージェント、Pipeline・競争なら使うエージェントの先頭。スキルの提案は、元のタスクのエージェントが使えればそちらに頼みます）。')}<br />${tr('選んだものを消したり、元にするエージェントを使わない設定にしたりしたときは、使うエージェントの先頭に戻ります。')}</small></label>
+      <div class="field">${tr('<span>新しいタスクで最初から選んでおくスキル</span>')}<div id="sSkill" class="skill-slot"></div>
         <small>${tr('「＋ 新しいタスク」（自然言語・Issue のどちらでも）を開いたときに、このスキルが選ばれた状態になります（その場で外したり変えたりできます）。')}</small></div>
       <label class="check"><input type="checkbox" id="sCiAutoFix" ${s.ciAutoFix !== false ? 'checked' : ''} /> ${I18n.forHost(tr('PR の CI が失敗したら、エージェントに直してもらって push する（続けて 3 回まで）'), s.codeHost)}</label>
       <label class="check"><input type="checkbox" id="sReviewAutoFix" ${s.reviewAutoFix === true ? 'checked' : ''} /> ${I18n.forHost(tr('PR にレビューコメントが付いたら、エージェントに直してもらって push し、コメントに返信して解決する（続けて 3 回まで）'), s.codeHost)}</label>
@@ -4881,8 +4945,7 @@ function renderSettingsView() {
       <div id="sShared" class="shared-panel">${tr('リポジトリのファイルを確かめています…')}</div>
       <div class="pl-tools"><button class="btn small" id="sSharedSave" type="button">${tr('リポジトリのファイルに保存')}</button></div>
       <small>${tr('保存してある今のプロジェクトの設定を、ファイルに書き出します（画面で変えたところは、先に「保存」を押してください）。コミットと push は自分で行ってください。トークンなどの秘密は書き出しません。')}</small>`,
-    agents: `<small class="muted s-note">${tr('ここの項目は、どのプロジェクトでも同じです（「このプロジェクトの設定」と書いた項目だけは、プロジェクトごとに覚えます）。')}</small>
-      <small class="muted s-note">${tr('チェックを付けたエージェントだけ、コマンドとモデルを設定でき、タスク・会話・Pipeline・競争で選べます（1つ以上）。')}</small>
+    agents: `<small class="muted s-note">${tr('チェックを付けたエージェントだけ、コマンドとモデルを設定でき、タスク・会話・Pipeline・競争で選べます（1つ以上）。')}</small>
       ${agentConfigHtml('claude', s, `
         <div class="row">
           <label class="field">${tr('<span>claude コマンドのパス</span>')}<input id="sClaude" value="${esc(s.claudePath || 'claude')}" /></label>
@@ -4915,18 +4978,14 @@ function renderSettingsView() {
           <label class="field">${tr('<span>モデル（空なら既定）</span>')}<input id="s_${a}Model" placeholder="${esc(tr('例: {model}', { model: example }))}" value="${esc(s[`${a}Model`] || '')}" /></label>
         </div>`)).join('')}
       <small class="muted s-note">${tr('Claude Code・Codex・Cursor は、自動で許可されない操作をカードで承認できます（「毎回確認する」でも、Cursor のファイル編集は承認なしで書かれます。Codex の「ファイル編集は自動」は、worktree の sandbox の中のコマンドも承認なしで動きます）。Antigravity / Gemini はカードでの承認に対応していないため、権限モードに合わせて CLI 側で許可します（計画だけ → 読み取りのみ、すべて自動で許可 → 確認なし、それ以外 → ファイル編集だけ自動で許可）。')}</small>
-      <small class="muted s-note">${tr('OpenCode・Copilot CLI・Amp・Pi・Droid もカードでの承認に対応していないため、権限モードに合わせて CLI 側で許可します（確認が要る操作は、その場で断られます）。「すべて自動で許可」以外では、コマンドは動きません（「計画だけ」と、Droid の「毎回確認する」は読み取りのみ）。テストなどのコマンドも動かしたいときは「すべて自動で許可」を選んでください。Amp を動かすには、環境変数 AMP_API_KEY が要ります。')}</small>
-      <label class="field">${tr('<span>新しいタスク・会話で最初から選んでおくもの</span>')}
-        <select id="sDefaultAgent"></select>
-        <small>${tr('タスクを作るときの「エージェント」の欄で、これを最初から選んでおきます。このプロジェクトのカスタムエージェント・Pipeline・競争も選べます（Pipeline・競争が使えない状態のときと会話では、使うエージェントの先頭）。競争の比較も、このエージェントに頼みます（カスタムエージェントなら元にするエージェント、Pipeline・競争なら使うエージェントの先頭。スキルの提案は、元のタスクのエージェントが使えればそちらに頼みます）。')}<br />${tr('このプロジェクトの設定です。選んだものを消したり、元にするエージェントを使わない設定にしたりしたときは、使うエージェントの先頭に戻ります。')}</small></label>`,
-    custom: `<small class="muted s-note">${tr('カスタムエージェントは、このプロジェクトの設定です。')}</small>
-         <div class="field">
+      <small class="muted s-note">${tr('OpenCode・Copilot CLI・Amp・Pi・Droid もカードでの承認に対応していないため、権限モードに合わせて CLI 側で許可します（確認が要る操作は、その場で断られます）。「すべて自動で許可」以外では、コマンドは動きません（「計画だけ」と、Droid の「毎回確認する」は読み取りのみ）。テストなどのコマンドも動かしたいときは「すべて自動で許可」を選んでください。Amp を動かすには、環境変数 AMP_API_KEY が要ります。')}</small>`,
+    custom: `<div class="field" id="sCustomField">
         <div id="sCustomList" class="ca-list"></div>
         <div id="sCustomForm" class="ca-form" hidden></div>
         <div><button class="btn small" id="sCustomAdd" type="button">${tr('＋ カスタムエージェントを追加')}</button></div>
         <small>${tr('元にするエージェント（CLI）とモデルに、プロフィール（名前・アイコンと色・説明・振る舞いの指示）を持たせます。タスク・会話を作るときの「エージェント」の欄、Pipelineの工程、競争で選べます。振る舞いの指示は、最初の指示の前に付けて渡します。')}</small></div>`,
-    orchestration: `<small class="muted s-note">${tr('Pipeline と競争は、どちらもいくつでも作れます。タスクを作るときの「エージェント」の欄で、1つのエージェント・カスタムエージェント・Pipeline・競争から1つを選びます。最初から選んでおくものは、「エージェント」の「新しいタスク・会話で最初から選んでおくもの」で決めます。')}</small>
-      <div class="field" id="sRelayField">${tr('<span>{v1}Pipeline（このプロジェクトの設定。いくつでも作れます）</span>', { v1: (icon('pipeline')) })}
+    orchestration: `<small class="muted s-note">${tr('Pipeline と競争は、どちらもいくつでも作れます。タスクを作るときの「エージェント」の欄で、1つのエージェント・カスタムエージェント・Pipeline・競争から1つを選びます。最初から選んでおくものは、「タスクの既定」の「新しいタスク・会話で最初から選んでおくもの」で決めます。')}</small>
+      <div class="field" id="sRelayField">${tr('<span>{v1}Pipeline（いくつでも作れます）</span>', { v1: (icon('pipeline')) })}
         <div id="sRelayList" class="pl-list"></div>
         <div id="sRelayExport" class="ca-form" hidden></div>
         <div class="pl-tools">
@@ -4935,7 +4994,7 @@ function renderSettingsView() {
           <button class="btn small" id="sRelayBundle" type="button">${tr('まとめてエクスポート（zip）')}</button>
         </div>
         <small>${tr('工程（エージェントと担当の説明）を線でつなぎ、分岐（if）・ループ・並列を組めます。工程が終わるたびに変更をコミットし、最後の報告と一緒に次の工程へ渡します。タスクを作るときに、どの Pipeline で動かすかを選べます。<br />\n        「エクスポート」は Pipeline 1つを .json に、「まとめてエクスポート」は選んだ Pipeline とカスタムエージェントを zip にします。インポートは .json か zip を選びます（同じ中身のカスタムエージェントがあればそれを使い、なければ足します）。Pipeline の一覧の変更は、すぐに保存します。')}</small></div>
-      <div class="field" id="sCompeteField">${tr('<span>{v1}競争（このプロジェクトの設定。いくつでも作れます）</span>', { v1: (icon('flag')) })}
+      <div class="field" id="sCompeteField">${tr('<span>{v1}競争（いくつでも作れます）</span>', { v1: (icon('flag')) })}
         <div id="sCompeteList" class="pl-list"></div>
         <div class="pl-tools"><button class="btn small" id="sCompeteAdd" type="button">${tr('＋ 競争を追加')}</button></div>
         <small>${tr('競争ごとに、同じタスクを解かせるエージェントを2つ以上選びます。使うエージェントにチェックを付けたものと、このプロジェクトのカスタムエージェントから選べます。競争の一覧の変更は「保存」で保存します。')}</small></div>`,
@@ -4943,18 +5002,44 @@ function renderSettingsView() {
   };
   // 描き直しても（元に戻す・タブの切り替え）、見ていた節から動かさない
   const scrollTop = $('settingsMain')?.scrollTop || 0;
-  const sectionsHtml = AppView.SETTINGS_NAV.flatMap((g) => g.items)
-    .map(({ id, label }) => `<section id="settings-${id}" class="settings-section" data-section="${id}"><h2 class="settings-title">${esc(label)}</h2>${sections[id]}</section>`)
-    .join('');
-  $('settingsView').innerHTML = `<nav id="settingsNav" class="settings-nav" aria-label="${tr('設定の項目')}">${AppView.settingsNavHtml(icon)}</nav>
-    <div id="settingsMain" class="settings-main">
-      <div class="settings-content">${sectionsHtml}</div>
-      <div class="settings-actions"><button class="btn ghost" id="sCancel">${tr('元に戻す')}</button><button class="btn primary" id="sOk">${tr('保存')}</button></div>
+  // 見出しの横の印（ボードの列は、いつもリポジトリのファイルに書く）
+  const titleBadge = { columns: `<span class="scope-badge shared" title="${tr('リポジトリの .worktree-kanban/board.json に保存します。コミットすると、チームのほかの人の PC でも同じ列になります')}">${icon('users')}${tr('チームで共有中')}</span>` };
+  const sectionHtml = ({ id, label }) => `<section id="settings-${id}" class="settings-section" data-section="${id}"><h2 class="settings-title">${esc(label)}${titleBadge[id] || ''}</h2>${sections[id]}</section>`;
+  // タブごとの説明。どこに効いて、どこに保存するか
+  const scopeIntro = {
+    app: `<div class="scope-intro">${icon('globe')}<div><b>${tr('すべてのリポジトリ共通の設定')}</b><small>${tr('ここの設定は、開いているどのリポジトリでも同じです。この PC に保存します。')}</small></div></div>`,
+    repo: projectName
+      ? `<div class="scope-intro scope-intro-repo">${icon('folder')}<div><b>${tr('{name} だけの設定', { name: `<code>${esc(projectName)}</code>` })}</b><small>${tr('ここの設定は、このリポジトリにだけ効きます。上のリポジトリのタブを切り替えると、そのリポジトリの設定に変わります。初めて開いたリポジトリは初期値から始まります。')}</small><div class="scope-legend"><small>${tr('項目の横の印:')}</small><small><span class="scope-badge shared">${icon('users')}${tr('チームで共有中')}</span> ${tr('リポジトリのファイルの値を使っています')}</small><small><span class="scope-badge override">${icon('monitor')}${tr('この PC で上書き')}</span> ${tr('ファイルの値の代わりに、この PC の値を使っています')}</small></div></div></div>`
+      : `<div class="scope-intro scope-intro-repo">${icon('folder')}<div><b>${tr('リポジトリごとの設定')}</b><small>${tr('リポジトリを開いていません。ボードでリポジトリを開くと、ここでそのリポジトリの設定を変えられます。')}</small></div></div>`,
+  };
+  const scope = AppView.normalizeSettingsScope(settingsScope);
+  const scopeHtml = (sc) =>
+    `<div class="settings-scope${sc === scope ? '' : ' hidden'}" data-scope="${sc}">${scopeIntro[sc]}${AppView.SETTINGS_NAV.filter((g) => g.scope === sc).flatMap((g) => g.items).map(sectionHtml).join('')}</div>`;
+  const tabLabel = {
+    app: `${icon('globe')}<span>${tr('すべてのリポジトリ共通')}</span>`,
+    repo: `${icon('folder')}<span>${projectName ? tr('このリポジトリ（{name}）', { name: esc(projectName) }) : tr('このリポジトリ')}</span>`,
+  };
+  $('settingsView').innerHTML = `<div id="settingsTabs" class="settings-tabs" role="tablist" aria-label="${tr('設定の範囲')}">${AppView.SETTINGS_SCOPES.map((sc) => `<button type="button" class="settings-tab${sc === scope ? ' active' : ''}" role="tab" data-scope="${sc}" aria-selected="${sc === scope}">${tabLabel[sc]}</button>`).join('')}</div>
+    <div class="settings-body">
+      <nav id="settingsNav" class="settings-nav" aria-label="${tr('設定の項目')}">${AppView.settingsNavHtml(icon, scope)}</nav>
+      <div id="settingsMain" class="settings-main">
+        <div class="settings-content">${AppView.SETTINGS_SCOPES.map(scopeHtml).join('')}</div>
+        <div class="settings-actions"><small class="muted">${tr('「保存」で、両方のタブの変更をまとめて保存します')}</small><button class="btn ghost" id="sCancel">${tr('元に戻す')}</button><button class="btn primary" id="sOk">${tr('保存')}</button></div>
+      </div>
     </div>`;
   settingsViewKey = viewKey;
   // ダイアログの操作を待つ間に、画面を離れたりプロジェクトが変わったりしたら、この描画の値では保存も描き直しもしない
   const isStale = () => settingsViewKey !== viewKey;
-  settingsNav = AppView.bindSettingsNav({ nav: $('settingsNav'), scroller: $('settingsMain'), section: (id) => $(`settings-${id}`) });
+  // 選んでいないタブの節は隠れているので、現在地の判定には入れない
+  settingsNav = AppView.bindSettingsNav({
+    nav: $('settingsNav'),
+    scroller: $('settingsMain'),
+    section: (id) => {
+      const el = $(`settings-${id}`);
+      return el && !el.closest('.settings-scope.hidden') ? el : null;
+    },
+  });
+  $('settingsTabs').querySelectorAll('[data-scope]').forEach((b) => (b.onclick = () => showSettingsScope(b.dataset.scope)));
   bindAboutSection($('settings-about'));
   // ボードの列とレーン（保存は「保存」ボタンとは別。変換の結果を確かめてから、その場で書く）
   ColumnsEditor.render($('sColumnsBox'), state.board.boardColumns);
@@ -5575,6 +5660,69 @@ function sharedKeyGroups(keys) {
   return out;
 }
 
+// チームで共有できる項目と、その項目の入力欄（印はこの欄の見出しに付ける）
+const SHARED_FIELD_IDS = {
+  baseBranch: 'sBase',
+  integration: 'sIntegration',
+  branchNamingRule: 'sBranchRule',
+  issueProvider: 'sIssueProvider',
+  issueComments: 'sIssueComments',
+  issueStatusSync: 'sIssueSync',
+  statusFieldName: 'sStatusField',
+  statusMapping: 'sMapProgress',
+  permissionMode: 'sMode',
+  allowedTools: 'sAllowed',
+  defaultSkill: 'sSkill',
+  specCheck: 'sSpecCheck',
+  ciAutoFix: 'sCiAutoFix',
+  reviewAutoFix: 'sReviewAutoFix',
+  subtaskMerge: 'sSubtaskMerge',
+  sprintBranch: 'sSprintBranch',
+  relayFlows: 'sRelayField',
+  customAgents: 'sCustomField',
+  competes: 'sCompeteField',
+  defaultAgent: 'sDefaultAgent',
+  setupScript: 'sSetupScript',
+  teardownScript: 'sTeardownScript',
+  runScript: 'sRunScript',
+  portStart: 'sPortStart',
+  portCount: 'sPortCount',
+};
+
+// 項目の印の HTML。shared: ファイルの値を使っている / override: この PC の値で上書きしている
+function sharedBadgeHtml(kind, keys) {
+  if (kind === 'override') {
+    return `<span class="scope-badge override" title="${tr('リポジトリのファイルにもこの項目がありますが、この PC で変えた値を使っています')}">${icon('monitor')}${tr('この PC で上書き')}</span><button class="btn small ghost scope-revert" type="button" data-shared-revert="${esc(keys.join(','))}">${tr('ファイルの値に戻す')}</button>`;
+  }
+  return `<span class="scope-badge shared" title="${tr('リポジトリの .worktree-kanban/settings.json の値を使っています。ここで変えると、この PC だけの上書きになります')}">${icon('users')}${tr('チームで共有中')}</span>`;
+}
+
+// 各項目の見出しの横に、チームで共有しているか・この PC で上書きしているかの印を付ける
+function decorateSharedFields(st) {
+  const view = $('settingsView');
+  if (!view || !view.querySelectorAll) return;
+  view.querySelectorAll('.scope-mark').forEach((el) => el.remove());
+  if (!st || !st.exists || st.error) return;
+  const over = new Set(st.overrides || []);
+  const inFile = new Set(st.keys || []);
+  for (const [key, id] of Object.entries(SHARED_FIELD_IDS)) {
+    // Pipeline の3つ（relayFlow・relayFlows・relayFlowId）は1つの印にまとめる
+    const keys = key === 'relayFlows' ? ['relayFlow', 'relayFlows', 'relayFlowId'] : [key];
+    if (!keys.some((k) => inFile.has(k) || over.has(k))) continue;
+    const el = $(id);
+    const field = el && (el.classList.contains('field') ? el : el.closest('.field, .check'));
+    if (!field) continue;
+    const mark = document.createElement('span');
+    mark.className = 'scope-mark';
+    mark.innerHTML = sharedBadgeHtml(keys.some((k) => over.has(k)) ? 'override' : 'shared', keys.filter((k) => over.has(k) || inFile.has(k)));
+    // 見出し（最初の span）の終わりに付ける。チェックボックスの行は、行の終わりに付ける
+    const label = field.classList.contains('check') ? null : [...field.children].find((c) => c.tagName === 'SPAN');
+    if (label) label.append(mark);
+    else if (field.classList.contains('check')) field.append(mark);
+    else field.prepend(mark);
+  }
+}
+
 // 設定の「チームで共有」の欄を描く（st を省くと読み直す）
 async function drawShared(st) {
   const box = $('sShared');
@@ -5615,6 +5763,7 @@ async function drawShared(st) {
     : '';
   const ignoredHtml = (st.ignored || []).length ? `<small class="muted">${tr('使わなかった項目（知らない名前か、値の形が違います）: {keys}', { keys: esc(st.ignored.join(', ')) })}</small>` : '';
   box.innerHTML = head + usedHtml + overHtml + scriptHtml + ignoredHtml;
+  decorateSharedFields(st);
   const after = async (p) => {
     const next = await run(p);
     if (!next) return;
@@ -5626,7 +5775,8 @@ async function drawShared(st) {
     }
     renderSettingsView();
   };
-  box.querySelectorAll('[data-shared-revert]').forEach((b) => (b.onclick = () => after(() => api.revertShared(b.dataset.sharedRevert.split(',')))));
+  // 「チームで共有」の欄と、各項目の横の「ファイルの値に戻す」
+  $('settingsView').querySelectorAll('[data-shared-revert]').forEach((b) => (b.onclick = () => after(() => api.revertShared(b.dataset.sharedRevert.split(',')))));
   if ($('sSharedRevertAll')) $('sSharedRevertAll').onclick = () => after(() => api.revertShared());
   if ($('sSharedApprove')) $('sSharedApprove').onclick = async () => {
     const next = await run(() => api.approveSharedScripts());
@@ -6680,6 +6830,8 @@ api.appInfo().then(
 })();
 
 AppView.bindNavMenu({ button: $('navBtn'), menu: $('navMenu'), doc: document, onSelect: setView });
+// 上部のバーの「その他」（スマホ・セッション）。項目の動きはそれぞれの onclick で、ここでは選んだら閉じるだけ
+AppView.bindNavMenu({ button: $('moreBtn'), menu: $('moreMenu'), doc: document, item: '.nav-item', onSelect: () => {} });
 applyView();
 // scheduler-view.js は renderer.js のあとに読むので、最初の描画に間に合わなかったときは読み終わってから描き直す
 document.addEventListener('DOMContentLoaded', () => {

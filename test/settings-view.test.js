@@ -15,6 +15,7 @@ function fnSource(name) {
   return m[0];
 }
 
+const AppView = require('../renderer/app-view.js');
 const SECTIONS = ['general', 'update', 'integrations', 'cli', 'branch', 'issue', 'permission', 'task', 'columns', 'share', 'agents', 'custom', 'orchestration', 'about'];
 
 test('上部の設定ボタンとモーダルへの依存が残っていない', () => {
@@ -42,7 +43,7 @@ test('節の分け方: 欄が決めた節にある', () => {
   const block = body.slice(body.indexOf('const sections = {'), body.indexOf('// 描き直しても'));
   const parts = block.split(/^ {4}(?=\w+: `)/m).slice(1);
   const of = (id) => parts.find((p) => p.includes(`id="${id}"`))?.split(':')[0];
-  const want = { sMax: 'general', updPanel: 'update', sBase: 'branch', sBranchRule: 'branch', sSetupScript: 'branch', sTeardownScript: 'branch', sRunScript: 'branch', sPortStart: 'branch', sPortCount: 'branch', sShared: 'share', sSharedSave: 'share', sIssueSync: 'issue', sIssueComments: 'issue', ghPanel: 'issue', sMode: 'permission', sAllowed: 'permission', sSkill: 'task', sSubtaskMerge: 'task', sDefaultAgent: 'agents', sClaude: 'agents', sCustomList: 'custom', sRelayList: 'orchestration', sCompeteList: 'orchestration' };
+  const want = { sMax: 'general', updPanel: 'update', sBase: 'branch', sBranchRule: 'branch', sSetupScript: 'branch', sTeardownScript: 'branch', sRunScript: 'branch', sPortStart: 'branch', sPortCount: 'branch', sShared: 'share', sSharedSave: 'share', sIssueSync: 'issue', sIssueComments: 'issue', ghPanel: 'issue', sMode: 'permission', sAllowed: 'permission', sSkill: 'task', sSubtaskMerge: 'task', sDefaultAgent: 'task', sClaude: 'agents', sCustomList: 'custom', sRelayList: 'orchestration', sCompeteList: 'orchestration' };
   for (const [id, section] of Object.entries(want)) assert.strictEqual(of(id), section, id);
   assert.doesNotMatch(block, /class="s-section/, '節の見出しに置き換えた');
 });
@@ -102,6 +103,8 @@ function harness({ view = 'kanban', selected = null, repoPath = '/a', host = fal
     AppView: {
       normalizeView: (v) => (['kanban', 'scheduler', 'settings'].includes(v) ? v : 'kanban'),
       saveView: (_, v) => log.push(`save:${v}`),
+      sectionScope: AppView.sectionScope,
+      normalizeSettingsScope: AppView.normalizeSettingsScope,
     },
     viewingHost: () => ctx.host,
     closeDetail: () => {
@@ -124,6 +127,8 @@ function harness({ view = 'kanban', selected = null, repoPath = '/a', host = fal
     [
       src.match(/^let settingsViewKey = null;.*$/m)[0],
       src.match(/^let settingsNav = null;$/m)[0],
+      src.match(/^let settingsScope = .*$/m)[0],
+      'this.getScope = () => settingsScope;',
       src.match(/^const currentSettingsKey = .*$/m)[0],
       'function setDrawn() { settingsViewKey = currentSettingsKey(); settingsNav = nav; }',
       'const nav = { scrolled: [], scrollTo(id) { this.scrolled.push(id); } };',
@@ -133,6 +138,7 @@ function harness({ view = 'kanban', selected = null, repoPath = '/a', host = fal
       fnSource('renderSettingsViewIfStale'),
       fnSource('clearSettingsView'),
       fnSource('openSettings'),
+      fnSource('showSettingsScope'),
       'this.setView = setView; this.openSettings = openSettings; this.renderSettingsViewIfStale = renderSettingsViewIfStale;',
     ].join('\n'),
     ctx,
@@ -228,6 +234,42 @@ test('openSettings: 開いて節までスクロールする。開いていても
   ctx.openSettings('update');
   assert.deepStrictEqual([...ctx.nav.scrolled], ['update', 'update']);
   assert.strictEqual(draws(log), 1, '開いているときは描き直さない（入力を消さない）');
+});
+
+test('openSettings: 節のあるタブに切り替えてから、その節までスクロールする', () => {
+  const { ctx } = harness();
+  assert.strictEqual(ctx.getScope(), 'app');
+  ctx.openSettings('share');
+  assert.strictEqual(ctx.getScope(), 'repo');
+  assert.deepStrictEqual([...ctx.nav.scrolled], ['share']);
+  ctx.openSettings('update');
+  assert.strictEqual(ctx.getScope(), 'app');
+  ctx.openSettings();
+  assert.strictEqual(ctx.getScope(), 'app', '節を指定しなければタブはそのまま');
+});
+
+test('設定画面は上に範囲のタブを置き、両方のタブの節を描いて（保存で全部読む）、選んでいないほうを隠す', () => {
+  const body = fnSource('renderSettingsView');
+  assert.match(body, /id="settingsTabs" class="settings-tabs" role="tablist"/);
+  assert.match(body, /AppView\.SETTINGS_SCOPES\.map\(scopeHtml\)/);
+  assert.match(body, /class="settings-scope\$\{sc === scope \? '' : ' hidden'\}"/);
+  assert.match(body, /showSettingsScope\(b\.dataset\.scope\)/);
+  // 隠れている節は現在地の判定に入れない
+  assert.match(body, /closest\('\.settings-scope\.hidden'\)/);
+});
+
+test('チームで共有している項目には、共有中か上書き中かの印を付ける', () => {
+  const deco = fnSource('decorateSharedFields');
+  assert.match(deco, /if \(!st \|\| !st\.exists \|\| st\.error\) return;/);
+  assert.match(fnSource('drawShared'), /decorateSharedFields\(st\);/);
+  const ids = src.slice(src.indexOf('const SHARED_FIELD_IDS = {'), src.indexOf('};', src.indexOf('const SHARED_FIELD_IDS = {')));
+  const body = fnSource('renderSettingsView');
+  for (const m of ids.matchAll(/(\w+): '(\w+)'/g)) assert.match(body, new RegExp(`id="${m[2]}"`), `${m[1]} の欄 #${m[2]}`);
+  // 共有できる項目は、どれも印の付け先がある（codeHost・pushAfterMerge は設定画面の欄ではない）
+  const { REPO_SETTING_KEYS } = require('../src/store.js');
+  const named = new Set([...ids.matchAll(/(\w+): '/g)].map((m) => m[1]));
+  const missing = REPO_SETTING_KEYS.filter((k) => !named.has(k) && !['codeHost', 'competeCustomAgents', 'pushAfterMerge', 'relayFlow', 'relayFlowId'].includes(k));
+  assert.deepStrictEqual(missing, []);
 });
 
 test('openSettings: 節を指定しなければスクロールしない', () => {

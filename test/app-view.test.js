@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('node:vm');
-const { VIEWS, VIEW_KEY, SETTINGS_NAV, normalizeView, loadView, saveView, isPipelineSubtask, canSchedule, bindNavMenu, settingsNavHtml, activeSection, bindSettingsNav, isBoardBackground } = require('../renderer/app-view.js');
+const { VIEWS, VIEW_KEY, SETTINGS_NAV, SETTINGS_SCOPES, normalizeSettingsScope, sectionScope, scopeSectionIds, normalizeView, loadView, saveView, isPipelineSubtask, canSchedule, bindNavMenu, settingsNavHtml, activeSection, bindSettingsNav, isBoardBackground } = require('../renderer/app-view.js');
 const { icon, ICON_NAMES, NOTIF_ICON } = require('../renderer/icons.js');
 const { tr } = require('../renderer/i18n.js');
 const { displayText } = require('../renderer/flow-model.js');
@@ -247,12 +247,25 @@ test('メニュー: 閉じているときの Esc とほかのキーには触ら�
 
 // ---- 設定画面の左の一覧 ----
 
-const SECTION_IDS = ['general', 'update', 'integrations', 'cli', 'branch', 'issue', 'permission', 'task', 'columns', 'share', 'agents', 'custom', 'orchestration', 'about'];
+const APP_IDS = ['general', 'update', 'integrations', 'cli', 'agents', 'about'];
+const REPO_IDS = ['branch', 'issue', 'permission', 'task', 'columns', 'custom', 'orchestration', 'share'];
+const SECTION_IDS = [...APP_IDS, ...REPO_IDS];
 
-test('SETTINGS_NAV: 節の並びとグループが取り決めどおり', () => {
+test('SETTINGS_NAV: 節の並びとグループが取り決めどおり。タブ（範囲）ごとにまとまる', () => {
   assert.deepStrictEqual(SETTINGS_NAV.flatMap((g) => g.items.map((i) => i.id)), SECTION_IDS);
-  assert.deepStrictEqual(SETTINGS_NAV.map((g) => g.heading), [null, 'このプロジェクト', 'エージェント', 'このアプリ']);
-  assert.deepStrictEqual(SETTINGS_NAV.map((g) => g.items.length), [4, 6, 3, 1]);
+  assert.deepStrictEqual(SETTINGS_NAV.map((g) => [g.scope, g.heading]), [['app', null], ['app', 'エージェント'], ['app', 'このアプリ'], ['repo', null], ['repo', 'エージェント'], ['repo', 'チーム']]);
+  assert.deepStrictEqual(SETTINGS_SCOPES, ['app', 'repo']);
+  assert.deepStrictEqual(scopeSectionIds('app'), APP_IDS);
+  assert.deepStrictEqual(scopeSectionIds('repo'), REPO_IDS);
+});
+
+test('sectionScope / normalizeSettingsScope: 節のタブを返し、知らない値は先頭のタブ', () => {
+  for (const id of APP_IDS) assert.strictEqual(sectionScope(id), 'app', id);
+  for (const id of REPO_IDS) assert.strictEqual(sectionScope(id), 'repo', id);
+  assert.strictEqual(sectionScope('nope'), null);
+  assert.strictEqual(normalizeSettingsScope('repo'), 'repo');
+  assert.strictEqual(normalizeSettingsScope('x'), 'app');
+  assert.strictEqual(normalizeSettingsScope(undefined), 'app');
 });
 
 test('SETTINGS_NAV: すべての項目にラベルと、存在するアイコンがある', () => {
@@ -262,19 +275,23 @@ test('SETTINGS_NAV: すべての項目にラベルと、存在するアイコン
   }
 });
 
-test('settingsNavHtml: 項目ごとのリンクと、見出しのあるグループの見出しを出す', () => {
+test('settingsNavHtml: 項目ごとのリンクと見出しを、タブごとにまとめ、選んでいないタブは隠す', () => {
   const asked = [];
   const html = settingsNavHtml((name) => {
     asked.push(name);
     return `<i data-i="${name}"></i>`;
-  });
+  }, 'repo');
   assert.strictEqual(asked.length, SECTION_IDS.length);
   assert.deepStrictEqual([...html.matchAll(/href="#settings-([a-z]+)" data-section="([a-z]+)"/g)].map((m) => [m[1], m[2]]), SECTION_IDS.map((id) => [id, id]));
   assert.strictEqual(html.match(/class="settings-nav-item"/g).length, SECTION_IDS.length);
-  assert.deepStrictEqual([...html.matchAll(/settings-nav-heading">([^<]*)</g)].map((m) => m[1]), ['このプロジェクト', 'エージェント', 'このアプリ']);
-  assert.ok(html.indexOf('data-section="update"') < html.indexOf('このプロジェクト'), '見出しはグループの先頭に出す');
+  assert.deepStrictEqual([...html.matchAll(/settings-nav-heading">([^<]*)</g)].map((m) => m[1]), ['エージェント', 'このアプリ', 'エージェント', 'チーム']);
+  assert.deepStrictEqual([...html.matchAll(/class="settings-nav-scope([^"]*)" data-scope="(\w+)"/g)].map((m) => [m[2], m[1]]), [['app', ' hidden'], ['repo', '']]);
+  assert.ok(html.indexOf('data-section="agents"') < html.indexOf('data-scope="repo"'), 'エージェントのコマンドは共通のタブ');
+  assert.ok(html.indexOf('data-section="custom"') > html.indexOf('data-scope="repo"'), 'カスタムエージェントはリポジトリのタブ');
   assert.ok(html.includes('<i data-i="pipeline"></i><span>オーケストレーション</span>'));
   assert.doesNotMatch(html, /null|undefined/);
+  assert.match(settingsNavHtml(() => ''), /data-scope="repo"/);
+  assert.match(settingsNavHtml(() => ''), /class="settings-nav-scope" data-scope="app"/, '省くと先頭のタブ');
 });
 
 test('activeSection: 先頭が基準線に届いた最後の節を返す', () => {
