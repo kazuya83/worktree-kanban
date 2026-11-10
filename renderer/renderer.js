@@ -290,6 +290,21 @@ function isInterrupted(c) {
 function isSpecPending(c) {
   return c.specState === 'pending' && (c.status === 'review' || c.status === 'failed');
 }
+// バッジの色の分け方。act: 自分の操作が要る / err: うまくいっていない。どちらも同じ色とアイコンで出す
+const BADGE_TONE = { question: 'act', waiting: 'act', spec: 'act', awaiting: 'act', interrupted: 'act', conflict: 'err', failed: 'err' };
+const TONE_ICON = { act: 'bell', err: 'alert' };
+function badgeHtml(c) {
+  const [cls, label] = badgeFor(c);
+  const tone = BADGE_TONE[cls];
+  return `<span class="badge b-${cls}${tone ? ` tone-${tone}` : ''}">${tone ? icon(TONE_ICON[tone]) : ''}${esc(label)}</span>`;
+}
+// カードを「自分の操作が要る」見た目にするか（仕様の確認中も、開いて答えるまで進まないので含める）
+const needsYouLook = (c) => !!needsYou(c) || isSpecPending(c);
+// 列の見出しの「自分の操作が要る」件数
+function colAttnHtml(list) {
+  const n = list.filter(needsYouLook).length;
+  return n ? `<span class="col-attn" title="${tr('自分の操作が要るタスク')}">${icon('bell')}${n}</span>` : '';
+}
 function badgeFor(c) {
   if (isInterrupted(c)) return ['interrupted', tr('中断')];
   if ((c.questions || []).length) return ['question', tr('質問')];
@@ -507,12 +522,14 @@ async function sendAnswer(cardId, reqId, answers) {
 
 function cardHtml(c) {
   const waiting = needsYou(c);
-  const [bcls, blabel] = badgeFor(c);
+  const [bcls] = badgeFor(c);
   const since = c.status === 'running' ? c.startedAt : null;
+  // 自分の操作が要るカードは同じ色でそろえる。承認と質問はエージェントが止まって待っているので、目立たせる
+  const look = bcls === 'conflict' && waiting ? 'conflicting' : needsYouLook(c) ? `needs-you${(c.questions || []).length || (c.permissions || []).length ? ' blocking' : ''}` : '';
   return `
-    <div class="card s-${c.status} ${isChat(c) ? 'chat' : ''} ${waiting ? (bcls === 'waiting' ? 'waiting' : bcls === 'conflict' ? 'conflicting' : 'asking') : ''} ${state.selected === c.id ? 'selected' : ''}" draggable="${canDragCard(c) || CycleView.canDrag(c)}" data-id="${c.id}">
+    <div class="card s-${c.status} ${isChat(c) ? 'chat' : ''} ${look} ${state.selected === c.id ? 'selected' : ''}" draggable="${canDragCard(c) || CycleView.canDrag(c)}" data-id="${c.id}">
       <div class="card-top">
-        <span class="badge b-${bcls}">${blabel}</span>
+        ${badgeHtml(c)}
         ${isUnreadChat(c) ? tr('<span class="unread-chip" title="まだ読んでいない返事があります">未読</span>') : ''}
         ${since ? `<span class="elapsed" data-since="${since}">${elapsed(since)}</span>` : ''}
       </div>
@@ -521,12 +538,12 @@ function cardHtml(c) {
       ${CycleView.chipsHtml(c)}
       ${c.readOnly ? tr('<div class="card-skill-row"><span class="readonly-chip" title="ソースを変更しないタスク: worktree を作らず、ファイルを書き換えるツールを止めて動かします。確かめたら「完了にする」で完了にします">{v}ソース変更なし</span></div>', { v: (icon('lock')) }) : ''}
       ${c.skill ? tr('<div class="card-skill-row"><span class="skill-chip small" title="最初の指示で使うスキル">{v}/{skill}</span></div>', { v: (icon('zap')), skill: (esc(c.skill)) }) : ''}
-      ${c.error && c.status === 'failed' ? `<div class="card-err">${esc(c.error)}</div>` : ''}
+      ${c.error && c.status === 'failed' ? `<div class="card-err">${icon('alert')}<span>${esc(c.error)}</span></div>` : ''}
       ${showCardSprite(c) ? spriteCanvasHtml(c, 'mini') : ''}
       ${isChat(c) && c.lastMessage && !waiting ? `<div class="card-msg">${esc(plainText(c.lastMessage))}</div>` : ''}
       ${isSpecPending(c) ? tr('<div class="card-msg card-spec">{v}内容が詰まっていないので、開発を開始できません。開いて質問に答えてください</div>', { v: (icon('note')) }) : ''}
       ${hasSubtaskProposal(c) ? tr('<div class="card-msg card-spec">{v}サブタスクに分けて進めることを提案しています。開いて、サブタスクでやるかを選んでください</div>', { v: (icon('branch')) }) : ''}
-      ${subtasksRunning(c) ? `<div class="card-msg card-sub">${esc(subPhaseText(c))}</div>` : ''}
+      ${subtasksRunning(c) ? `<div class="card-msg card-sub${subNeedsYou(c) ? ' card-act' : ''}">${icon('branch')}<span>${esc(subPhaseText(c))}</span></div>` : ''}
       ${isInterrupted(c) ? tr('<div class="int-quick"><button class="btn small primary" data-resume="{id}" title="中断したところから続けます">{v}再開</button></div>', { id: (c.id), v: (icon('play')) }) : ''}
       ${canCompleteNoGit(c) ? tr('<div class="int-quick"><button class="btn small primary" data-complete="{id}" title="{COMPLETE_TITLE}">{v}完了にする</button></div>', { id: (c.id), COMPLETE_TITLE, v: (icon('check')) }) : ''}
       ${questionCompactHtml(c)}
@@ -840,7 +857,7 @@ function renderBoard() {
       const list = columnCards(shown, col);
       return `
       <section class="column${col.lanes.length > 1 ? ' has-slots' : ''}" data-col="${esc(col.key)}">
-        <header title="${esc(col.description)}"><span>${col.label}</span><span class="count">${list.length}</span></header>
+        <header title="${esc(col.description)}"><span>${col.label}</span>${colAttnHtml(list)}<span class="count">${list.length}</span></header>
         ${columnInnerHtml(list, col, true)}
       </section>`;
     }).join('');
@@ -1167,14 +1184,13 @@ async function select(id, { subFrom = null } = {}) {
   renderDetailBody();
 }
 
-// 会話と git で管理していないフォルダのタスクには worktree も差分も（タスクごとのポートで動かす）ブラウザもないので、そのタブは隠す
-const WORKTREE_TABS = ['worktree', 'diff', 'browser'];
+// 状態によって使えないタブは隠す（会話・git で管理していないフォルダ・開始前・動いていないときの btw。決め方は AppView.hiddenDetailTabs）
 function updateTabsFor(c) {
-  const chat = isChat(c) || isNoGit(c);
+  const hide = AppView.hiddenDetailTabs(c, { noRepo: isChat(c) || isNoGit(c) });
   document.querySelectorAll('#tabs .tab').forEach((t) => {
-    if (WORKTREE_TABS.includes(t.dataset.tab)) t.classList.toggle('hidden', chat);
+    if (t.dataset.tab !== 'subtasks') t.classList.toggle('hidden', hide.includes(t.dataset.tab));
   });
-  if (chat && WORKTREE_TABS.includes(state.tab)) setTab('chat');
+  if (hide.includes(state.tab)) setTab('chat');
   // 「サブタスク」タブは、サブタスクがあるタスクにだけ出す
   const subs = hasSubtasks(c);
   $('subtasksTab').classList.toggle('hidden', !subs);
@@ -2269,7 +2285,7 @@ function renderDetailHead() {
     // 完了したタスク（完了後の会話の途中も含む）は削除できない
     s !== 'done' && !c.afterDone && tr('<button class="btn danger" data-act="discard">破棄</button>'),
   ].filter(Boolean);
-  $('detailTitle').innerHTML = tr('\n    <div class="d-title-row">\n      <span class="badge b-{v}">{v2}</span>\n      <h2 class="d-title" id="detailTitleText" title="{title}">{title}</h2>\n      <button class="icon" id="closeDetail" title="閉じる">✕</button>\n    </div>', { v: (badgeFor(c)[0]), v2: (badgeFor(c)[1]), title: (esc(c.title)) });
+  $('detailTitle').innerHTML = tr('\n    <div class="d-title-row">\n      <span class="badge b-{v}">{v2}</span>\n      <h2 class="d-title" id="detailTitleText" title="{title}">{title}</h2>\n      <button class="icon" id="closeDetail" title="閉じる">✕</button>\n    </div>', { v: (badgeFor(c)[0] + (BADGE_TONE[badgeFor(c)[0]] ? ` tone-${BADGE_TONE[badgeFor(c)[0]]}` : '')), v2: (badgeFor(c)[1]), title: (esc(c.title)) });
   // 上の段はボタンだけ（1行・高さは固定）。Pipeline・全体の進み具合と競争は「進捗」タブ、サブタスクの一覧は「サブタスク」タブ、
   // 中断・エラー・コンフリクト・サブタスクの提案は「チャット」タブの最後に出す
   $('detailHead').innerHTML = `<div class="d-actions">${btns.join('')}</div>`;
@@ -3735,6 +3751,27 @@ function toggleSessionField(idp, agent) {
   if (box) box.classList.toggle('hidden', agent !== 'claude');
 }
 
+// 「新しいタスク」の「詳しい設定」の開け閉め。開いたかどうかを覚えておき、次に開いたときも同じにする。
+// 会話や完了したタスクから続けるときは、引き継ぐ会話・モデルを確かめられるように開いておく
+const MORE_OPTS_KEY = 'agent-kanban.newTaskMore';
+function bindMoreOpts(el, forceOpen) {
+  if (!el) return;
+  let saved = false;
+  try {
+    saved = localStorage.getItem(MORE_OPTS_KEY) === '1';
+  } catch {
+    /* 覚えられないだけ */
+  }
+  el.open = forceOpen || saved;
+  el.addEventListener('toggle', () => {
+    try {
+      localStorage.setItem(MORE_OPTS_KEY, el.open ? '1' : '0');
+    } catch {
+      /* 覚えられないだけ */
+    }
+  });
+}
+
 function newTask(opts = {}) {
   if (!state.board.settings.repoPath) return chooseRepo();
   const from = opts.fromChat;
@@ -3746,15 +3783,19 @@ function newTask(opts = {}) {
      : from ? `<p class="muted small">${tr('会話「{title}」の続きとして、タスクを始めます（会話の内容をエージェントが引き継ぎます。会話そのものはそのまま残ります）。', { title: esc(from.title) })}</p>` : ''}
      <label class="field"><span>${tr('タイトル（省略すると指示の1行目）')}</span><input id="nTitle" placeholder="${esc(tr('例: ログイン画面にパスワード表示ボタンを追加'))}" /></label>
      ${agentFieldHtml('n', from && from.persona && findCustomAgent(from.persona.id) && !from.relay ? CUSTOM_PREFIX + from.persona.id : from && enabledAgents().includes(agentOf(from)) ? agentOf(from) : undefined)}
-     ${modelFieldHtml('n', from && enabledAgents().includes(agentOf(from)) ? from.model || '' : '')}
      <div class="field"><span>${tr('エージェントへの指示')}</span><div id="nSkill" class="skill-slot"></div><textarea id="nPrompt" rows="10" placeholder="${esc(tr('やってほしいことを具体的に書いてください。テストの実行方法なども書いておくと確実です。画像やファイルは貼り付け・ドラッグ＆ドロップでも添付できます。'))}"></textarea><div id="nAttach" class="attach-bar"></div></div>
-     ${sessionFieldHtml('n')}
-     ${CycleView.fieldHtml('n', fromDone ? CycleModel.cardCycleIds(from, state.board.cards) : CycleView.newTaskIds())}
-     <label class="check" title="${esc(tr('SQL を作るだけ・調べるだけなど、ソースコードを変えないタスクにします。worktree とブランチは作らず、リポジトリのフォルダでファイルを書き換えるツールを止めて動かします。作ったものはチャットの返事に出るので、確かめてから「完了にする」を押します'))}"><input type="checkbox" id="nReadOnly" /> ${tr('ソースを変更しない（調べもの・SQL などの生成だけ）')}</label>
+     <details class="more-opts" id="nMore">
+       <summary>${icon('settings')}<span>${tr('詳しい設定')}</span><small class="muted">${tr('モデル・引き継ぐ会話・スプリント・ソースを変えないタスク')}</small></summary>
+       ${modelFieldHtml('n', from && enabledAgents().includes(agentOf(from)) ? from.model || '' : '')}
+       ${sessionFieldHtml('n')}
+       ${CycleView.fieldHtml('n', fromDone ? CycleModel.cardCycleIds(from, state.board.cards) : CycleView.newTaskIds())}
+       <label class="check" title="${esc(tr('SQL を作るだけ・調べるだけなど、ソースコードを変えないタスクにします。worktree とブランチは作らず、リポジトリのフォルダでファイルを書き換えるツールを止めて動かします。作ったものはチャットの返事に出るので、確かめてから「完了にする」を押します'))}"><input type="checkbox" id="nReadOnly" /> ${tr('ソースを変更しない（調べもの・SQL などの生成だけ）')}</label>
+     </details>
      <label class="check"><input type="checkbox" id="nStart" checked /> ${tr('作成したらすぐに開始する')}</label>
      <div class="modal-actions"><button class="btn ghost" id="nCancel">${tr('キャンセル')}</button><button class="btn primary" id="nOk">${tr('作成（Ctrl/⌘ + Enter）')}</button></div>`,
     () => {
       if (!from) bindTaskModeTabs();
+      bindMoreOpts($('nMore'), !!from);
       $('nPrompt').focus();
       if (from) $('nPrompt').value = fromDone ? `${tr('完了したタスクの内容をもとに、次の点を修正してください。')}\n\n` : tr('ここまでの会話の内容をもとに、作業を進めてください。');
       if (fromDone) $('nTitle').value = tr('修正: {title}', { title: from.title });
@@ -6788,6 +6829,8 @@ api.appInfo().then(
 })();
 
 AppView.bindNavMenu({ button: $('navBtn'), menu: $('navMenu'), doc: document, onSelect: setView });
+// 上部のバーの「その他」（スマホ・セッション）。項目の動きはそれぞれの onclick で、ここでは選んだら閉じるだけ
+AppView.bindNavMenu({ button: $('moreBtn'), menu: $('moreMenu'), doc: document, item: '.nav-item', onSelect: () => {} });
 applyView();
 // scheduler-view.js は renderer.js のあとに読むので、最初の描画に間に合わなかったときは読み終わってから描き直す
 document.addEventListener('DOMContentLoaded', () => {

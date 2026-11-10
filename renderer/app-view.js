@@ -45,7 +45,8 @@
   }
 
   // ハンバーガーメニュー。button で開け閉めし、項目（data-view）を選ぶか、Esc・外側のクリックで閉じる
-  function bindNavMenu({ button, menu, doc, onSelect }) {
+  // item は選べる項目のセレクタ（既定は画面の切り替え）。onSelect には data-view と項目の要素を渡す
+  function bindNavMenu({ button, menu, doc, onSelect, item: itemSel = '[data-view]' }) {
     const isOpen = () => !menu.classList.contains('hidden');
     const setOpen = (open) => {
       menu.classList.toggle('hidden', !open);
@@ -53,10 +54,10 @@
     };
     button.addEventListener('click', () => setOpen(!isOpen()));
     menu.addEventListener('click', (e) => {
-      const item = e.target.closest('[data-view]');
+      const item = e.target.closest(itemSel);
       if (!item) return;
       setOpen(false);
-      onSelect(item.dataset.view);
+      onSelect(item.dataset.view, item);
     });
     doc.addEventListener('mousedown', (e) => {
       if (isOpen() && !button.contains(e.target) && !menu.contains(e.target)) setOpen(false);
@@ -190,8 +191,22 @@
     return { scrollTo, sync };
   }
 
+  // タスク詳細で隠すタブ（状態によって使えないものは出さない）。
+  // noRepo: 会話と、git で管理していないフォルダのタスク（worktree も差分もタスクごとのポートで動かすブラウザもない）
+  const WORKTREE_TABS = ['worktree', 'diff', 'browser'];
+  function hiddenDetailTabs(c, { noRepo = false } = {}) {
+    if (!c) return [];
+    const hide = new Set(noRepo ? WORKTREE_TABS : []);
+    // 開始前は worktree がまだないので、worktree の中を見る・動かすタブは出さない
+    if (c.status === 'todo' && !c.worktreePath) for (const t of [...WORKTREE_TABS, 'terminal']) hide.add(t);
+    // btw は動いているあいだだけ送れる（送ったものがあれば、あとから見られるように残す）
+    const live = c.status === 'running' || c.status === 'queued';
+    if (!live && !(c.btw || []).length) hide.add('btw');
+    return [...hide];
+  }
+
   // ボードの余白か（カードや操作できる部品の上でなければ、押すと詳細パネルを閉じる）
   const isBoardBackground = (target) => !target.closest('.card, button, a, input, textarea, select, label, summary');
 
-  return { VIEWS, DEFAULT_VIEW, VIEW_KEY, SETTINGS_NAV, SETTINGS_SCOPES, normalizeSettingsScope, sectionScope, scopeSectionIds, normalizeView, loadView, saveView, isPipelineSubtask, canSchedule, bindNavMenu, settingsNavHtml, activeSection, bindSettingsNav, isBoardBackground };
+  return { VIEWS, DEFAULT_VIEW, VIEW_KEY, SETTINGS_NAV, SETTINGS_SCOPES, normalizeSettingsScope, sectionScope, scopeSectionIds, normalizeView, loadView, saveView, isPipelineSubtask, canSchedule, bindNavMenu, settingsNavHtml, activeSection, bindSettingsNav, isBoardBackground, WORKTREE_TABS, hiddenDetailTabs };
 });

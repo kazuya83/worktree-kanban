@@ -480,7 +480,7 @@ test('fmtTime と同じ日付表示は I18n.locale() を渡す', () => {
 test('担当範囲の tr() は4言語すべてにあり、差し込み名が一致する', () => {
   const root = path.join(__dirname, '..', 'renderer');
   const files = [
-    ['renderer.js', [2900, 3650], [4543, 4863], [4963, 5207]],
+    ['renderer.js', [2916, 3666], [4584, 4904], [5004, 5248]],
     ['flow-editor.js'],
     ['flow-view.js'],
     ['flow-model.js'],
