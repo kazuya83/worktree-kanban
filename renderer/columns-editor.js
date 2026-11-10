@@ -1,4 +1,4 @@
-// 設定の「ボードの列」: 列とレーンを足す・消す・名前と説明を書く・並べ替える。
+// 設定の「ボードの列」: 列とレーンを足す・消す・名前と説明を書く・並べ替える（ボタンか、「⠿」をつかんでドラッグ）。
 // 保存するときは、AI に説明を「段階＋条件＋次に進んでよい列」へ変換してもらい、結果を確かめてから
 // リポジトリの .worktree-kanban/board.json に書く（説明が前と同じなら AI は呼ばずに、前の変換を使う）
 // ColumnsEditor.render(box, { config, exists, error, file }) で描く
@@ -17,7 +17,7 @@
   function render(box, status) {
     if (!box) return;
     const saved = BC().cleanConfig((status && status.config) || BC().defaultConfig());
-    const view = { draft: clone(saved), preview: null, busy: false };
+    const view = { draft: clone(saved), preview: null, busy: false, drag: null };
 
     // 説明が前の保存と同じなら、前の変換（段階・条件・次の列）をそのまま使える
     function reuseSaved(draft) {
@@ -39,6 +39,7 @@
             .map(
               (l, j) => `<div class="bc-lane" data-lane="${j}">
             <div class="bc-row">
+              <span class="bc-grip" data-grip="lane" title="${esc(tr('ドラッグで並べ替えられます'))}" aria-hidden="true">⠿</span>
               <input class="bc-lane-name" data-f="name" maxlength="${BC().NAME_MAX}" placeholder="${esc(tr('レーンの名前（例: Done）'))}" value="${esc(l.name)}" />
               <span class="bc-tools">
                 <button class="btn small ghost" type="button" data-act="laneUp" ${j === 0 ? 'disabled' : ''} title="${esc(tr('上へ'))}">↑</button>
@@ -53,10 +54,11 @@
         : '';
       return `<div class="bc-col" data-col="${i}">
         <div class="bc-row">
+          <span class="bc-grip" data-grip="col" title="${esc(tr('ドラッグで並べ替えられます'))}" aria-hidden="true">⠿</span>
           <input class="bc-col-name" data-f="name" maxlength="${BC().NAME_MAX}" placeholder="${esc(tr('列の名前（例: QA）'))}" value="${esc(c.name)}" />
           <span class="bc-tools">
-            <button class="btn small ghost" type="button" data-act="colUp" ${i === 0 ? 'disabled' : ''} title="${esc(tr('左へ'))}">←</button>
-            <button class="btn small ghost" type="button" data-act="colDown" ${i === n - 1 ? 'disabled' : ''} title="${esc(tr('右へ'))}">→</button>
+            <button class="btn small ghost" type="button" data-act="colUp" ${i === 0 ? 'disabled' : ''} title="${esc(tr('上へ'))}">↑</button>
+            <button class="btn small ghost" type="button" data-act="colDown" ${i === n - 1 ? 'disabled' : ''} title="${esc(tr('下へ'))}">↓</button>
             <button class="btn small ghost" type="button" data-act="colDel" ${n <= 1 ? 'disabled' : ''} title="${esc(tr('この列を消す'))}">✕</button>
           </span>
         </div>
@@ -169,6 +171,71 @@
       else return;
       if (act !== 'cancelPreview') view.preview = null;
       draw();
+    };
+
+    // ドラッグで並べ替える: 「⠿」をつかんだときだけ、その列（レーン）を draggable にする（入力欄の文字選択とぶつからないように）。
+    // レーンは同じ列の中だけで動かせる
+    const DROP = ['bc-drop-before', 'bc-drop-after'];
+    const clearDrop = () => box.querySelectorAll('.bc-drop-before, .bc-drop-after').forEach((el) => el.classList.remove(...DROP));
+    const dragEl = (grip) => grip && grip.closest(grip.dataset.grip === 'lane' ? '.bc-lane' : '.bc-col');
+    box.onmousedown = (e) => {
+      const el = dragEl(e.target.closest('[data-grip]'));
+      if (el && !view.busy) el.draggable = true;
+    };
+    box.onmouseup = () => box.querySelectorAll('[draggable="true"]').forEach((el) => (el.draggable = false));
+    box.ondragstart = (e) => {
+      const el = e.target;
+      if (!el.draggable || !el.matches || !el.matches('.bc-col, .bc-lane')) return;
+      const lane = el.matches('.bc-lane');
+      const ci = Number(el.closest('[data-col]').dataset.col);
+      view.drag = { lane, ci, from: lane ? Number(el.dataset.lane) : ci };
+      e.dataTransfer.effectAllowed = 'move';
+      try {
+        e.dataTransfer.setData('text/plain', '');
+      } catch {}
+      el.classList.add('bc-dragging');
+    };
+    // ドロップ先と、その上下どちらに入れるか
+    function dropTarget(e) {
+      const dr = view.drag;
+      if (!dr) return null;
+      const el = e.target.closest && e.target.closest(dr.lane ? '.bc-lane' : '.bc-col');
+      if (!el || (dr.lane && Number(el.closest('[data-col]').dataset.col) !== dr.ci)) return null;
+      const r = el.getBoundingClientRect();
+      const after = e.clientY > r.top + r.height / 2;
+      const idx = Number(dr.lane ? el.dataset.lane : el.dataset.col);
+      return { el, after, to: idx + (after ? 1 : 0) };
+    }
+    box.ondragover = (e) => {
+      const t = dropTarget(e);
+      if (!t) return clearDrop();
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      clearDrop();
+      t.el.classList.add(t.after ? 'bc-drop-after' : 'bc-drop-before');
+    };
+    box.ondragleave = (e) => {
+      if (!box.contains(e.relatedTarget)) clearDrop();
+    };
+    box.ondrop = (e) => {
+      const t = dropTarget(e);
+      const dr = view.drag;
+      if (!t || !dr) return;
+      e.preventDefault();
+      view.drag = null;
+      const arr = dr.lane ? view.draft.columns[dr.ci].lanes : view.draft.columns;
+      let to = t.to;
+      if (to > dr.from) to--;
+      if (to === dr.from) return draw();
+      arr.splice(to, 0, arr.splice(dr.from, 1)[0]);
+      view.preview = null;
+      draw();
+    };
+    box.ondragend = () => {
+      view.drag = null;
+      clearDrop();
+      box.querySelectorAll('.bc-dragging').forEach((el) => el.classList.remove('bc-dragging'));
+      box.querySelectorAll('[draggable="true"]').forEach((el) => (el.draggable = false));
     };
 
     async function convert() {

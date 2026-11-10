@@ -1297,3 +1297,12 @@ body.term-resizing { cursor: ns-resize; user-select: none; }
 .bc-nexts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .bc-next { margin: 0; display: inline-flex; align-items: center; gap: 4px; }
 .bc-errors { color: var(--warn); font-size: 12px; white-space: pre-wrap; }
+.bc-grip { cursor: grab; user-select: none; color: var(--muted); padding: 0 2px; font-size: 14px; line-height: 1; }
+.bc-grip:active { cursor: grabbing; }
+.bc-col, .bc-lane { position: relative; }
+.bc-dragging { opacity: 0.45; }
+.bc-drop-before::before, .bc-drop-after::after { content: ''; position: absolute; left: 0; right: 0; height: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+.bc-drop-before::before { top: -7px; }
+.bc-drop-after::after { bottom: -7px; }
+.bc-lane.bc-drop-before::before { top: -5px; }
+.bc-lane.bc-drop-after::after { bottom: -5px; }
