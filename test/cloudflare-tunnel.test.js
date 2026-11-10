@@ -273,9 +273,11 @@ test('URL が出なければ時間切れで error にし、プロセスを止め
     const s = await t.start();
     assert.strictEqual(s.state, 'error');
     assert.match(s.error, /0\.3 秒たっても URL を出しませんでした/);
+    // 重いときは、偽の cloudflared が記録を書く前に時間切れで止められることがあるので、記録が出るまで待つ
+    await waitFor(() => readLog(log).length >= 1, 10000);
     const [{ pid }] = readLog(log);
-    await waitFor(() => !alive(pid));
-    await waitFor(() => readLog(log).length >= 2);
+    await waitFor(() => !alive(pid), 10000);
+    await waitFor(() => readLog(log).length >= 2, 10000);
   } finally {
     await t.stop();
     fs.rmSync(dir, { recursive: true, force: true });
