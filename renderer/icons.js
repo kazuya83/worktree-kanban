@@ -49,6 +49,8 @@
     branch: '<circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="7" r="2.5"/><path d="M6 7.5v9"/><path d="M18 9.5a6 6 0 0 1-6 6H6"/>',
     pr: '<circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M6 7.5v9"/><path d="M18 16.5V9a3 3 0 0 0-3-3h-4"/><path d="m13 3-3 3 3 3"/>',
     merge: '<circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="13" r="2.5"/><path d="M6 7.5v9"/><path d="M6 7.5a8 8 0 0 0 9.5 5.5"/>',
+    // 設定の「チームで共有」の印
+    users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/>',
     sidebar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
     maximize: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
     // 内蔵ブラウザ（戻る・進む・読み込み直す・デザインモード・外のブラウザで開く）

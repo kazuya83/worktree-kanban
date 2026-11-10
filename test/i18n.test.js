@@ -440,7 +440,7 @@ test('設定・公開鍵・gh の後ろにつく括弧は、英西仏では空�
   const src = read('renderer/renderer.js');
   const remote = sliceBetween(src, 'function openRemoteSettings()', 'function pickRepo(');
   const gh = sliceBetween(src, 'async function refreshGh()', 'function timeAgo(');
-  assert.match(remote, /projectName \? tr\('（<code>\{v1\}<\/code>）'/);
+  assert.match(remote, /projectName \? tr\('このリポジトリ（\{name\}）'/);
   assert.match(remote, /r\.comment \? tr\('（\{v1\}）'/);
   assert.match(gh, /st\.user \? tr\('（<b>\{v1\}<\/b>）'/);
   assert.doesNotMatch(src, /`（<code>\$\{esc\(projectName\)\}<\/code>）`/);

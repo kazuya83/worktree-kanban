@@ -4743,6 +4743,7 @@ function openMobileSettings() {
 // 入力中の値が消えないよう、開いたときと、見ているプロジェクトが変わったときにだけ描く（renderBoard は頻繁に呼ばれる）
 let settingsViewKey = null; // いま描いてある設定画面のプロジェクト（描いていなければ null）
 let settingsNav = null;
+let settingsScope = 'app'; // 設定画面で選んでいるタブ（AppView.SETTINGS_SCOPES）。画面を離れても覚えておく
 const currentSettingsKey = () => `${viewingHost()}:${state.board.settings.repoPath}`;
 
 // 別のプロジェクトの値が画面に残っていると、そのまま今のプロジェクトに保存してしまうので描き直す
@@ -4759,8 +4760,28 @@ function clearSettingsView() {
 
 // 設定画面を開く。section を渡すと、その節までスクロールする（もう開いていても、スクロールは動かす）
 function openSettings(section) {
+  const sc = section && AppView.sectionScope(section);
+  if (sc) settingsScope = sc;
   setView('settings');
+  if (sc) showSettingsScope(sc, { keepScroll: true });
   if (section) settingsNav?.scrollTo(section);
+}
+
+// 設定画面の上のタブ（すべてのリポジトリ共通 / このリポジトリ）を切り替える。
+// 入力中の値を消さないよう描き直さず、見せる節と左の一覧だけを入れ替える
+function showSettingsScope(scope, { keepScroll = false } = {}) {
+  settingsScope = AppView.normalizeSettingsScope(scope);
+  const view = $('settingsView');
+  if (!view || !view.querySelectorAll) return;
+  view.querySelectorAll('.settings-tab').forEach((b) => {
+    const on = b.dataset.scope === settingsScope;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  view.querySelectorAll('.settings-scope, .settings-nav-scope').forEach((el) => el.classList.toggle('hidden', el.dataset.scope !== settingsScope));
+  const main = $('settingsMain');
+  if (main && !keepScroll) main.scrollTop = 0;
+  settingsNav?.sync();
 }
 
 // 設定の「このアプリについて」: 版の番号・リポジトリ・ライセンスと、寄付のボタン。リンク先は renderer/links.js にまとめる
@@ -4800,8 +4821,7 @@ function renderSettingsView() {
       .join('');
   // 節の中身。並びと見出しは AppView.SETTINGS_NAV に合わせる
   const sections = {
-    general: `<small class="muted s-note">${tr('ここの項目は、どのプロジェクトでも同じです。')}</small>
-      <label class="field"><span>${tr('言語')}</span>
+    general: `<label class="field"><span>${tr('言語')}</span>
         <select id="sLanguage">${I18n.LANGUAGES.map((l) => `<option value="${l.code}" ${l.code === I18n.getLanguage() ? 'selected' : ''}>${esc(l.label)}</option>`).join('')}</select>
         <small>${tr('表示の言語です。選ぶとすぐに保存して、画面を読み直します。')}</small></label>
       <label class="field">${tr('<span>同時に動かす数</span>')}<input id="sMax" type="number" min="1" max="10" value="${esc(s.maxParallel)}" /></label>
@@ -4811,12 +4831,11 @@ function renderSettingsView() {
       <label class="check"><input type="checkbox" id="sSuggestSkills" ${s.suggestSkillsOnDone !== false ? 'checked' : ''} /> ${tr('タスクが完了したとき、前に完了したタスクと似た作業が続いていたら、スキルにしないか通知で聞く（右上のベル）')}</label>
       <label class="check"><input type="checkbox" id="sDeleteSessions" ${s.deleteSessionsOnMerge !== false ? 'checked' : ''} /> ${tr('マージして完了したら、そのタスクの作業に使った Claude Code の会話（セッション）を消す（引き継いだ元の会話は残します）')}</label>`,
     update: `<div id="updPanel" class="gh-panel upd-panel">${updatePanelHtml(state.update)}</div>`,
-    integrations: `<small class="muted s-note">${tr('ここの項目は、どのプロジェクトでも同じです。トークンは OS の安全な保存先の鍵で暗号化して保存し、保存したあとは画面に出しません。')}</small>
+    integrations: `<small class="muted s-note">${tr('トークンは OS の安全な保存先の鍵で暗号化して保存し、保存したあとは画面に出しません。')}</small>
       <div id="sTrackers" class="tracker-list">${tr('連携先を確かめています…')}</div>`,
-    cli: `<small class="muted s-note">${tr('エージェントや外のスクリプトから、タスクを作る・状態を見る・操作する（開始・承認・マージ・削除・Pipeline の起動など）ためのコマンド（wtk）と MCP サーバーです。ここの項目は、どのプロジェクトでも同じです。')}</small>
+    cli: `<small class="muted s-note">${tr('エージェントや外のスクリプトから、タスクを作る・状態を見る・操作する（開始・承認・マージ・削除・Pipeline の起動など）ためのコマンド（wtk）と MCP サーバーです。')}</small>
       <div id="sCli" class="remote-box">${tr('状態を読み込み中…')}</div>`,
-    branch: `<small class="muted s-note">${tr('「このプロジェクト」の項目{v1}は、プロジェクト（リポジトリ）ごとに覚えます。タブを切り替えると、そのプロジェクトの設定に変わります。初めて開いたプロジェクトは初期値から始まります。', { v1: (projectName ? tr('（<code>{v1}</code>）', { v1: (esc(projectName)) }) : '') })}</small>
-      <label class="field">${tr('<span>ベースブランチ（worktree の作成元・マージ先）</span>')}
+    branch: `<label class="field">${tr('<span>ベースブランチ（worktree の作成元・マージ先）</span>')}
         <select id="sBase">${baseOptions({ branches: [], current: '' })}</select></label>
       <label class="field">${tr('<span>レビュー後の取り込み方</span>')}
         <select id="sIntegration">
@@ -4868,7 +4887,10 @@ function renderSettingsView() {
         <small>${tr('自動で許可されない操作は、カードに「承認待ち」として表示されます。')} ${tr('「すべて自動で許可する」を選んでも、Issue から作ったタスクと Slack から頼んだタスク（そのサブタスクも）は、ファイル編集は自動・コマンドは承認で動かします。外の人が書いた指示から、承認なしでコマンドが動くのを防ぐためです。')}</small></label>
       <label class="field">${tr('<span>Claude Code に最初から許可しておくツール（カンマか改行で区切る）</span>')}
         <textarea id="sAllowed" rows="2" placeholder="${tr('例: Bash(npm test:*), Bash(git status), WebSearch')}">${esc(s.allowedTools)}</textarea></label>`,
-    task: `<div class="field">${tr('<span>新しいタスクで最初から選んでおくスキル</span>')}<div id="sSkill" class="skill-slot"></div>
+    task: `<label class="field">${tr('<span>新しいタスク・会話で最初から選んでおくもの</span>')}
+        <select id="sDefaultAgent"></select>
+        <small>${tr('タスクを作るときの「エージェント」の欄で、これを最初から選んでおきます。このプロジェクトのカスタムエージェント・Pipeline・競争も選べます（Pipeline・競争が使えない状態のときと会話では、使うエージェントの先頭）。競争の比較も、このエージェントに頼みます（カスタムエージェントなら元にするエージェント、Pipeline・競争なら使うエージェントの先頭。スキルの提案は、元のタスクのエージェントが使えればそちらに頼みます）。')}<br />${tr('選んだものを消したり、元にするエージェントを使わない設定にしたりしたときは、使うエージェントの先頭に戻ります。')}</small></label>
+      <div class="field">${tr('<span>新しいタスクで最初から選んでおくスキル</span>')}<div id="sSkill" class="skill-slot"></div>
         <small>${tr('「＋ 新しいタスク」（自然言語・Issue のどちらでも）を開いたときに、このスキルが選ばれた状態になります（その場で外したり変えたりできます）。')}</small></div>
       <label class="check"><input type="checkbox" id="sCiAutoFix" ${s.ciAutoFix !== false ? 'checked' : ''} /> ${I18n.forHost(tr('PR の CI が失敗したら、エージェントに直してもらって push する（続けて 3 回まで）'), s.codeHost)}</label>
       <label class="check"><input type="checkbox" id="sReviewAutoFix" ${s.reviewAutoFix === true ? 'checked' : ''} /> ${I18n.forHost(tr('PR にレビューコメントが付いたら、エージェントに直してもらって push し、コメントに返信して解決する（続けて 3 回まで）'), s.codeHost)}</label>
@@ -4881,8 +4903,7 @@ function renderSettingsView() {
       <div id="sShared" class="shared-panel">${tr('リポジトリのファイルを確かめています…')}</div>
       <div class="pl-tools"><button class="btn small" id="sSharedSave" type="button">${tr('リポジトリのファイルに保存')}</button></div>
       <small>${tr('保存してある今のプロジェクトの設定を、ファイルに書き出します（画面で変えたところは、先に「保存」を押してください）。コミットと push は自分で行ってください。トークンなどの秘密は書き出しません。')}</small>`,
-    agents: `<small class="muted s-note">${tr('ここの項目は、どのプロジェクトでも同じです（「このプロジェクトの設定」と書いた項目だけは、プロジェクトごとに覚えます）。')}</small>
-      <small class="muted s-note">${tr('チェックを付けたエージェントだけ、コマンドとモデルを設定でき、タスク・会話・Pipeline・競争で選べます（1つ以上）。')}</small>
+    agents: `<small class="muted s-note">${tr('チェックを付けたエージェントだけ、コマンドとモデルを設定でき、タスク・会話・Pipeline・競争で選べます（1つ以上）。')}</small>
       ${agentConfigHtml('claude', s, `
         <div class="row">
           <label class="field">${tr('<span>claude コマンドのパス</span>')}<input id="sClaude" value="${esc(s.claudePath || 'claude')}" /></label>
@@ -4915,18 +4936,14 @@ function renderSettingsView() {
           <label class="field">${tr('<span>モデル（空なら既定）</span>')}<input id="s_${a}Model" placeholder="${esc(tr('例: {model}', { model: example }))}" value="${esc(s[`${a}Model`] || '')}" /></label>
         </div>`)).join('')}
       <small class="muted s-note">${tr('Claude Code・Codex・Cursor は、自動で許可されない操作をカードで承認できます（「毎回確認する」でも、Cursor のファイル編集は承認なしで書かれます。Codex の「ファイル編集は自動」は、worktree の sandbox の中のコマンドも承認なしで動きます）。Antigravity / Gemini はカードでの承認に対応していないため、権限モードに合わせて CLI 側で許可します（計画だけ → 読み取りのみ、すべて自動で許可 → 確認なし、それ以外 → ファイル編集だけ自動で許可）。')}</small>
-      <small class="muted s-note">${tr('OpenCode・Copilot CLI・Amp・Pi・Droid もカードでの承認に対応していないため、権限モードに合わせて CLI 側で許可します（確認が要る操作は、その場で断られます）。「すべて自動で許可」以外では、コマンドは動きません（「計画だけ」と、Droid の「毎回確認する」は読み取りのみ）。テストなどのコマンドも動かしたいときは「すべて自動で許可」を選んでください。Amp を動かすには、環境変数 AMP_API_KEY が要ります。')}</small>
-      <label class="field">${tr('<span>新しいタスク・会話で最初から選んでおくもの</span>')}
-        <select id="sDefaultAgent"></select>
-        <small>${tr('タスクを作るときの「エージェント」の欄で、これを最初から選んでおきます。このプロジェクトのカスタムエージェント・Pipeline・競争も選べます（Pipeline・競争が使えない状態のときと会話では、使うエージェントの先頭）。競争の比較も、このエージェントに頼みます（カスタムエージェントなら元にするエージェント、Pipeline・競争なら使うエージェントの先頭。スキルの提案は、元のタスクのエージェントが使えればそちらに頼みます）。')}<br />${tr('このプロジェクトの設定です。選んだものを消したり、元にするエージェントを使わない設定にしたりしたときは、使うエージェントの先頭に戻ります。')}</small></label>`,
-    custom: `<small class="muted s-note">${tr('カスタムエージェントは、このプロジェクトの設定です。')}</small>
-         <div class="field">
+      <small class="muted s-note">${tr('OpenCode・Copilot CLI・Amp・Pi・Droid もカードでの承認に対応していないため、権限モードに合わせて CLI 側で許可します（確認が要る操作は、その場で断られます）。「すべて自動で許可」以外では、コマンドは動きません（「計画だけ」と、Droid の「毎回確認する」は読み取りのみ）。テストなどのコマンドも動かしたいときは「すべて自動で許可」を選んでください。Amp を動かすには、環境変数 AMP_API_KEY が要ります。')}</small>`,
+    custom: `<div class="field" id="sCustomField">
         <div id="sCustomList" class="ca-list"></div>
         <div id="sCustomForm" class="ca-form" hidden></div>
         <div><button class="btn small" id="sCustomAdd" type="button">${tr('＋ カスタムエージェントを追加')}</button></div>
         <small>${tr('元にするエージェント（CLI）とモデルに、プロフィール（名前・アイコンと色・説明・振る舞いの指示）を持たせます。タスク・会話を作るときの「エージェント」の欄、Pipelineの工程、競争で選べます。振る舞いの指示は、最初の指示の前に付けて渡します。')}</small></div>`,
-    orchestration: `<small class="muted s-note">${tr('Pipeline と競争は、どちらもいくつでも作れます。タスクを作るときの「エージェント」の欄で、1つのエージェント・カスタムエージェント・Pipeline・競争から1つを選びます。最初から選んでおくものは、「エージェント」の「新しいタスク・会話で最初から選んでおくもの」で決めます。')}</small>
-      <div class="field" id="sRelayField">${tr('<span>{v1}Pipeline（このプロジェクトの設定。いくつでも作れます）</span>', { v1: (icon('pipeline')) })}
+    orchestration: `<small class="muted s-note">${tr('Pipeline と競争は、どちらもいくつでも作れます。タスクを作るときの「エージェント」の欄で、1つのエージェント・カスタムエージェント・Pipeline・競争から1つを選びます。最初から選んでおくものは、「タスクの既定」の「新しいタスク・会話で最初から選んでおくもの」で決めます。')}</small>
+      <div class="field" id="sRelayField">${tr('<span>{v1}Pipeline（いくつでも作れます）</span>', { v1: (icon('pipeline')) })}
         <div id="sRelayList" class="pl-list"></div>
         <div id="sRelayExport" class="ca-form" hidden></div>
         <div class="pl-tools">
@@ -4935,7 +4952,7 @@ function renderSettingsView() {
           <button class="btn small" id="sRelayBundle" type="button">${tr('まとめてエクスポート（zip）')}</button>
         </div>
         <small>${tr('工程（エージェントと担当の説明）を線でつなぎ、分岐（if）・ループ・並列を組めます。工程が終わるたびに変更をコミットし、最後の報告と一緒に次の工程へ渡します。タスクを作るときに、どの Pipeline で動かすかを選べます。<br />\n        「エクスポート」は Pipeline 1つを .json に、「まとめてエクスポート」は選んだ Pipeline とカスタムエージェントを zip にします。インポートは .json か zip を選びます（同じ中身のカスタムエージェントがあればそれを使い、なければ足します）。Pipeline の一覧の変更は、すぐに保存します。')}</small></div>
-      <div class="field" id="sCompeteField">${tr('<span>{v1}競争（このプロジェクトの設定。いくつでも作れます）</span>', { v1: (icon('flag')) })}
+      <div class="field" id="sCompeteField">${tr('<span>{v1}競争（いくつでも作れます）</span>', { v1: (icon('flag')) })}
         <div id="sCompeteList" class="pl-list"></div>
         <div class="pl-tools"><button class="btn small" id="sCompeteAdd" type="button">${tr('＋ 競争を追加')}</button></div>
         <small>${tr('競争ごとに、同じタスクを解かせるエージェントを2つ以上選びます。使うエージェントにチェックを付けたものと、このプロジェクトのカスタムエージェントから選べます。競争の一覧の変更は「保存」で保存します。')}</small></div>`,
@@ -4943,18 +4960,44 @@ function renderSettingsView() {
   };
   // 描き直しても（元に戻す・タブの切り替え）、見ていた節から動かさない
   const scrollTop = $('settingsMain')?.scrollTop || 0;
-  const sectionsHtml = AppView.SETTINGS_NAV.flatMap((g) => g.items)
-    .map(({ id, label }) => `<section id="settings-${id}" class="settings-section" data-section="${id}"><h2 class="settings-title">${esc(label)}</h2>${sections[id]}</section>`)
-    .join('');
-  $('settingsView').innerHTML = `<nav id="settingsNav" class="settings-nav" aria-label="${tr('設定の項目')}">${AppView.settingsNavHtml(icon)}</nav>
-    <div id="settingsMain" class="settings-main">
-      <div class="settings-content">${sectionsHtml}</div>
-      <div class="settings-actions"><button class="btn ghost" id="sCancel">${tr('元に戻す')}</button><button class="btn primary" id="sOk">${tr('保存')}</button></div>
+  // 見出しの横の印（ボードの列は、いつもリポジトリのファイルに書く）
+  const titleBadge = { columns: `<span class="scope-badge shared" title="${tr('リポジトリの .worktree-kanban/board.json に保存します。コミットすると、チームのほかの人の PC でも同じ列になります')}">${icon('users')}${tr('チームで共有中')}</span>` };
+  const sectionHtml = ({ id, label }) => `<section id="settings-${id}" class="settings-section" data-section="${id}"><h2 class="settings-title">${esc(label)}${titleBadge[id] || ''}</h2>${sections[id]}</section>`;
+  // タブごとの説明。どこに効いて、どこに保存するか
+  const scopeIntro = {
+    app: `<div class="scope-intro">${icon('globe')}<div><b>${tr('すべてのリポジトリ共通の設定')}</b><small>${tr('ここの設定は、開いているどのリポジトリでも同じです。この PC に保存します。')}</small></div></div>`,
+    repo: projectName
+      ? `<div class="scope-intro scope-intro-repo">${icon('folder')}<div><b>${tr('{name} だけの設定', { name: `<code>${esc(projectName)}</code>` })}</b><small>${tr('ここの設定は、このリポジトリにだけ効きます。上のリポジトリのタブを切り替えると、そのリポジトリの設定に変わります。初めて開いたリポジトリは初期値から始まります。')}</small><div class="scope-legend"><small>${tr('項目の横の印:')}</small><small><span class="scope-badge shared">${icon('users')}${tr('チームで共有中')}</span> ${tr('リポジトリのファイルの値を使っています')}</small><small><span class="scope-badge override">${icon('monitor')}${tr('この PC で上書き')}</span> ${tr('ファイルの値の代わりに、この PC の値を使っています')}</small></div></div></div>`
+      : `<div class="scope-intro scope-intro-repo">${icon('folder')}<div><b>${tr('リポジトリごとの設定')}</b><small>${tr('リポジトリを開いていません。ボードでリポジトリを開くと、ここでそのリポジトリの設定を変えられます。')}</small></div></div>`,
+  };
+  const scope = AppView.normalizeSettingsScope(settingsScope);
+  const scopeHtml = (sc) =>
+    `<div class="settings-scope${sc === scope ? '' : ' hidden'}" data-scope="${sc}">${scopeIntro[sc]}${AppView.SETTINGS_NAV.filter((g) => g.scope === sc).flatMap((g) => g.items).map(sectionHtml).join('')}</div>`;
+  const tabLabel = {
+    app: `${icon('globe')}<span>${tr('すべてのリポジトリ共通')}</span>`,
+    repo: `${icon('folder')}<span>${projectName ? tr('このリポジトリ（{name}）', { name: esc(projectName) }) : tr('このリポジトリ')}</span>`,
+  };
+  $('settingsView').innerHTML = `<div id="settingsTabs" class="settings-tabs" role="tablist" aria-label="${tr('設定の範囲')}">${AppView.SETTINGS_SCOPES.map((sc) => `<button type="button" class="settings-tab${sc === scope ? ' active' : ''}" role="tab" data-scope="${sc}" aria-selected="${sc === scope}">${tabLabel[sc]}</button>`).join('')}</div>
+    <div class="settings-body">
+      <nav id="settingsNav" class="settings-nav" aria-label="${tr('設定の項目')}">${AppView.settingsNavHtml(icon, scope)}</nav>
+      <div id="settingsMain" class="settings-main">
+        <div class="settings-content">${AppView.SETTINGS_SCOPES.map(scopeHtml).join('')}</div>
+        <div class="settings-actions"><small class="muted">${tr('「保存」で、両方のタブの変更をまとめて保存します')}</small><button class="btn ghost" id="sCancel">${tr('元に戻す')}</button><button class="btn primary" id="sOk">${tr('保存')}</button></div>
+      </div>
     </div>`;
   settingsViewKey = viewKey;
   // ダイアログの操作を待つ間に、画面を離れたりプロジェクトが変わったりしたら、この描画の値では保存も描き直しもしない
   const isStale = () => settingsViewKey !== viewKey;
-  settingsNav = AppView.bindSettingsNav({ nav: $('settingsNav'), scroller: $('settingsMain'), section: (id) => $(`settings-${id}`) });
+  // 選んでいないタブの節は隠れているので、現在地の判定には入れない
+  settingsNav = AppView.bindSettingsNav({
+    nav: $('settingsNav'),
+    scroller: $('settingsMain'),
+    section: (id) => {
+      const el = $(`settings-${id}`);
+      return el && !el.closest('.settings-scope.hidden') ? el : null;
+    },
+  });
+  $('settingsTabs').querySelectorAll('[data-scope]').forEach((b) => (b.onclick = () => showSettingsScope(b.dataset.scope)));
   bindAboutSection($('settings-about'));
   // ボードの列とレーン（保存は「保存」ボタンとは別。変換の結果を確かめてから、その場で書く）
   ColumnsEditor.render($('sColumnsBox'), state.board.boardColumns);
@@ -5575,6 +5618,69 @@ function sharedKeyGroups(keys) {
   return out;
 }
 
+// チームで共有できる項目と、その項目の入力欄（印はこの欄の見出しに付ける）
+const SHARED_FIELD_IDS = {
+  baseBranch: 'sBase',
+  integration: 'sIntegration',
+  branchNamingRule: 'sBranchRule',
+  issueProvider: 'sIssueProvider',
+  issueComments: 'sIssueComments',
+  issueStatusSync: 'sIssueSync',
+  statusFieldName: 'sStatusField',
+  statusMapping: 'sMapProgress',
+  permissionMode: 'sMode',
+  allowedTools: 'sAllowed',
+  defaultSkill: 'sSkill',
+  specCheck: 'sSpecCheck',
+  ciAutoFix: 'sCiAutoFix',
+  reviewAutoFix: 'sReviewAutoFix',
+  subtaskMerge: 'sSubtaskMerge',
+  sprintBranch: 'sSprintBranch',
+  relayFlows: 'sRelayField',
+  customAgents: 'sCustomField',
+  competes: 'sCompeteField',
+  defaultAgent: 'sDefaultAgent',
+  setupScript: 'sSetupScript',
+  teardownScript: 'sTeardownScript',
+  runScript: 'sRunScript',
+  portStart: 'sPortStart',
+  portCount: 'sPortCount',
+};
+
+// 項目の印の HTML。shared: ファイルの値を使っている / override: この PC の値で上書きしている
+function sharedBadgeHtml(kind, keys) {
+  if (kind === 'override') {
+    return `<span class="scope-badge override" title="${tr('リポジトリのファイルにもこの項目がありますが、この PC で変えた値を使っています')}">${icon('monitor')}${tr('この PC で上書き')}</span><button class="btn small ghost scope-revert" type="button" data-shared-revert="${esc(keys.join(','))}">${tr('ファイルの値に戻す')}</button>`;
+  }
+  return `<span class="scope-badge shared" title="${tr('リポジトリの .worktree-kanban/settings.json の値を使っています。ここで変えると、この PC だけの上書きになります')}">${icon('users')}${tr('チームで共有中')}</span>`;
+}
+
+// 各項目の見出しの横に、チームで共有しているか・この PC で上書きしているかの印を付ける
+function decorateSharedFields(st) {
+  const view = $('settingsView');
+  if (!view || !view.querySelectorAll) return;
+  view.querySelectorAll('.scope-mark').forEach((el) => el.remove());
+  if (!st || !st.exists || st.error) return;
+  const over = new Set(st.overrides || []);
+  const inFile = new Set(st.keys || []);
+  for (const [key, id] of Object.entries(SHARED_FIELD_IDS)) {
+    // Pipeline の3つ（relayFlow・relayFlows・relayFlowId）は1つの印にまとめる
+    const keys = key === 'relayFlows' ? ['relayFlow', 'relayFlows', 'relayFlowId'] : [key];
+    if (!keys.some((k) => inFile.has(k) || over.has(k))) continue;
+    const el = $(id);
+    const field = el && (el.classList.contains('field') ? el : el.closest('.field, .check'));
+    if (!field) continue;
+    const mark = document.createElement('span');
+    mark.className = 'scope-mark';
+    mark.innerHTML = sharedBadgeHtml(keys.some((k) => over.has(k)) ? 'override' : 'shared', keys.filter((k) => over.has(k) || inFile.has(k)));
+    // 見出し（最初の span）の終わりに付ける。チェックボックスの行は、行の終わりに付ける
+    const label = field.classList.contains('check') ? null : [...field.children].find((c) => c.tagName === 'SPAN');
+    if (label) label.append(mark);
+    else if (field.classList.contains('check')) field.append(mark);
+    else field.prepend(mark);
+  }
+}
+
 // 設定の「チームで共有」の欄を描く（st を省くと読み直す）
 async function drawShared(st) {
   const box = $('sShared');
@@ -5615,6 +5721,7 @@ async function drawShared(st) {
     : '';
   const ignoredHtml = (st.ignored || []).length ? `<small class="muted">${tr('使わなかった項目（知らない名前か、値の形が違います）: {keys}', { keys: esc(st.ignored.join(', ')) })}</small>` : '';
   box.innerHTML = head + usedHtml + overHtml + scriptHtml + ignoredHtml;
+  decorateSharedFields(st);
   const after = async (p) => {
     const next = await run(p);
     if (!next) return;
@@ -5626,7 +5733,8 @@ async function drawShared(st) {
     }
     renderSettingsView();
   };
-  box.querySelectorAll('[data-shared-revert]').forEach((b) => (b.onclick = () => after(() => api.revertShared(b.dataset.sharedRevert.split(',')))));
+  // 「チームで共有」の欄と、各項目の横の「ファイルの値に戻す」
+  $('settingsView').querySelectorAll('[data-shared-revert]').forEach((b) => (b.onclick = () => after(() => api.revertShared(b.dataset.sharedRevert.split(',')))));
   if ($('sSharedRevertAll')) $('sSharedRevertAll').onclick = () => after(() => api.revertShared());
   if ($('sSharedApprove')) $('sSharedApprove').onclick = async () => {
     const next = await run(() => api.approveSharedScripts());
