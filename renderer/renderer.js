@@ -1,4 +1,4 @@
-/* global api, icon, agentIcon, NOTIF_ICON, AppView, tr, I18n, CycleView, CycleModel, TerminalView, BrowserView */
+/* global api, icon, agentIcon, NOTIF_ICON, AppView, tr, I18n, CycleView, CycleModel, TerminalView, BrowserView, BoardColumns, ColumnsEditor */
 // 言語の土台（i18n.js）が先に tr を置く。まだ無いときは原文のまま返す
 if (typeof tr !== 'function') {
   var tr = (key, vars) => (vars ? String(key ?? '').replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : key);
@@ -7,12 +7,15 @@ if (typeof I18n === 'undefined') {
   var I18n = { locale: () => undefined, tr: (key, vars) => tr(key, vars) };
 }
 
-const COLUMNS = [
-  { key: 'todo', label: 'Todo', statuses: ['todo'], hint: tr('ここから「実行中」へドラッグしても開始できます。レビューと完了のあいだも、ドラッグで動かせます') },
-  { key: 'running', label: tr('実行中'), statuses: ['queued', 'running'] },
-  { key: 'review', label: tr('レビュー'), statuses: ['review', 'failed'] },
-  { key: 'done', label: tr('完了'), statuses: ['done'] },
-];
+// ボードの列とレーン（プロジェクトごと。リポジトリの .worktree-kanban/board.json。なければ今までの4つの列）
+function boardConfig() {
+  const bc = state.board && state.board.boardColumns;
+  return (bc && bc.config) || BoardColumns.defaultConfig();
+}
+// 画面に出す列（key・label はスイムレーンの表示と共通の形）
+function boardColumns() {
+  return boardConfig().columns.map((c) => ({ key: c.id, label: esc(c.name), stage: c.stage, lanes: c.lanes, description: c.description }));
+}
 // タスクに紐づかない会話（worktree を作らず、リポジトリのフォルダでそのまま話す）はボードのレーンには出さず、
 // 「会話」ボタンから一覧を開き、選んだ会話はモーダルで表示する
 const STATUS_LABEL = { todo: tr('未着手'), queued: tr('待機中'), running: tr('実行中'), review: tr('レビュー待ち'), failed: tr('エラー'), done: tr('マージ済み') };
@@ -819,41 +822,60 @@ function renderBoard() {
   const boardEl = $('board');
   const boardScroll = [boardEl.scrollLeft, boardEl.scrollTop];
   const colScroll = {};
-  const scrollKey = (sec) => `${sec.dataset.col}|${sec.dataset.lane || ''}`;
+  const scrollKey = (sec, list) => `${sec.dataset.col}|${sec.dataset.lane || ''}|${list.closest('[data-slot]')?.dataset.slot || ''}`;
   boardEl.querySelectorAll('.column[data-col]').forEach((sec) => {
-    const list = sec.querySelector('.cards');
-    if (list) colScroll[scrollKey(sec)] = list.scrollTop;
+    sec.querySelectorAll('.cards').forEach((list) => (colScroll[scrollKey(sec, list)] = list.scrollTop));
   });
   // サブタスクは親のカードにまとめて出す
   const boardCards = cards.filter((c) => !isChat(c) && !isHiddenSubtask(c));
   // スプリント: 上のタブ・左のサイドバーでは選んだスプリントのタスクだけ、スイムレーンではスプリントごとの段に分ける
   const cv = CycleView.mode();
   boardEl.className = `board cv-${cv}`;
-  if (cv === 'lanes') boardEl.innerHTML = CycleView.chromeHtml(boardCards) + CycleView.lanesHtml(boardCards, COLUMNS, columnCards);
+  const cols = boardColumns();
+  boardEl.style.setProperty('--cols', String(cols.length || 1));
+  if (cv === 'lanes') boardEl.innerHTML = CycleView.chromeHtml(boardCards) + CycleView.lanesHtml(boardCards, cols, columnCards, (list, col) => columnInnerHtml(list, col, false));
   else {
     const shown = boardCards.filter(CycleView.inView);
-    boardEl.innerHTML = CycleView.chromeHtml(boardCards) + COLUMNS.map((col) => {
+    boardEl.innerHTML = CycleView.chromeHtml(boardCards) + cols.map((col) => {
       const list = columnCards(shown, col);
       return `
-      <section class="column" data-col="${col.key}">
-        <header><span>${col.label}</span><span class="count">${list.length}</span></header>
-        <div class="cards">${list.map(cardHtml).join('') || `<div class="col-empty">${col.key === 'todo' ? tr('「＋ 新しいタスク」から追加') : tr('なし')}</div>`}</div>
+      <section class="column${col.lanes.length > 1 ? ' has-slots' : ''}" data-col="${esc(col.key)}">
+        <header title="${esc(col.description)}"><span>${col.label}</span><span class="count">${list.length}</span></header>
+        ${columnInnerHtml(list, col, true)}
       </section>`;
     }).join('');
   }
   CycleView.bindChrome();
   boardEl.querySelectorAll('.column[data-col]').forEach((sec) => {
-    const top = colScroll[scrollKey(sec)];
-    const list = sec.querySelector('.cards');
-    if (top && list) list.scrollTop = top;
+    sec.querySelectorAll('.cards').forEach((list) => {
+      const top = colScroll[scrollKey(sec, list)];
+      if (top) list.scrollTop = top;
+    });
   });
   [boardEl.scrollLeft, boardEl.scrollTop] = boardScroll;
   AgentSprite.drawNow();
 }
 
-// その列に出すカード。サブタスクを動かしている親は「実行中」に置く
+// その列に出すカード（列とレーンの条件で振り分ける。サブタスクを動かしている親は「実行中」の段階）
 function columnCards(list, col) {
-  return list.filter((c) => col.statuses.includes(subtasksRunning(c) && (c.status === 'review' || c.status === 'failed') ? 'running' : c.status)).sort(byAttention);
+  const cfg = boardConfig();
+  return list.filter((c) => (BoardColumns.placeOf(cfg, c) || {}).col === col.key).sort(byAttention);
+}
+// 列の中身。レーンが2つ以上あれば、上下に区切って出す（withEmpty: 空のときに「なし」を出す）
+function columnInnerHtml(list, col, withEmpty) {
+  const empty = () => (withEmpty ? `<div class="col-empty">${col.stage === 'todo' ? tr('「＋ 新しいタスク」から追加') : tr('なし')}</div>` : '');
+  if (col.lanes.length <= 1) return `<div class="cards">${list.map(cardHtml).join('') || empty()}</div>`;
+  const cfg = boardConfig();
+  const laneOf = new Map(list.map((c) => [c.id, (BoardColumns.placeOf(cfg, c) || {}).lane]));
+  return `<div class="col-slots">${col.lanes
+    .map((l) => {
+      const cs = list.filter((c) => laneOf.get(c.id) === l.id);
+      return `<div class="col-slot" data-slot="${esc(l.id)}">
+        <div class="slot-head" title="${esc(l.description)}"><span>${esc(l.name)}</span><span class="count">${cs.length}</span></div>
+        <div class="cards">${cs.map(cardHtml).join('') || empty()}</div>
+      </div>`;
+    })
+    .join('')}</div>`;
 }
 
 // 対応が必要なものを上に、あとは新しい順
@@ -958,22 +980,16 @@ $('board').addEventListener('mousedown', (e) => {
 });
 // ボードのドラッグ&ドロップ: 列を動かして状態を変える（Todo → 実行中で開始、レビュー ⇄ 完了。マージとは切り離す）
 function canDragCard(c) {
-  return !!c && !isChat(c) && !c.afterDone && !isHiddenSubtask(c) && ['todo', 'review', 'failed', 'done'].includes(c.status);
+  return BoardColumns.canDrag(c) && !isHiddenSubtask(c);
 }
-// カードが今いる列
-function boardColOf(c) {
-  const s = subtasksRunning(c) && (c.status === 'review' || c.status === 'failed') ? 'running' : c.status;
-  return (COLUMNS.find((col) => col.statuses.includes(s)) || {}).key;
+// カードが今いる列とレーン
+function boardPlaceOf(c) {
+  return (c && BoardColumns.placeOf(boardConfig(), c)) || { col: '', lane: '' };
 }
-// その列へ動かせるか（動かせない列は、落とす場所として光らせない）
-function canDropCard(c, to) {
-  const from = boardColOf(c);
-  if (!c || from === to) return false;
-  if (from === 'todo') return to === 'running';
-  if (from === 'review') return to === 'done';
-  if (from === 'done') return to === 'review';
-  if (from === 'running') return to === 'done' && subtasksRunning(c); // サブタスクが残っているときは、あとで理由を出す
-  return false;
+// その列（とレーン）へ動かせるか（動かせない列は、落とす場所として光らせない）。
+// 別の列へは列の設定の「次に進んでよい列」だけ。同じ列の中のレーンは、いつでも動かせる
+function canDropCard(c, to, slot) {
+  return !!c && !isHiddenSubtask(c) && BoardColumns.canPlace(boardConfig(), c, to, slot || null);
 }
 let boardDragId = null;
 let boardDragLane = null; // スイムレーンで、ドラッグを始めた段（スプリントの ID か 'none'）
@@ -987,18 +1003,24 @@ $('board').addEventListener('dragstart', (e) => {
 $('board').addEventListener('dragend', () => {
   boardDragId = null;
   boardDragLane = null;
-  $('board').querySelectorAll('.column.drop, [data-cycle-drop].drop').forEach((x) => x.classList.remove('drop'));
+  $('board').querySelectorAll('.column.drop, .col-slot.drop, [data-cycle-drop].drop').forEach((x) => x.classList.remove('drop'));
 });
 // 落とす先の列（スイムレーンでは段も）に動かせるか: 列の移動・段の移動のどちらかがあり、どちらも動かせること
-function boardDropPlan(c, col) {
+function boardDropPlan(c, col, slotEl) {
   if (!c || !col) return null;
   const to = col.dataset.col;
   const lane = col.dataset.lane;
-  const moveCol = boardColOf(c) !== to;
+  const slot = (slotEl && col.contains(slotEl) && slotEl.dataset.slot) || null;
+  const from = boardPlaceOf(c);
+  const moveCol = from.col !== to || (!!slot && slot !== from.lane);
   const moveLane = !!lane && lane !== boardDragLane;
-  if (moveCol && !canDropCard(c, to)) return null;
+  if (moveCol && !canDropCard(c, to, slot)) return null;
   if (moveLane && !CycleView.canLaneDrop(c, boardDragLane, lane)) return null;
-  return moveCol || moveLane ? { moveCol, moveLane, to, lane } : null;
+  return moveCol || moveLane ? { moveCol, moveLane, to, slot, lane } : null;
+}
+// 落とす先として光らせるところ（レーンがあればレーン、なければ列）
+function dropHighlight(col, slotEl) {
+  return slotEl && col.contains(slotEl) ? slotEl : col;
 }
 $('board').addEventListener('dragover', (e) => {
   const c = card(boardDragId);
@@ -1012,13 +1034,15 @@ $('board').addEventListener('dragover', (e) => {
     return;
   }
   const col = e.target.closest('.column[data-col]');
-  if (col && boardDropPlan(c, col)) {
+  const slotEl = e.target.closest('[data-slot]');
+  if (col && boardDropPlan(c, col, slotEl)) {
     e.preventDefault();
-    col.classList.add('drop');
+    col.querySelectorAll('.col-slot.drop').forEach((x) => x !== slotEl && x.classList.remove('drop'));
+    dropHighlight(col, slotEl).classList.add('drop');
   }
 });
 $('board').addEventListener('dragleave', (e) => {
-  const col = e.target.closest('.column, [data-cycle-drop]');
+  const col = e.target.closest('.col-slot, .column, [data-cycle-drop]');
   if (col && !col.contains(e.relatedTarget)) col.classList.remove('drop');
 });
 $('board').addEventListener('drop', async (e) => {
@@ -1034,17 +1058,23 @@ $('board').addEventListener('drop', async (e) => {
   if (!col) return;
   e.preventDefault();
   col.classList.remove('drop');
-  const plan = boardDropPlan(c, col);
+  col.querySelectorAll('.col-slot.drop').forEach((x) => x.classList.remove('drop'));
+  const plan = boardDropPlan(c, col, e.target.closest('[data-slot]'));
   const from = boardDragLane;
   boardDragId = null;
   if (!plan) return;
   if (plan.moveLane) await CycleView.moveLane(c, from, plan.lane);
-  if (plan.moveCol) moveCardTo(c, plan.to);
+  if (plan.moveCol) moveCardTo(c, plan.to, plan.slot);
 });
-async function moveCardTo(c, to) {
-  if (to === 'running' && c.status === 'todo') return runBusy(tr('タスクを開始しています…'), () => api.start(c.id));
-  if (to === 'done' && !isNoGit(c) && c.worktreePath && !confirm(tr('「{title}」を、マージせずに完了にします。worktree とブランチ {v} は残すので、あとで「レビュー」の列へ戻して続けられます。よろしいですか？', { title: (c.title), v: (c.branch || '') }))) return;
-  return runBusy(tr('列を動かしています…'), () => api.moveCard(c.id, to), to === 'done' ? tr('完了にしました') : tr('レビューに戻しました'));
+// カードを列（とレーン）へ動かす。段階が変わるときは、今までと同じ動き（Todo → 実行中で開始、レビュー ⇄ 完了）
+async function moveCardTo(c, toCol, slot) {
+  const to = boardConfig().columns.find((x) => x.id === toCol);
+  if (!to) return;
+  const from = BoardColumns.stageOf(c);
+  const name = to.name;
+  if (to.stage === 'running' && from === 'todo') return runBusy(tr('タスクを開始しています…'), () => api.placeCard(c.id, toCol, slot));
+  if (to.stage === 'done' && from !== 'done' && !isNoGit(c) && c.worktreePath && !confirm(tr('「{title}」を、マージせずに完了にします。worktree とブランチ {v} は残すので、あとで「レビュー」の列へ戻して続けられます。よろしいですか？', { title: (c.title), v: (c.branch || '') }))) return;
+  return runBusy(tr('列を動かしています…'), () => api.placeCard(c.id, toCol, slot), tr('「{name}」へ動かしました', { name }));
 }
 
 async function answer(cardId, reqId, decision, message) {
@@ -4846,6 +4876,7 @@ function renderSettingsView() {
       <label class="check"><input type="checkbox" id="sSpecCheck" ${s.specCheck !== false ? 'checked' : ''} /> ${tr('新しいタスクの内容が詰まっていなければ、開発を始める前にエージェントと対話して仕様を詰める')}</label>
       <small class="muted s-note">${tr('仕様を詰めるときに、分けたほうがよい大きなタスクなら、エージェントがサブタスクに分けることを提案します（「サブタスクでやる」と答えたら分けます）。開始前のタスクには、進捗タブから手動でサブタスクを足せます（足したあとは「サブタスク」タブで見られます）。')}</small>
       <label class="field">${tr('<span>サブタスクが終わったら（既定。タスクごとに開始前に変えられます）</span>')}<select id="sSubtaskMerge"><option value="auto"${s.subtaskMerge !== 'review' ? ' selected' : ''}>${tr('自動で親のブランチにマージする')}</option><option value="review"${s.subtaskMerge === 'review' ? ' selected' : ''}>${tr('確かめてからマージする')}</option></select></label>`,
+    columns: `<div id="sColumnsBox" class="bc-box"></div>`,
     share: `<small class="muted s-note">${tr('このプロジェクトの設定（スクリプト・ポート・ブランチ・Pipeline・カスタムエージェントなど）を、リポジトリの <code>.worktree-kanban/settings.json</code> に書いてコミットすると、チームのほかの人の PC でも同じ設定になります。ファイルにある項目はファイルの値を使い、この PC で変えた項目だけは、この PC の値（上書き）を使います。')}</small>
       <div id="sShared" class="shared-panel">${tr('リポジトリのファイルを確かめています…')}</div>
       <div class="pl-tools"><button class="btn small" id="sSharedSave" type="button">${tr('リポジトリのファイルに保存')}</button></div>
@@ -4925,6 +4956,8 @@ function renderSettingsView() {
   const isStale = () => settingsViewKey !== viewKey;
   settingsNav = AppView.bindSettingsNav({ nav: $('settingsNav'), scroller: $('settingsMain'), section: (id) => $(`settings-${id}`) });
   bindAboutSection($('settings-about'));
+  // ボードの列とレーン（保存は「保存」ボタンとは別。変換の結果を確かめてから、その場で書く）
+  ColumnsEditor.render($('sColumnsBox'), state.board.boardColumns);
 
   // Pipeline の一覧（追加・編集・削除・インポートは、その場で保存する）
   let flows = JSON.parse(JSON.stringify(pipelines(s)));

@@ -168,7 +168,8 @@
 
   // スイムレーン: 列の見出しの行と、スプリントごとの段（最後に「未割り当て」）
   // cols: [{ key, label, list(cards) }] の作り方は renderer.js（列ごとの並べ方を同じにする）
-  function lanesHtml(list, columns, columnCards) {
+  // cellInner(cards, col): 列の中身（ボードの列にレーンがあるときは、上下に区切る）。省くとカードを並べるだけ
+  function lanesHtml(list, columns, columnCards, cellInner) {
     const lanes = M().laneGroups(list, cycles(), state.board.cards, showDone());
     const head = `<div class="lane-cols">${columns.map((col) => `<div class="lane-col-head"><span>${col.label}</span><span class="count">${columnCards(list, col).length}</span></div>`).join('')}</div>`;
     const body = lanes
@@ -182,7 +183,8 @@
         const cells = columns
           .map((col) => {
             const cs = columnCards(l.cards, col);
-            return `<section class="column lane-cell" data-col="${col.key}" data-lane="${esc(l.key)}"><div class="cards">${cs.map(cardHtml).join('')}</div></section>`;
+            const inner = cellInner ? cellInner(cs, col) : `<div class="cards">${cs.map(cardHtml).join('')}</div>`;
+            return `<section class="column lane-cell" data-col="${esc(col.key)}" data-lane="${esc(l.key)}">${inner}</section>`;
           })
           .join('');
         return `<div class="lane ${cy && cy.done ? 'done' : ''}" data-lane-row="${esc(l.key)}">

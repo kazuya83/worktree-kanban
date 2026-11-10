@@ -1,6 +1,6 @@
 {
   "name": "worktree-kanban",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "Kanban desktop app for Mac, Windows, and Linux that runs AI coding agents (Claude Code / Codex CLI / Antigravity CLI / Gemini CLI / Cursor CLI / OpenCode / Copilot CLI / Amp / Pi / Droid) in parallel, one git worktree per task. Chain them into flowchart Pipelines, restore an earlier checkpoint, and remotely operate Mac and Windows from each other",
   "main": "main.js",
   "license": "FSL-1.1-ALv2",
@@ -29,16 +29,59 @@
     "appId": "dev.agentkanban.app",
     "productName": "Worktree Kanban",
     "artifactName": "worktree-kanban-${version}-${os}-${arch}.${ext}",
-    "files": ["main.js", "preload.js", "src/**", "renderer/**", "mobile/**", "!node_modules/node-pty/{src,deps,third_party,scripts,typings}/**", "!node_modules/node-pty/**/*.pdb", "!node_modules/node-pty/prebuilds/win32-arm64/**", "!node_modules/node-addon-api/**", "!node_modules/@xterm/**/*.map", "!node_modules/@xterm/**/*.mjs", "!node_modules/@xterm/*/src/**"],
-    "asarUnpack": ["src/permission-mcp.js", "src/kanban-cli.js", "src/api-client.js", "src/api-mcp.js", "renderer/i18n.js", "renderer/locales/**/*.js", "node_modules/node-pty/**"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**",
+      "renderer/**",
+      "mobile/**",
+      "!node_modules/node-pty/{src,deps,third_party,scripts,typings}/**",
+      "!node_modules/node-pty/**/*.pdb",
+      "!node_modules/node-pty/prebuilds/win32-arm64/**",
+      "!node_modules/node-addon-api/**",
+      "!node_modules/@xterm/**/*.map",
+      "!node_modules/@xterm/**/*.mjs",
+      "!node_modules/@xterm/*/src/**"
+    ],
+    "asarUnpack": [
+      "src/permission-mcp.js",
+      "src/kanban-cli.js",
+      "src/api-client.js",
+      "src/api-mcp.js",
+      "renderer/i18n.js",
+      "renderer/locales/**/*.js",
+      "node_modules/node-pty/**"
+    ],
     "npmRebuild": false,
     "directories": {
       "output": "dist",
       "buildResources": "build"
     },
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
-      "files": ["main.js", "preload.js", "src/**", "renderer/**", "mobile/**", "!node_modules/node-pty/{src,deps,third_party,scripts,typings}/**", "!node_modules/node-pty/**/*.pdb", "!node_modules/node-pty/prebuilds/win32-arm64/**", "!node_modules/node-addon-api/**", "!node_modules/@xterm/**/*.map", "!node_modules/@xterm/**/*.mjs", "!node_modules/@xterm/*/src/**", "!node_modules/node-pty/prebuilds/win32-*/**"],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "files": [
+        "main.js",
+        "preload.js",
+        "src/**",
+        "renderer/**",
+        "mobile/**",
+        "!node_modules/node-pty/{src,deps,third_party,scripts,typings}/**",
+        "!node_modules/node-pty/**/*.pdb",
+        "!node_modules/node-pty/prebuilds/win32-arm64/**",
+        "!node_modules/node-addon-api/**",
+        "!node_modules/@xterm/**/*.map",
+        "!node_modules/@xterm/**/*.mjs",
+        "!node_modules/@xterm/*/src/**",
+        "!node_modules/node-pty/prebuilds/win32-*/**"
+      ],
       "category": "public.app-category.developer-tools",
       "identity": "-",
       "hardenedRuntime": false,
@@ -49,11 +92,40 @@
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] },
-        { "target": "zip", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
-      "files": ["main.js", "preload.js", "src/**", "renderer/**", "mobile/**", "!node_modules/node-pty/{src,deps,third_party,scripts,typings}/**", "!node_modules/node-pty/**/*.pdb", "!node_modules/node-pty/prebuilds/win32-arm64/**", "!node_modules/node-addon-api/**", "!node_modules/@xterm/**/*.map", "!node_modules/@xterm/**/*.mjs", "!node_modules/@xterm/*/src/**", "!node_modules/node-pty/prebuilds/darwin-*/**"],
+      "files": [
+        "main.js",
+        "preload.js",
+        "src/**",
+        "renderer/**",
+        "mobile/**",
+        "!node_modules/node-pty/{src,deps,third_party,scripts,typings}/**",
+        "!node_modules/node-pty/**/*.pdb",
+        "!node_modules/node-pty/prebuilds/win32-arm64/**",
+        "!node_modules/node-addon-api/**",
+        "!node_modules/@xterm/**/*.map",
+        "!node_modules/@xterm/**/*.mjs",
+        "!node_modules/@xterm/*/src/**",
+        "!node_modules/node-pty/prebuilds/darwin-*/**"
+      ],
       "artifactName": "worktree-kanban-${version}-win-${arch}.${ext}"
     },
     "nsis": {
@@ -67,11 +139,40 @@
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "tar.gz", "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
-      "extraFiles": [{ "from": "build/linux/worktree-kanban-headless", "to": "worktree-kanban-headless" }],
-      "files": ["main.js", "preload.js", "src/**", "renderer/**", "mobile/**", "!node_modules/node-pty/{src,deps,third_party,scripts,typings}/**", "!node_modules/node-pty/**/*.pdb", "!node_modules/node-pty/prebuilds/win32-arm64/**", "!node_modules/node-addon-api/**", "!node_modules/@xterm/**/*.map", "!node_modules/@xterm/**/*.mjs", "!node_modules/@xterm/*/src/**", "!node_modules/node-pty/prebuilds/**"],
+      "extraFiles": [
+        {
+          "from": "build/linux/worktree-kanban-headless",
+          "to": "worktree-kanban-headless"
+        }
+      ],
+      "files": [
+        "main.js",
+        "preload.js",
+        "src/**",
+        "renderer/**",
+        "mobile/**",
+        "!node_modules/node-pty/{src,deps,third_party,scripts,typings}/**",
+        "!node_modules/node-pty/**/*.pdb",
+        "!node_modules/node-pty/prebuilds/win32-arm64/**",
+        "!node_modules/node-addon-api/**",
+        "!node_modules/@xterm/**/*.map",
+        "!node_modules/@xterm/**/*.mjs",
+        "!node_modules/@xterm/*/src/**",
+        "!node_modules/node-pty/prebuilds/**"
+      ],
       "category": "Development"
     }
   }

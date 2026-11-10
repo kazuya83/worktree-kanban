@@ -50,8 +50,21 @@
   const hasSubtaskProposal = (c) => !!(c && c.subtaskProposal && Array.isArray(c.subtaskProposal.items) && (c.status === 'review' || c.status === 'failed'));
 
   // cards: ボードのカードの一覧（サブタスクの親を探すのに使う）
-  function model(cards) {
+  // ボードの列とレーン（デスクトップと同じ renderer/board-columns.js。プロジェクトの .worktree-kanban/board.json）
+  const BCols = () => (typeof module === 'object' && module.exports ? require('../../renderer/board-columns.js') : root.BoardColumns);
+
+  // config: ボードの列の設定（board.boardColumns.config。省くと今までの4つの列）
+  function model(cards, config) {
     const list = Array.isArray(cards) ? cards : [];
+    const cfg = BCols().cleanConfig(config && Array.isArray(config.columns) && config.columns.length ? config : BCols().defaultConfig());
+    // 画面に出す列（key・label・レーン）
+    const columns = () => cfg.columns.map((c) => ({ key: c.id, label: () => c.name, stage: c.stage, description: c.description, lanes: c.lanes }));
+    const places = new Map();
+    const placeOf = (c) => {
+      if (!c) return null;
+      if (!places.has(c)) places.set(c, BCols().placeOf(cfg, c));
+      return places.get(c);
+    };
     const byId = new Map(list.map((c) => [c && c.id, c]));
     const card = (id) => byId.get(id);
     const subtaskParent = (c) => (c && c.subtaskOf ? card(c.subtaskOf.parent) || null : null);
@@ -96,10 +109,12 @@
       return [c.status, (isChat(c) ? CHAT_STATUS_LABEL() : STATUS_LABEL())[c.status] || String(c.status || '')];
     }
 
-    // カードが今いる列（サブタスクを動かしている親は「実行中」）
+    // カードが今いる列とレーン（列とレーンの条件で振り分ける。サブタスクを動かしている親は「実行中」の段階）
     function columnOf(c) {
-      const s = subtasksRunning(c) && (c.status === 'review' || c.status === 'failed') ? 'running' : c.status;
-      return (COLUMNS.find((col) => col.statuses.includes(s)) || {}).key || '';
+      return (placeOf(c) || {}).col || '';
+    }
+    function laneOf(c) {
+      return (placeOf(c) || {}).lane || '';
     }
     // 対応が必要なものを上に、あとは新しい順
     const byAttention = (a, b) => (needsYou(b) ? 1 : 0) - (needsYou(a) ? 1 : 0) || (b.createdAt || 0) - (a.createdAt || 0);
@@ -111,7 +126,7 @@
     // 列を動かせるか（デスクトップのドラッグと同じ: Todo → 実行中で開始、レビュー ⇄ 完了）
     function canMove(c, to) {
       if (!c || isChat(c) || c.afterDone || isHiddenSubtask(c) || !['todo', 'review', 'failed', 'done'].includes(c.status)) return false;
-      const from = columnOf(c);
+      const from = BCols().stageOf(c);
       if (from === to) return false;
       if (from === 'todo') return to === 'running';
       if (from === 'review') return to === 'done';
@@ -122,7 +137,7 @@
     // 開いているときに既読にする会話か
     const isUnreadChat = (c, selectedId) => isChat(c) && !!c.unread && !isActive(c) && selectedId !== c.id;
 
-    return { card, needsYou, badge, columnOf, columnCards, byAttention, canMove, subtaskParent, isHiddenSubtask, subtaskNeedsCheck, subKids, isUnreadChat };
+    return { columns, card, needsYou, badge, columnOf, laneOf, columnCards, byAttention, canMove, subtaskParent, isHiddenSubtask, subtaskNeedsCheck, subKids, isUnreadChat };
   }
 
   // 追加指示を送れる状態か（完了したタスクにも送れる。送ると、ファイルを変えずに話す）

@@ -617,6 +617,7 @@ class MobileServer extends EventEmitter {
     if (p === '/' || p === '/index.html') return path.join(this.staticRoot, 'index.html');
     if (p === '/manifest.webmanifest') return path.join(this.staticRoot, 'manifest.webmanifest');
     if (p === '/i18n.js') return path.join(this.rendererRoot, 'i18n.js');
+    if (p === '/board-columns.js') return path.join(this.rendererRoot, 'board-columns.js');
     if (p.startsWith('/assets/')) return safeJoin(path.join(this.staticRoot, 'assets'), p.slice('/assets/'.length));
     // ターミナルの画面（xterm.js は node_modules から、決まったファイルだけ返す）
     if (p === '/terminal.html') return path.join(this.staticRoot, 'terminal.html');

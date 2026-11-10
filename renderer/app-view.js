@@ -93,6 +93,7 @@
         { id: 'issue', label: tr('Issue 連携'), icon: 'zap' },
         { id: 'permission', label: tr('権限'), icon: 'lock' },
         { id: 'task', label: tr('タスクの既定'), icon: 'note' },
+        { id: 'columns', label: tr('ボードの列'), icon: 'logo' },
         { id: 'share', label: tr('チームで共有'), icon: 'file' },
       ],
     },

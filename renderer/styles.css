@@ -206,7 +206,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 /* レイアウト */
 /* 詳細パネルはボードの上に重ねるので、スライド中に画面の外へ出た部分はここで切る */
 .layout { position: relative; flex: 1; display: flex; min-height: 0; overflow: hidden; }
-.board { flex: 1; display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 12px; padding: 14px; overflow: auto; min-width: 0; }
+.board { flex: 1; display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(160px, 1fr)); gap: 12px; padding: 14px; overflow: auto; min-width: 0; }
 .scheduler-view { flex: 1; min-width: 0; padding: 14px; overflow: auto; }
 .scheduler-view > .empty-state { margin: 64px auto 0; }
 .column { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-direction: column; min-height: 0; }
@@ -215,11 +215,19 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .count { color: var(--muted); font-weight: 400; }
 .cards { padding: 10px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; }
 .col-empty { color: var(--muted); text-align: center; padding: 20px 0; font-size: 12px; }
+/* 列の中のレーン（上下に区切る） */
+.col-slots { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.col-slot { display: flex; flex-direction: column; flex: 1 1 0; min-height: 80px; border-radius: 6px; }
+.col-slot + .col-slot { border-top: 1px dashed var(--line); }
+.col-slot.drop { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.slot-head { display: flex; justify-content: space-between; gap: 8px; padding: 6px 12px 0; font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.lane-cell .col-slots, .lane-cell .col-slot { flex: none; }
+.lane-cell .col-slot { min-height: 40px; }
 .empty-state { grid-column: 1 / -1; align-self: center; justify-self: center; text-align: center; max-width: 460px; }
 
 /* サイクル（期間とゴールを持つ、タスクのまとまり）: 上のタブ / 左のサイドバー / スイムレーン */
 .board.cv-top { grid-template-rows: auto minmax(0, 1fr); }
-.board.cv-sidebar { grid-template-columns: minmax(170px, 210px) repeat(4, minmax(150px, 1fr)); }
+.board.cv-sidebar { grid-template-columns: minmax(170px, 210px) repeat(var(--cols, 4), minmax(150px, 1fr)); }
 .board.cv-lanes { display: flex; flex-direction: column; gap: 10px; }
 .cycle-bar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
 .cycle-bar.lanes-bar { justify-content: flex-end; }
@@ -264,7 +272,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .cy-checks .check { margin: 0; }
 .cy-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .modal-actions .spacer { flex: 1; }
-.lane-cols { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; position: sticky; top: -14px; z-index: 2; background: var(--bg); padding: 4px 9px; }
+.lane-cols { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(150px, 1fr)); gap: 12px; position: sticky; top: -14px; z-index: 2; background: var(--bg); padding: 4px 9px; }
 .lane-col-head { display: flex; justify-content: space-between; gap: 8px; padding: 6px 12px; font-weight: 600; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); white-space: nowrap; }
 .lanes { display: flex; flex-direction: column; gap: 12px; }
 .lane { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; background: color-mix(in srgb, var(--panel) 50%, transparent); }
@@ -273,7 +281,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .lane-name { white-space: nowrap; }
 .lane-goal { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
 .lane-acts { margin-left: auto; }
-.lane-row { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; }
+.lane-row { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(150px, 1fr)); gap: 12px; }
 .lane-cell { min-height: 64px; }
 .lane-cell .cards { overflow: visible; }
 
@@ -915,7 +923,7 @@ body.resizing-row { cursor: row-resize; user-select: none; }
   .brand-text { display: none; }
   .topbar > .repo { max-width: 220px; }
   .pill.remote-pill { max-width: 150px; }
-  .board { gap: 8px; padding: 10px; grid-template-columns: repeat(4, minmax(150px, 1fr)); }
+  .board { gap: 8px; padding: 10px; grid-template-columns: repeat(var(--cols, 4), minmax(150px, 1fr)); }
   .cards { padding: 8px; }
 }
 @media (max-width: 860px) {
@@ -1272,3 +1280,20 @@ body.term-resizing { cursor: ns-resize; user-select: none; }
 .agent-sprite.mini { height: 36px; margin: 6px 0 4px; border-radius: 6px; background: color-mix(in srgb, var(--panel) 60%, transparent); }
 .pg-stage { padding: 0; }
 .agent-sprite.stage { height: 164px; border-radius: 10px; border: 1px solid var(--line); }
+
+/* 設定の「ボードの列」 */
+.bc-box { display: flex; flex-direction: column; gap: 10px; }
+.bc-cols { display: flex; flex-direction: column; gap: 10px; }
+.bc-col, .bc-pcol { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column; gap: 6px; background: var(--panel); }
+.bc-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bc-row > input { flex: 1; min-width: 140px; }
+.bc-tools { display: inline-flex; gap: 2px; margin-left: auto; }
+.bc-col textarea { width: 100%; resize: vertical; }
+.bc-lanes { display: flex; flex-direction: column; gap: 6px; padding-left: 12px; border-left: 2px solid var(--line); }
+.bc-lane { display: flex; flex-direction: column; gap: 4px; }
+.bc-preview { border: 1px solid var(--accent); border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.bc-stage { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; }
+.bc-plane { margin: 0; padding-left: 18px; font-size: 12px; }
+.bc-nexts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.bc-next { margin: 0; display: inline-flex; align-items: center; gap: 4px; }
+.bc-errors { color: var(--warn); font-size: 12px; white-space: pre-wrap; }

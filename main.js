@@ -89,6 +89,10 @@ const { fixPath, resolveCommand } = require('./src/env');
 const providers = require('./src/providers');
 const { cleanScript } = require('./src/worktree-scripts');
 const SharedSettings = require('./src/shared-settings');
+const ColumnsFile = require('./src/board-columns-file');
+// ボードの列とレーンの設定（リポジトリごと。ファイルが変わったときだけ読み直す）
+const boardColumns = ColumnsFile.createColumnsCache();
+let lastColumnsRead = null;
 const { RemoteHost, RemoteClient, Reconnector, DEFAULT_PORT, isProxyChannel, isLocalChannel, routeSide, stripRouting, stripLocalSettings, droppedSettingKeys, droppedSettingsMessage, composeTabs, VIEW_CHANNELS, connectionKey, upsertConnectionHistory, removeConnectionHistory, findConnectionHistory, publicConnectionHistory, restoreLocalLanguage, terminalSide } = require('./src/remote');
 const { SshTunnel, isLoopbackHost, sshHostInfo } = require('./src/ssh-tunnel');
 const sshKey = require('./src/ssh-key');
@@ -247,7 +251,13 @@ function send(channel, payload) {
 function boardState() {
   const { cleanRepoTabs, repoTabSummary } = require('./src/store');
   const repoTabs = repoTabSummary(cleanRepoTabs(store.settings.repoTabs, store.settings.repoPath), store.cards, store.settings);
-  return { settings: store.settings, repoTabs, issueProviders: trackersRegistry.issueProviderMeta(), trackerStatus: trackers.statusMap(), cards: agents.publicCards(store.settings.repoPath), totalCostUsd: store.totalCost(store.settings.repoPath), notifications: agents.listNotifications(store.settings.repoPath), schedules: store.schedulesOf(store.settings.repoPath), cycles: store.cyclesOf(store.settings.repoPath) };
+  return { settings: store.settings, repoTabs, issueProviders: trackersRegistry.issueProviderMeta(), trackerStatus: trackers.statusMap(), cards: agents.publicCards(store.settings.repoPath), totalCostUsd: store.totalCost(store.settings.repoPath), notifications: agents.listNotifications(store.settings.repoPath), schedules: store.schedulesOf(store.settings.repoPath), cycles: store.cyclesOf(store.settings.repoPath), boardColumns: boardColumnsState(store.settings.repoPath) };
+}
+
+// 画面に渡すボードの列の設定（ファイルがあるか・読めなかった理由も）
+function boardColumnsState(dir) {
+  const r = boardColumns.get(dir);
+  return { config: r.config, exists: r.exists, error: r.error, file: ColumnsFile.COLUMNS_REL };
 }
 
 // 画面に渡すボード。クライアントとして接続中は、見ている側（ホスト / このマシン）のボードに、両方のタブを並べて載せる
@@ -878,6 +888,7 @@ app.whenReady().then(async () => {
     nodeBin: process.execPath, // ELECTRON_RUN_AS_NODE=1 で Node として動かす
     claudeConfigFor, // 会話を消すときの Claude Code の設定フォルダ（WSL のリポジトリなら WSL の中）
     trackers,
+    boardColumnsOf: (dir) => boardColumns.get(dir).config, // ボードの列とレーン（.worktree-kanban/board.json）
     confirmScript: confirmSharedScript, // リポジトリで共有しているスクリプトを、初めて動かす・中身が変わったときに確かめる
   });
 
@@ -1343,7 +1354,13 @@ app.whenReady().then(async () => {
   refreshCodeHost(store.settings.repoPath).catch(() => {});
   refreshShared(store.settings.repoPath);
   // git pull などでファイルが変わったときのために、画面に戻ってきたら読み直す
-  app.on('browser-window-focus', () => refreshShared(store.settings.repoPath));
+  app.on('browser-window-focus', () => {
+    refreshShared(store.settings.repoPath);
+    // ボードの列の設定（.worktree-kanban/board.json）が変わっていたら、画面に出し直す
+    const cols = boardColumns.get(store.settings.repoPath);
+    if (lastColumnsRead && cols !== lastColumnsRead) notifyBoard();
+    lastColumnsRead = cols;
+  });
   // リポジトリで共有する設定（.worktree-kanban/settings.json）。画面の「チームで共有」で使う
   const sharedStatus = (dir) => {
     const d = String(dir || store.settings.repoPath || '').trim();
@@ -1689,6 +1706,31 @@ app.whenReady().then(async () => {
   handle('subtasks:auto', (id) => agents.autoRunSubtasks(id));
   handle('subtasks:edit', ({ id, key, title, prompt }) => agents.editSubtask(id, key, { title, prompt }));
   handle('card:move', ({ id, to }) => agents.moveCard(id, to));
+  // ボードのカードを、設定した列（とレーン）へ動かす
+  handle('card:place', ({ id, col, lane }) => agents.placeCard(id, col, lane || null));
+  // ボードの列とレーン: 説明を AI に「段階＋条件」へ変換してもらう（保存はしない）・保存する・今までの4つの列に戻す
+  handle('columns:convert', ({ draft, agent } = {}) => {
+    const use = providers.isAgent(agent) ? agent : providers.defaultAgentOf(store.settings);
+    const cwd = store.settings.repoPath || require('os').homedir();
+    const ask = (prompt) => agents.askOnce(use, cwd, prompt, undefined, 300000);
+    return require('./src/columns-ai').convertColumns(ask, draft);
+  });
+  handle('columns:save', ({ config } = {}) => {
+    const d = store.settings.repoPath;
+    if (!d) throw new Error(tr('リポジトリを開いていません'));
+    ColumnsFile.writeColumns(d, config);
+    boardColumns.forget(d);
+    notifyBoard();
+    return boardColumnsState(d);
+  });
+  handle('columns:reset', () => {
+    const d = store.settings.repoPath;
+    if (!d) throw new Error(tr('リポジトリを開いていません'));
+    ColumnsFile.removeColumns(d);
+    boardColumns.forget(d);
+    notifyBoard();
+    return boardColumnsState(d);
+  });
   handle('compete:compare', (id) => agents.compareCompetitors(id).id);
   handle('card:suggestSkills', ({ id }) => agents.suggestSkills(id));
   handle('notifications:read', ({ ids } = {}) => agents.readNotifications(store.settings.repoPath, ids));
