@@ -1534,4 +1534,29 @@ test('タイトルは開始したあとでも変えられる。最初の指示�
   assert.throws(() => agents.updateCard(c.id, { prompt: '指示も変える' }), /開始前のタスクだけ編集できます/);
   assert.strictEqual(c.title, 'あとから 変えた');
   assert.strictEqual(c.prompt, '直した指示');
+  // 一度動かしたあとは、エージェントには変える前（エージェントが知っている）のタイトルを渡す
+  assert.strictEqual(c.agentTitle, '開始前に変えた');
+  agents.updateCard(c.id, { title: 'もう一度変えた' });
+  assert.strictEqual(c.agentTitle, '開始前に変えた');
+});
+
+test('開始したあとにタイトルを変えても、エージェントへの指示には新しいタイトルを入れない', () => {
+  const { agents } = setup();
+  const { buildAfterDonePrompt, buildSkillSuggestPrompt, buildBranchNamePrompt } = require('../src/agent');
+  const Subtasks = require('../src/subtasks');
+  const c = agents.createCard({ title: '最初のタイトル', prompt: 'やること' });
+  c.status = 'done';
+  agents.updateCard(c.id, { title: '表示だけ変えたタイトル' });
+  assert.strictEqual(c.title, '表示だけ変えたタイトル');
+  c.subtasks = { items: [] };
+  const prompts = [
+    buildAfterDonePrompt(c, '続けて'),
+    buildSkillSuggestPrompt(c),
+    buildBranchNamePrompt('feature/ で始める', c),
+    Subtasks.buildChildPrompt(c, { key: 'a', title: '子', prompt: '子のやること' }),
+  ];
+  for (const p of prompts) {
+    assert.ok(!p.includes('表示だけ変えたタイトル'), p);
+    assert.ok(p.includes('最初のタイトル'), p);
+  }
 });
