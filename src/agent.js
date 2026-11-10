@@ -121,8 +121,12 @@ function talkExcerpt(c, { size: max = 6000, skipPrompt = true } = {}) {
   if (picked.length < talk.length) picked = ['（前のやりとりは省略）', ...picked];
   return picked;
 }
+// エージェントに渡すタイトル。開始したあとにタイトルを変えても、エージェントには新しいタイトルを渡さない（画面の表示だけ変える）
+function agentTitle(c) {
+  return (c && c.agentTitle) || (c && c.title) || '';
+}
 function buildSkillSuggestPrompt(c, similar = []) {
-  const lines = [`次のタスク「${c.title}」の作業を振り返ってください。`, ''];
+  const lines = [`次のタスク「${agentTitle(c)}」の作業を振り返ってください。`, ''];
   lines.push('## タスクの指示', truncate(c.prompt, 3000), '');
   const picked = talkExcerpt(c);
   if (picked.length) lines.push('## やりとり（抜粋）', ...picked, '');
@@ -154,8 +158,8 @@ function buildChatContext(chat) {
   if (!picked.length) return '';
   // 完了したタスクから修正のタスクを作るときは、元のタスクのやりとり（完了後の会話も含む）を渡す
   const head = isChat(chat)
-    ? `## これまでの会話「${chat.title}」（このタスクは、この会話の続きです）`
-    : `## 完了したタスク「${chat.title}」のやりとり（このタスクは、完了したこのタスクの修正です）`;
+    ? `## これまでの会話「${agentTitle(chat)}」（このタスクは、この会話の続きです）`
+    : `## 完了したタスク「${agentTitle(chat)}」のやりとり（このタスクは、完了したこのタスクの修正です）`;
   const info = [];
   if (!isChat(chat) && (chat.mergedInto || []).length) info.push(`- 取り込み先: ${chat.mergedInto.join(', ')}（git log で前の変更を確かめられます）`);
   if (!isChat(chat) && chat.prUrl) info.push(`- ${prNoun(chat.prUrl)}: ${chat.prUrl}`);
@@ -197,7 +201,7 @@ function buildCiFixPrompt(c, ch) {
 }
 
 function buildAfterDonePrompt(c, message) {
-  const lines = [AFTER_DONE_NOTE, '', `## 完了したタスク「${c.title}」`, '', '### タスクの指示', truncate(c.prompt, 3000), ''];
+  const lines = [AFTER_DONE_NOTE, '', `## 完了したタスク「${agentTitle(c)}」`, '', '### タスクの指示', truncate(c.prompt, 3000), ''];
   const picked = talkExcerpt(c);
   if (picked.length) lines.push('### やりとり（抜粋）', ...picked, '');
   const info = [];
@@ -721,7 +725,7 @@ function buildBranchNamePrompt(rule, c) {
     String(rule).trim(),
     '',
     '## タスク',
-    `- タイトル: ${c.issue ? c.issue.title : c.title}`,
+    `- タイトル: ${c.issue ? c.issue.title : agentTitle(c)}`,
   ];
   if (c.issue) lines.push(`- Issue 番号: ${IssueRef.keyOf(c.issue).replace(/^#/, '')}`);
   lines.push(`- タスク ID: ${c.id}`, `- 指示（抜粋）: ${truncate(String(c.prompt || '').replace(/\s+/g, ' '), 400)}`);
@@ -2242,8 +2246,8 @@ class AgentManager extends EventEmitter {
   compareCompetitors(id) {
     const list = this.competitors(id);
     if (list.length < 2) throw new Error(tr('比べる候補がありません'));
-    const title = list[0].compete.title || list[0].title;
-    const chat = this.createChat({ message: buildComparePrompt(title, list), title: tr('比較: {title}', { title }), agent: providers.defaultAgentOf(this.store.settings) });
+    const title = list[0].compete.title || agentTitle(list[0]);
+    const chat = this.createChat({ message: buildComparePrompt(title, list), title: tr('比較: {title}', { title: list[0].compete.title || list[0].title }), agent: providers.defaultAgentOf(this.store.settings) });
     for (const x of list) x.compete.compareChat = chat.id;
     this.changed(chat);
     return chat;
@@ -2531,11 +2535,18 @@ class AgentManager extends EventEmitter {
     return c.issue ? `agent: ${IssueRef.stripKey(c.title, c.issue)} (${IssueRef.keyOf(c.issue)})` : `agent: ${c.title}`;
   }
 
+  // タイトルはいつでも変えられる（ブランチ名は開始したときのまま）。最初の指示とスキルは開始前だけ
   updateCard(id, { title, prompt, skill }) {
     const c = this.must(id);
-    if (c.status !== 'todo') throw new Error(tr('開始前のタスクだけ編集できます'));
+    const body = prompt !== undefined || skill !== undefined;
+    if (body && c.status !== 'todo') throw new Error(tr('開始前のタスクだけ編集できます'));
+    if (title !== undefined && !body && !(typeof title === 'string' && title.trim())) throw new Error(tr('タイトルを入力してください'));
     if (skill !== undefined) c.skill = cleanSkill(skill);
-    if (typeof title === 'string' && title.trim()) c.title = title.trim();
+    if (typeof title === 'string' && title.trim()) {
+      // 一度動かしたあとは、エージェントが知っているタイトルを残しておき、このあとの指示にはそちらを使う
+      if (c.status !== 'todo' && !c.agentTitle) c.agentTitle = c.title;
+      c.title = title.trim().replace(/\s*\n\s*/g, ' ');
+    }
     if (typeof prompt === 'string' && prompt.trim()) c.prompt = prompt.trim();
     this.changed(c);
   }
@@ -5371,4 +5382,4 @@ class AgentManager extends EventEmitter {
   }
 }
 
-module.exports = { READ_ONLY_DISALLOWED_TOOLS, withReadOnlyNote, relayStepsOf, whoLabel, AgentManager, isNoGit, toolResultText, toolResultImages, agentOf, promptWithSkill, buildRelayStepPrompt, buildComparePrompt, PERMISSION_TOOL, endsWithQuestion, SPEC_MARKER, withSpecCheck, stripSpecMarker, extractSpecQuestions, parseMarkdownQuestions, isOtherOption, withReplyLanguage, takeChromeCommand, isQuitInterrupt, SKILL_SUGGEST_PROMPT, SKILL_SUGGEST_REPEAT_NOTE, buildSkillSuggestPrompt, isChat, isSessionId, quoteForCmd, cleanBranchName, buildBranchNamePrompt, cleanModel, modelOf };
+module.exports = { READ_ONLY_DISALLOWED_TOOLS, withReadOnlyNote, relayStepsOf, whoLabel, AgentManager, isNoGit, toolResultText, toolResultImages, agentOf, promptWithSkill, buildRelayStepPrompt, buildComparePrompt, PERMISSION_TOOL, endsWithQuestion, SPEC_MARKER, withSpecCheck, stripSpecMarker, extractSpecQuestions, parseMarkdownQuestions, isOtherOption, withReplyLanguage, takeChromeCommand, isQuitInterrupt, SKILL_SUGGEST_PROMPT, SKILL_SUGGEST_REPEAT_NOTE, buildSkillSuggestPrompt, buildAfterDonePrompt, isChat, isSessionId, quoteForCmd, cleanBranchName, buildBranchNamePrompt, cleanModel, modelOf };
