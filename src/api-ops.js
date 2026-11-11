@@ -17,6 +17,7 @@ function taskSummary(c) {
     kind: c.kind === 'chat' ? 'chat' : 'task',
     agent: c.agent || '',
     model: c.model || '',
+    permissionMode: c.permissionMode || '',
     repoPath: c.repoPath || '',
     branch: c.branch || '',
     subtaskOf: c.subtaskOf || null,
@@ -92,8 +93,9 @@ function createApiOps({ store, agents, addRepo }) {
       return taskDetail(c);
     },
 
-    // { repo, title, prompt, agent, model, skill, pipeline, readOnly, start, attachments }
-    async create({ repo, title, prompt, agent, model, skill, pipeline, readOnly, start, attachments } = {}) {
+    // { repo, title, prompt, agent, model, skill, pipeline, readOnly, permissionMode, start, attachments }
+    // permissionMode: このタスクだけの権限モード（default / acceptEdits / plan / bypassPermissions）。省くとプロジェクトの設定
+    async create({ repo, title, prompt, agent, model, skill, pipeline, readOnly, permissionMode, start, attachments } = {}) {
       if (!String(prompt || '').trim()) throw new Error(tr('指示を入力してください'));
       let repoPath = resolveRepo(repo);
       // まだ開いていないリポジトリなら、タブに足す（画面で見られるように）
@@ -103,7 +105,7 @@ function createApiOps({ store, agents, addRepo }) {
         const p = findPipeline(repoPath, pipeline);
         mode = `relay:${p.id}`;
       }
-      const cards = agents.createTask({ title, prompt, agent: mode, model, skill, readOnly: !!readOnly, attachments, repoPath });
+      const cards = agents.createTask({ title, prompt, agent: mode, model, skill, readOnly: !!readOnly, permissionMode, attachments, repoPath });
       if (start) for (const c of cards) agents.start(c.id);
       return { ids: cards.map((c) => c.id), tasks: cards.map((c) => taskSummary(store.card(c.id) || c)) };
     },

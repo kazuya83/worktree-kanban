@@ -99,3 +99,29 @@ test('Issue から作ったタスクは、プロジェクトが「すべて自�
   assert.ok(c.logs.some((l) => /外から来た指示/.test(l.text)), 'カードのログで知らせる');
   assert.strictEqual(store.card(c.id).externalModeNoted, true);
 });
+
+test('タスクごとの権限モード（CLI・MCP の --permission-mode）は、プロジェクトの設定より優先する。Issue のタスクは bypassPermissions にしない', async () => {
+  const { store, agents } = setup();
+  store.settings.permissionMode = 'acceptEdits';
+  const [bypass] = agents.createTask({ title: 'bypass', prompt: '承認なしで', permissionMode: 'bypass' });
+  const [plain] = agents.createTask({ title: 'plain', prompt: 'ふつう' });
+  const [issue] = agents.createTask({ title: '#8 y', prompt: 'Issue の本文', issue: { number: 8, title: 'y' }, permissionMode: 'bypassPermissions' });
+  assert.strictEqual(bypass.permissionMode, 'bypassPermissions', '「bypass」も受け付ける');
+  assert.strictEqual(plain.permissionMode, undefined);
+  assert.throws(() => agents.createTask({ title: 'x', prompt: 'x', permissionMode: 'whatever' }), /whatever/);
+  // サブタスクは親の権限モードを使う
+  const sub = { id: 'sub-pm', subtaskOf: { parent: bypass.id, key: 'k' } };
+  store.cards.push(sub);
+  assert.strictEqual(agents.cardPermissionMode(sub), 'bypassPermissions');
+  assert.strictEqual(agents.cardPermissionMode(plain), '');
+  store.cards.splice(store.cards.indexOf(sub), 1);
+
+  agents.start(bypass.id);
+  agents.start(plain.id);
+  agents.start(issue.id);
+  await waitFor(() => [bypass, plain, issue].every((c) => c.status === 'review'), 30000);
+  const started = (card) => card.logs.map((l) => l.text).find((t) => /セッション開始/.test(t)) || '';
+  assert.match(started(bypass), /権限モード: bypassPermissions/);
+  assert.match(started(plain), /権限モード: acceptEdits/, '指定がなければプロジェクトの設定');
+  assert.match(started(issue), /権限モード: acceptEdits/, '外から来た指示は bypassPermissions にしない');
+});

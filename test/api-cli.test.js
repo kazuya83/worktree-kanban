@@ -259,6 +259,11 @@ test('CLI: タスクを作る（既定は Todo、--start で開始）。repo は
   const c3 = board.calls.filter((x) => x.channel === 'api:create')[2];
   assert.strictEqual(c3.arg.pipeline, 'Review');
   assert.strictEqual(c3.arg.start, true);
+  assert.strictEqual(c3.arg.permissionMode, undefined, '指定がなければプロジェクトの設定');
+  await run(client, ['create', 'go'], { bypass: true });
+  assert.strictEqual(board.calls.filter((x) => x.channel === 'api:create')[3].arg.permissionMode, 'bypassPermissions');
+  await run(client, ['create', 'go'], { 'permission-mode': 'plan' });
+  assert.strictEqual(board.calls.filter((x) => x.channel === 'api:create')[4].arg.permissionMode, 'plan');
 });
 
 test('CLI: 承認は reqId を省くといちばん古いもの。削除は --yes が要る', async () => {
@@ -298,6 +303,8 @@ test('MCP: initialize・tools/list・tools/call。エラーは isError で返す
   assert.ok(!created.result.isError);
   assert.match(created.result.content[0].text, /n1/);
   assert.strictEqual(board.calls.find((x) => x.channel === 'api:create').arg.start, true);
+  await handleMessage(client, { jsonrpc: '2.0', id: 31, method: 'tools/call', params: { name: 'create_task', arguments: { prompt: 'do', permission_mode: 'bypassPermissions' } } });
+  assert.strictEqual(board.calls.filter((x) => x.channel === 'api:create').at(-1).arg.permissionMode, 'bypassPermissions');
   const del = await handleMessage(client, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'delete_task', arguments: { id: 'a1' } } });
   assert.strictEqual(del.result.isError, true, 'confirm が無ければ消さない');
   assert.ok(!board.calls.some((x) => x.channel === 'card:discard'));
@@ -354,7 +361,8 @@ test('api-ops: リポジトリを指定して読む・作る。画面のタブ�
   assert.strictEqual(ops.tasks({})[0].pendingPermissions, 1);
   assert.strictEqual(ops.task({ id: 'c1' }).permissions[0].reqId, 'p');
   assert.throws(() => ops.task({ id: 'zz' }));
-  const r = await ops.create({ repo: '/r2', prompt: 'go', pipeline: 'review', start: true });
+  const r = await ops.create({ repo: '/r2', prompt: 'go', pipeline: 'review', start: true, permissionMode: 'bypassPermissions' });
+  assert.strictEqual(created[0].permissionMode, 'bypassPermissions', '権限モードを渡す');
   assert.strictEqual(created[0].repoPath, '/r2');
   assert.strictEqual(created[0].agent, 'relay:p1', '名前（大文字小文字は問わない）で Pipeline を選ぶ');
   assert.deepStrictEqual(started, ['n']);

@@ -27,10 +27,12 @@ Board
 
 Create and run
   create <prompt...> [--title T] [--repo P] [--agent A] [--model M] [--skill S]
-         [--pipeline NAME|ID] [--read-only] [--start]
+         [--pipeline NAME|ID] [--read-only] [--permission-mode M | --bypass] [--start]
                                  Create a task (in Todo unless --start). Use "-" as the prompt to read it from stdin
+                                 M: default, acceptEdits, plan, bypassPermissions (defaults to the project setting).
+                                 --bypass is --permission-mode bypassPermissions: no approval is asked at all
   pipelines [--repo P]           List the Pipelines of a repository
-  run-pipeline <NAME|ID> <prompt...> [--title T] [--repo P]
+  run-pipeline <NAME|ID> <prompt...> [--title T] [--repo P] [--permission-mode M | --bypass]
                                  Create a task that runs the Pipeline and start it
   start <id> | stop <id> | resume <id>
   send <id> <message...>         Send a follow-up instruction (review / failed / done tasks)
@@ -71,7 +73,7 @@ Without --repo, the repository is the one that contains the current folder (or t
 
 // ---- 引数 ----
 
-const BOOL_FLAGS = new Set(['json', 'all', 'start', 'read-only', 'push', 'keep', 'always', 'skip', 'yes', 'local', 'no-start', 'help', 'h']);
+const BOOL_FLAGS = new Set(['json', 'all', 'start', 'read-only', 'push', 'keep', 'always', 'skip', 'yes', 'local', 'no-start', 'bypass', 'help', 'h']);
 
 function parseArgs(argv) {
   const pos = [];
@@ -122,7 +124,7 @@ function taskLine(t) {
 }
 
 function showTask(t) {
-  const lines = [`${t.title}`, `  id:      ${t.id}`, `  status:  ${t.status}`, `  agent:   ${t.agent}${t.model ? ` (${t.model})` : ''}`, `  repo:    ${t.repoPath}`];
+  const lines = [`${t.title}`, `  id:      ${t.id}`, `  status:  ${t.status}`, `  agent:   ${t.agent}${t.model ? ` (${t.model})` : ''}`, ...(t.permissionMode ? [`  mode:    ${t.permissionMode}`] : []), `  repo:    ${t.repoPath}`];
   if (t.branch) lines.push(`  branch:  ${t.branch}`);
   if (t.worktreePath) lines.push(`  worktree: ${t.worktreePath}`);
   if (t.prUrl) lines.push(`  PR:      ${t.prUrl}`);
@@ -271,7 +273,7 @@ async function run(client, pos, opts, io = {}) {
       else if (opts.prompt) prompt = opts.prompt;
       if (!prompt.trim()) throw new ApiError(`Usage: wtk ${cmd} ${cmd === 'run-pipeline' ? '<NAME|ID> ' : ''}<prompt...>  (or "-" to read from stdin)`);
       const repo = await defaultRepo(client, opts, { forCreate: true });
-      const r = await client.invoke('api:create', { repo, title: opts.title, prompt, agent: opts.agent, model: opts.model, skill: opts.skill, pipeline, readOnly: !!opts['read-only'], start: cmd === 'run-pipeline' || !!opts.start });
+      const r = await client.invoke('api:create', { repo, title: opts.title, prompt, agent: opts.agent, model: opts.model, skill: opts.skill, pipeline, readOnly: !!opts['read-only'], permissionMode: opts.bypass ? 'bypassPermissions' : opts['permission-mode'], start: cmd === 'run-pipeline' || !!opts.start });
       return out(r, r.tasks.map(taskLine).join('\n'));
     }
     case 'pipelines': {

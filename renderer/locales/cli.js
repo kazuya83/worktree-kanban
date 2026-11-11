@@ -27,6 +27,7 @@
   "ブラウザからは使えません": {"en":"This cannot be used from a browser","es":"No se puede usar desde un navegador","fr":"Ceci ne peut pas être utilisé depuis un navigateur","zh":"不能从浏览器使用"},
   "トークンがありません。同じ PC ならアプリを起動し、ほかの PC からはペアリングしてください": {"en":"No token. On the same computer, start the app; from another computer, pair first.","es":"No hay token. En el mismo equipo, inicie la aplicación; desde otro equipo, empareje primero.","fr":"Aucun jeton. Sur le même ordinateur, démarrez l'application ; depuis un autre ordinateur, appairez-vous d'abord.","zh":"没有令牌。在同一台电脑上请启动应用；从其他电脑请先配对。"},
   "この操作は API からは使えません: {channel}": {"en":"This action is not available from the API: {channel}","es":"Esta acción no está disponible desde la API: {channel}","fr":"Cette action n'est pas disponible depuis l'API : {channel}","zh":"不能从 API 使用此操作：{channel}"},
+  "知らない権限モードです: {mode}（{list} のどれか）": {"en":"Unknown permission mode: {mode} (one of {list})","es":"Modo de permisos desconocido: {mode} (uno de {list})","fr":"Mode d'autorisation inconnu : {mode} (l'un de {list})","zh":"未知的权限模式：{mode}（{list} 之一）"},
   "知らない状態です: {status}": {"en":"Unknown status: {status}","es":"Estado desconocido: {status}","fr":"État inconnu : {status}","zh":"未知状态：{status}"},
   "Pipeline が見つかりません: {name}": {"en":"Pipeline not found: {name}","es":"No se encontró el Pipeline: {name}","fr":"Pipeline introuvable : {name}","zh":"找不到 Pipeline：{name}"},
 });

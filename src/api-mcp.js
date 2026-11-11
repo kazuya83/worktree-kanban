@@ -56,6 +56,7 @@ const TOOLS = [
         skill: str('Skill to use'),
         pipeline: str('Run this Pipeline (name or ID) instead of a single agent'),
         read_only: bool('The task does not change the source (no worktree, no file edits)'),
+        permission_mode: { type: 'string', enum: ['default', 'acceptEdits', 'plan', 'bypassPermissions'], description: 'Permission mode for this task only (defaults to the project setting). bypassPermissions runs without asking for any approval. Tasks from Issues / Slack never run with bypassPermissions' },
         start: bool('Start the task right away (default false: stays in Todo)'),
       },
       required: ['prompt'],
@@ -151,7 +152,7 @@ async function callTool(client, name, a = {}) {
     case 'get_task_diff':
       return client.invoke('card:diff', need(a, 'id'));
     case 'create_task':
-      return client.invoke('api:create', { repo: await repo(true), prompt: need(a, 'prompt'), title: a.title, agent: a.agent, model: a.model, skill: a.skill, pipeline: a.pipeline, readOnly: !!a.read_only, start: !!a.start });
+      return client.invoke('api:create', { repo: await repo(true), prompt: need(a, 'prompt'), title: a.title, agent: a.agent, model: a.model, skill: a.skill, pipeline: a.pipeline, readOnly: !!a.read_only, permissionMode: a.permission_mode, start: !!a.start });
     case 'list_pipelines':
       return client.invoke('api:pipelines', { repo: await repo() });
     case 'run_pipeline':
