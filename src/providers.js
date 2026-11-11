@@ -60,6 +60,16 @@ function agentModel(settings, a) {
   return String((settings && settings[d.modelKey]) || '').trim();
 }
 
+// 権限モード（Claude Code の名前）。設定の「権限モード」と、CLI・MCP でタスクごとに選ぶもの
+const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
+// 権限モードの指定を、知っている名前に直す（知らなければ空）。大文字・小文字やハイフンの違いは許す
+function cleanPermissionMode(v) {
+  const k = String(v || '').trim().toLowerCase().replace(/[-_\s]/g, '');
+  if (!k) return '';
+  if (k === 'bypass' || k === 'yolo') return 'bypassPermissions';
+  return PERMISSION_MODES.find((m) => m.toLowerCase() === k) || '';
+}
+
 // 権限モード（Claude Code の名前）を、それぞれの CLI のやり方に直す。
 // Antigravity / Gemini はカードでの承認に対応していないので、自動で許可されない操作は CLI 側で止められる。
 // Codex / Cursor は agent-rpc.js で動かすとカードで承認できる（下は、それが使えないときの起動のしかた）
@@ -1235,6 +1245,8 @@ function defaultAgentOf(settings) {
 
 module.exports = {
   AGENTS,
+  PERMISSION_MODES,
+  cleanPermissionMode,
   AGENT_IDS,
   isAgent,
   agentLabel,

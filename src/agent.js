@@ -15,6 +15,7 @@ const ghCli = require('./gh');
 const ReviewComments = require('./review-comments');
 const { withSkill } = require('./skills');
 const providers = require('./providers');
+const { PERMISSION_MODES, cleanPermissionMode } = providers;
 const AgentRpc = require('./agent-rpc');
 const attachments = require('./attachments');
 const { findSimilarTasks } = require('./similar');
@@ -1267,7 +1268,21 @@ class AgentManager extends EventEmitter {
   // skipSpecCheck: 仕様の確認をしない（誰も見ていないスケジュール実行で、確認のまま止まらないように）
   // scheduleId / scheduleTitle: このタスクを作ったスケジュール
   // slack: Slack から頼まれたタスクの記録 { channel, user, ts, threadTs, userName?, channelName? }（誰がどこから頼んだか）
-  createTask({ title, prompt, issue, session, skill, agent, model, fromChat, attachments: files, readOnly, repoPath, skipSpecCheck, scheduleId, scheduleTitle, slack }) {
+  // permissionMode: このタスクだけの権限モード（CLI・MCP の --permission-mode）。省くとプロジェクトの設定に従う
+  createTask({ permissionMode, ...opts }) {
+    const pm = cleanPermissionMode(permissionMode);
+    if (permissionMode && !pm) throw new Error(tr('知らない権限モードです: {mode}（{list} のどれか）', { mode: permissionMode, list: PERMISSION_MODES.join(' / ') }));
+    const cards = this.createTaskCards(opts);
+    if (pm) {
+      for (const c of cards) {
+        c.permissionMode = pm;
+        this.changed(c);
+      }
+    }
+    return cards;
+  }
+
+  createTaskCards({ title, prompt, issue, session, skill, agent, model, fromChat, attachments: files, readOnly, repoPath, skipSpecCheck, scheduleId, scheduleTitle, slack }) {
     const s = this.store.settings;
     const repo = this.targetRepo(repoPath);
     const extra = { repoPath: repo, skipSpecCheck, scheduleId, scheduleTitle, slack };
@@ -3351,6 +3366,14 @@ class AgentManager extends EventEmitter {
     return parentId ? this.externalOrigin(this.store.card(parentId), depth + 1) : false;
   }
 
+  // タスクごとに決めた権限モード（なければ空）。サブタスク・Pipeline の並列の枝は親のものを使う
+  cardPermissionMode(c, depth = 0) {
+    if (!c || depth > 20) return '';
+    if (c.permissionMode) return cleanPermissionMode(c.permissionMode);
+    const parentId = (c.subtaskOf && c.subtaskOf.parent) || (c.relay && c.relay.branchOf && c.relay.branchOf.parent);
+    return parentId ? this.cardPermissionMode(this.store.card(parentId), depth + 1) : '';
+  }
+
   // ふつうのタスクの権限モード。外から来た指示のタスクは、プロジェクトの設定が「すべて自動で許可」でも使わない。
   // public リポジトリの Issue は誰でも書けるので、悪意のある Issue からコマンドが承認なしで動くのを防ぐ。
   // ファイル編集は worktree の中だけなので自動にし（acceptEdits）、コマンドはカードで確かめる
@@ -3546,7 +3569,9 @@ class AgentManager extends EventEmitter {
     const rs = this.store.repoSettings(c.repoPath); // 権限モード・許可しておくツールは、そのタスクのプロジェクトの設定
     const agent = agentOf(c);
     const label = agentLabel(agent);
-    const mode = afterDone ? 'plan' : chat ? this.chatPermissionMode(rs.permissionMode) : c.readOnly ? this.readOnlyPermissionMode(agentOf(c), rs.permissionMode) : this.taskPermissionMode(c, rs.permissionMode);
+    // タスクごとに権限モードを決めていれば（CLI・MCP の --permission-mode）、プロジェクトの設定より優先する
+    const baseMode = this.cardPermissionMode(c) || rs.permissionMode;
+    const mode = afterDone ? 'plan' : chat ? this.chatPermissionMode(baseMode) : c.readOnly ? this.readOnlyPermissionMode(agentOf(c), baseMode) : this.taskPermissionMode(c, baseMode);
     const prompt = c.pendingPrompt || '';
     // /chrome は claude -p では使えないので、外して --chrome で起動する
     const chromeCmd = agent === 'claude' ? takeChromeCommand(prompt) : { prompt, chrome: false };
