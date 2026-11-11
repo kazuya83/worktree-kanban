@@ -2408,6 +2408,12 @@ $('detailBody').addEventListener('keydown', (e) => {
   if (c) sendReplyAnswer(form, c);
 });
 function logActionClick(e) {
+  const fx = e.target.closest('[data-fixact]');
+  if (fx) {
+    const c = card(state.selected);
+    if (c) fixTaskAction(c, fx.dataset.fixact, fx);
+    return;
+  }
   const sa = e.target.closest('[data-sact]');
   if (sa) {
     const c = card(state.selected);
@@ -2502,7 +2508,7 @@ async function detailAction(e) {
   if (act === 'ciFix') run(() => api.fixCi(c.id));
   if (act === 'reviewFix') run(() => api.fixReviewComments(c.id));
   if (act === 'toTask') newTask({ fromChat: c });
-  if (act === 'fixTask') newTask({ fromChat: c });
+  if (act === 'fixTask') newTask({ fromChat: c, ...(c.fixTaskProposal ? fixTaskDraft(c) : {}) });
   if (act === 'adopt') {
     const others = competitors(c).filter((x) => x.id !== c.id && x.status !== 'done' && !x.afterDone);
     const msg = others.length
@@ -2634,8 +2640,50 @@ function chatActionsHtml(c) {
         ? tr('<div class="d-awaiting"><b>{v}{who} が質問しています</b><small>このすぐ下の欄（または画面のいちばん下の入力欄）に答えを書いて送ると、同じ会話の続きから進めます。</small></div>{v2}', { v: (icon('chat')), who, v2: (replyFormHtml(c)) })
         : '',
     completeBoxHtml(c),
+    fixTaskBoxHtml(c),
   ];
   return parts.join('');
+}
+// 完了したタスクについての会話のあと、チャットの最後に出す「修正タスクを作る」（押すとすぐにカードを作る）
+// エージェントが修正タスクの案（```fix-task）を付けていればその内容で、なければ会話の内容をもとに直すタスクにする
+const fixTaskReady = (c) => !!c && !isChat(c) && c.status === 'done' && !c.afterDone && !!(c.fixTaskProposal || c.afterDoneAt);
+// 今の案（または最後の会話）のあとに、このタスクから作った修正タスク
+function madeFixTask(c) {
+  const since = Math.max((c.fixTaskProposal && c.fixTaskProposal.at) || 0, c.afterDoneAt || 0);
+  return state.board.cards.filter((x) => x.fromChat === c.id && x.createdAt >= since).sort((a, b) => b.createdAt - a.createdAt)[0] || null;
+}
+function fixTaskDraft(c) {
+  const p = c.fixTaskProposal;
+  return {
+    title: (p && p.title) || tr('修正: {title}', { title: c.title }),
+    prompt: p ? p.prompt : tr('完了したタスクのあとの会話で話した内容をもとに、修正してください。'),
+  };
+}
+function fixTaskBoxHtml(c) {
+  if (!fixTaskReady(c)) return '';
+  const made = madeFixTask(c);
+  if (made) {
+    return tr('<div class="d-fix"><b>{v}修正タスク「{title}」を作りました</b><div class="cf-actions"><button class="btn" data-fixact="goto" data-id="{id}">修正タスクを開く</button><button class="btn ghost" data-fixact="edit">もう1つ作る…</button></div></div>', { v: icon('wrench'), title: esc(made.title), id: esc(made.id) });
+  }
+  const d = fixTaskDraft(c);
+  const note = c.fixTaskProposal
+    ? tr('{who} の案で修正タスクを作り、すぐに開始します。このタスクのやりとり（完了後の会話も含む）を引き継ぎます。', { who: esc(agentShort(agentOf(c))) })
+    : tr('完了後の会話の内容をもとに修正タスクを作り、すぐに開始します。このタスクのやりとり（完了後の会話も含む）を引き継ぎます。');
+  return tr('<div class="d-fix"><b>{v}修正が必要なら、このまま修正タスクにできます</b><small>{note}</small><div class="d-fix-title">{title}</div><div class="cf-actions"><button class="btn primary" data-fixact="create">{v}修正タスクを作る</button><button class="btn ghost" data-fixact="edit">内容を直してから作る…</button></div></div>', { v: icon('wrench'), note, title: esc(d.title) });
+}
+async function fixTaskAction(c, act, btn) {
+  if (act === 'goto') return select(btn.dataset.id);
+  const d = fixTaskDraft(c);
+  if (act === 'edit') return newTask({ fromChat: c, title: d.title, prompt: d.prompt });
+  if (act !== 'create' || btn.disabled) return;
+  btn.disabled = true;
+  const persona = c.persona && findCustomAgent(c.persona.id) && !c.relay ? CUSTOM_PREFIX + c.persona.id : '';
+  const agent = persona || (enabledAgents().includes(agentOf(c)) ? agentOf(c) : undefined);
+  const id = await runBusy(tr('修正タスクを作っています…'), () =>
+    api.createCard({ title: d.title, prompt: d.prompt, autoStart: true, session: { mode: 'new' }, skill: state.board.settings.defaultSkill || null, agent, model: agent && !persona ? c.model || '' : undefined, fromChat: c.id, cycleIds: CycleModel.cardCycleIds(c, state.board.cards) }),
+  );
+  btn.disabled = false;
+  if (id) selectNew(id);
 }
 function hasLogActions(c) {
   return !!(c && (c.permissions || []).length);
@@ -3843,8 +3891,8 @@ function newTask(opts = {}) {
       if (!from) bindTaskModeTabs();
       bindMoreOpts($('nMore'), !!from);
       $('nPrompt').focus();
-      if (from) $('nPrompt').value = fromDone ? `${tr('完了したタスクの内容をもとに、次の点を修正してください。')}\n\n` : tr('ここまでの会話の内容をもとに、作業を進めてください。');
-      if (fromDone) $('nTitle').value = tr('修正: {title}', { title: from.title });
+      if (from) $('nPrompt').value = opts.prompt || (fromDone ? `${tr('完了したタスクの内容をもとに、次の点を修正してください。')}\n\n` : tr('ここまでの会話の内容をもとに、作業を進めてください。'));
+      if (fromDone) $('nTitle').value = opts.title || tr('修正: {title}', { title: from.title });
       // Claude Code の会話なら会話そのものを引き継ぐ。それ以外の会話・完了したタスクは、やりとりを指示に添えて渡す
       const fromClaude = from && !fromDone && agentOf(from) === 'claude';
       fillSessionField('n', fromClaude ? { id: from.sessionId, title: tr('会話: {title}', { title: from.title }) } : undefined);
