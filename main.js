@@ -1685,7 +1685,7 @@ app.whenReady().then(async () => {
     }),
   );
   handle('gh:cancel', () => gh.cancel());
-  handle('card:update', ({ id, title, prompt, skill }) => agents.updateCard(id, { title, prompt, skill }));
+  handle('card:update', ({ id, title, prompt, skill, attachments, removeAttachments }) => agents.updateCard(id, { title, prompt, skill, attachments, removeAttachments }));
   handle('card:start', (id) => agents.start(id));
   handle('card:resume', (id) => agents.resume(id));
   handle('card:resumeAll', () => agents.resumeAll(store.settings.repoPath));

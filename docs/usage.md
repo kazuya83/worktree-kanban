@@ -194,7 +194,7 @@ Press "⚡ Choose a skill" to see the available skills as cards. You can choose 
 ![Choosing a skill from cards](images/en/skill-picker.png)
 
 ## Attach files to instructions
-The input boxes for "New task" and "Conversation" (both when starting and for later messages) accept images, PDFs, text, and other files.
+The input boxes for "New task" and "Conversation" (both when starting and for later messages), the follow-up instruction box at the bottom of a task's details (including answers to questions and conversations about a finished task), and the editor on the "Progress" tab of a task that has not started accept images, PDFs, text, and other files.
 
 - There are three ways to attach: **paste** into the box (⌘V / Ctrl+V; screenshots can be pasted directly), **drag and drop**, and the "Attach files" button below the box
 - Attached files are listed below the box (remove them with ×). Up to 10 files, 20 MB in total
@@ -202,7 +202,7 @@ The input boxes for "New task" and "Conversation" (both when starting and for la
   - Claude Code receives images (PNG / JPEG / GIF / WebP, up to 3.5 MB) directly attached to the message
   - Codex / Antigravity / Gemini / Cursor / OpenCode / Copilot / Amp / Pi / Droid, and files other than images, are read from the saved location
 - Files attached from a remote control client are sent to the host and saved there
-- The names of attached images and files appear in the log under your instruction. For a task that has not started, they also appear in the editor on the "Progress" tab. Discarding a task also deletes its attachments
+- The names of attached images and files appear in the log under your instruction. For a task that has not started, they also appear in the editor on the "Progress" tab, where you can remove them with × or add new ones (applied when you press "Save"). Discarding a task also deletes its attachments
 
 ## Create from an Issue
 Press "+ New task", choose "Create from a GitHub Issue" in the tabs at the top, and choose an Issue number and a conversation (session). If you enter several numbers, each becomes a card and they run in parallel. The tab shows the service chosen under "Issue sync" (for GitLab, Linear, and Jira, see [integrations.md](integrations.md)).

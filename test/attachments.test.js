@@ -184,3 +184,57 @@ test('アプリの終了で中断しても、再開するときに添付を渡�
   agents2.resume(c.id);
   assert.deepStrictEqual(c.pendingAttachments, c.attachments);
 });
+
+test('タスクの追加の指示にも添付できる（worktree の外に保存し、Claude には画像をそのまま渡す）', async () => {
+  const { agents, dump, attachDir } = setup();
+  const [c] = agents.createTask({ title: 't', prompt: '最初の指示', agent: 'claude' });
+  agents.start(c.id);
+  await waitFor(() => c.status === 'review' && fs.existsSync(dump));
+  fs.rmSync(dump);
+  agents.send(c.id, 'この画面のとおりに直して', null, [
+    { name: 'after.png', mediaType: 'image/png', data: PNG },
+    { name: 'note.txt', mediaType: 'text/plain', data: TXT },
+  ]);
+  await waitFor(() => c.status === 'review' && fs.existsSync(dump));
+  const content = JSON.parse(fs.readFileSync(dump, 'utf8')).msg.message.content;
+  assert.strictEqual(content[0].type, 'image');
+  assert.match(content[1].text, /この画面のとおりに直して[\s\S]*## 添付ファイル[\s\S]*after\.png[\s\S]*note\.txt/);
+  assert.ok(content[1].text.includes(path.join(attachDir, c.id)), '添付の置き場所のパスを書き足す');
+  const u = c.logs.filter((l) => l.kind === 'user').pop();
+  assert.deepStrictEqual(u.attachments.map((a) => a.name), ['after.png', 'note.txt']);
+  assert.ok(!c.worktreePath || !content[1].text.includes(c.worktreePath), 'worktree の中には置かない');
+});
+
+test('開始前のタスクは、編集で添付を足したり外したりできる', async () => {
+  const { agents, dump, attachDir } = setup();
+  const [c] = agents.createTask({ title: 't', prompt: 'ロゴを差し替えて', agent: 'claude', attachments: [{ name: 'old.png', mediaType: 'image/png', data: PNG }] });
+  const oldPath = c.attachments[0].path;
+  // 足すだけ
+  agents.updateCard(c.id, { attachments: [{ name: 'memo.txt', mediaType: 'text/plain', data: TXT }] });
+  assert.deepStrictEqual(c.attachments.map((a) => a.name), ['old.png', 'memo.txt']);
+  assert.ok(c.attachments[1].path.startsWith(path.join(attachDir, c.id)));
+  // 外す（ファイルも消す）と足すを一度に
+  agents.updateCard(c.id, { removeAttachments: [oldPath], attachments: [{ name: 'new.png', mediaType: 'image/png', data: PNG }] });
+  assert.deepStrictEqual(c.attachments.map((a) => a.name), ['memo.txt', 'new.png']);
+  assert.ok(!fs.existsSync(oldPath));
+  // 上限は付いているものと合わせて数える
+  const many = Array.from({ length: att.MAX_FILES - 1 }, (_, i) => ({ name: `f${i}.txt`, data: TXT }));
+  assert.throws(() => agents.updateCard(c.id, { attachments: many }), /10 個まで/);
+  assert.strictEqual(c.attachments.length, 2, '上限を超えたら何も変えない');
+  // 開始すると、編集した添付を渡す
+  agents.start(c.id);
+  await waitFor(() => c.status === 'review' && fs.existsSync(dump));
+  const content = JSON.parse(fs.readFileSync(dump, 'utf8')).msg.message.content;
+  assert.strictEqual(content[0].type, 'image');
+  assert.match(content[1].text, /memo\.txt[\s\S]*new\.png/);
+  assert.doesNotMatch(content[1].text, /old\.png/);
+  // 開始したあとは編集できない
+  assert.throws(() => agents.updateCard(c.id, { attachments: [{ name: 'x.txt', data: TXT }] }), /開始前のタスクだけ編集できます/);
+});
+
+test('開始前の編集で添付を全部外すと、添付なしになる', () => {
+  const { agents } = setup();
+  const [c] = agents.createTask({ title: 't', prompt: 'x', agent: 'claude', attachments: [{ name: 'a.png', mediaType: 'image/png', data: PNG }] });
+  agents.updateCard(c.id, { removeAttachments: [c.attachments[0].path] });
+  assert.strictEqual(c.attachments, undefined);
+});

@@ -2552,12 +2552,16 @@ class AgentManager extends EventEmitter {
     return c.issue ? `agent: ${IssueRef.stripKey(c.title, c.issue)} (${IssueRef.keyOf(c.issue)})` : `agent: ${c.title}`;
   }
 
-  // タイトルはいつでも変えられる（ブランチ名は開始したときのまま）。最初の指示とスキルは開始前だけ
-  updateCard(id, { title, prompt, skill }) {
+  // タイトルはいつでも変えられる（ブランチ名は開始したときのまま）。最初の指示・スキル・添付ファイルは開始前だけ
+  // attachments: 足す添付 [{ name, mediaType, data(base64) }] / removeAttachments: 外す添付のパス（c.attachments の path）
+  updateCard(id, { title, prompt, skill, attachments: files, removeAttachments }) {
     const c = this.must(id);
-    const body = prompt !== undefined || skill !== undefined;
+    const addFiles = Array.isArray(files) && files.length > 0;
+    const removing = Array.isArray(removeAttachments) && removeAttachments.length > 0;
+    const body = prompt !== undefined || skill !== undefined || addFiles || removing;
     if (body && c.status !== 'todo') throw new Error(tr('開始前のタスクだけ編集できます'));
     if (title !== undefined && !body && !(typeof title === 'string' && title.trim())) throw new Error(tr('タイトルを入力してください'));
+    if (addFiles || removing) this.editCardAttachments(c, files, removeAttachments);
     if (skill !== undefined) c.skill = cleanSkill(skill);
     if (typeof title === 'string' && title.trim()) {
       // 一度動かしたあとは、エージェントが知っているタイトルを残しておき、このあとの指示にはそちらを使う
@@ -2601,6 +2605,32 @@ class AgentManager extends EventEmitter {
     // 仕様の確認中の答えには、続けて判断してもらうための一言を添える
     const body = this.withAttachments(c, inSpecCheck(c) ? `${message.trim()}\n\n${SPEC_FOLLOW_NOTE}` : message.trim(), atts);
     this.enqueue(c, promptWithSkill(agentOf(c), skill, body), atts);
+  }
+
+  // 開始前のタスクの添付ファイルを足す・外す（合わせて、最初に作るときと同じ上限まで）
+  editCardAttachments(c, files, remove) {
+    const drop = new Set(Array.isArray(remove) ? remove.filter((x) => typeof x === 'string') : []);
+    const keep = (c.attachments || []).filter((a) => !drop.has(a.path));
+    const parsed = attachments.parseAttachments(files);
+    if (keep.length + parsed.length > attachments.MAX_FILES) throw new Error(tr('添付できるファイルは {MAX_FILES} 個までです', { MAX_FILES: attachments.MAX_FILES }));
+    const total = keep.reduce((n, a) => n + (a.size || 0), 0) + parsed.reduce((n, a) => n + a.buf.length, 0);
+    if (total > attachments.MAX_TOTAL_BYTES) throw new Error(tr('添付ファイルが大きすぎます（合わせて {fmtSize} まで）', { fmtSize: attachments.fmtSize(attachments.MAX_TOTAL_BYTES) }));
+    // 外したファイルは、このカードの置き場所にあるものだけ消す（親から引き継いだ添付は消さない）
+    const own = attachments.cardDir(this.attachRoot, c.id) + path.sep;
+    for (const a of (c.attachments || []).filter((x) => drop.has(x.path))) {
+      if (!a.path || !a.path.startsWith(own)) continue;
+      try {
+        fs.rmSync(a.path, { force: true });
+      } catch {
+        /* 消せなくても続ける */
+      }
+    }
+    // 名前が重ならないように、新しいものは別のフォルダに保存する（saveAttachments が毎回フォルダを分ける）
+    const added = attachments.saveAttachments(this.attachRoot, c.id, parsed);
+    const next = [...keep, ...added];
+    if (next.length) c.attachments = next;
+    else delete c.attachments;
+    delete c.attachmentsParsed; // 最初のログに出す画像は、保存したファイルから読み直す
   }
 
   // 添付を、このカードの置き場所に保存してカードに記録する（最初の指示の添付）

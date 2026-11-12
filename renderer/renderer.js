@@ -2101,11 +2101,45 @@ function progressHtml(c) {
 function bindPromptEdit(c) {
   const box = $('progressEdit');
   if (!box) return;
-  box.innerHTML = tr('<section class="pg-sec">\n      <div class="pg-sec-head"><b>開始する前に編集</b></div>\n      <label class="field"><span>タイトル</span><input id="editTitle" value="{title}" /></label>\n      <div class="field"><span>最初の指示</span><div id="editSkill" class="skill-slot"></div><textarea id="editPrompt" rows="10">{prompt}</textarea>{v}</div>\n      <button class="btn primary" id="saveEdit">保存</button>\n    </section>\n    <div id="subEditSlot"></div>', { title: (esc(c.title)), prompt: (esc(c.prompt)), v: (c.attachments && c.attachments.length ? tr('<small class="muted">添付ファイル</small>{v}', { v: (attachFilesHtml(c.attachments, { all: true })) }) : '') });
+  box.innerHTML = tr('<section class="pg-sec">\n      <div class="pg-sec-head"><b>開始する前に編集</b></div>\n      <label class="field"><span>タイトル</span><input id="editTitle" value="{title}" /></label>\n      <div class="field"><span>最初の指示</span><div id="editSkill" class="skill-slot"></div><textarea id="editPrompt" rows="10">{prompt}</textarea><div id="editAttachNow"></div><div id="editAttach" class="attach-bar"></div></div>\n      <button class="btn primary" id="saveEdit">保存</button>\n    </section>\n    <div id="subEditSlot"></div>', { title: (esc(c.title)), prompt: (esc(c.prompt)) });
   let editSkill = c.skill || null;
   const drawEditSkill = () => renderSkillSlot('editSkill', editSkill, (v) => ((editSkill = v), drawEditSkill()), { disabled: false });
   drawEditSkill();
-  $('saveEdit').onclick = () => runBusy(tr('保存しています…'), () => api.updateCard({ id: c.id, title: $('editTitle').value, prompt: $('editPrompt').value, skill: editSkill || '' }), tr('保存しました'));
+  // 付いている添付ファイル（× で外す。保存したときに外れる）と、新しく足す添付ファイル
+  // 一覧は保存したあとにホストから届いた内容で描き直す（renderProgress から _sync で呼ぶ）
+  const removed = new Set();
+  let nowSig = null;
+  const drawNow = () => {
+    const el = $('editAttachNow');
+    if (!el) return;
+    const now = ((card(c.id) || c).attachments || []).filter((a) => !removed.has(a.path));
+    const sig = JSON.stringify(now.map((a) => a.path));
+    if (sig === nowSig) return;
+    nowSig = sig;
+    el.innerHTML = now.length
+      ? tr('<small class="muted">添付ファイル</small>{v}', { v: `<div class="attach-files">${now.map((a) => tr('<span class="attach-chip" title="{path}">{v}<span class="attach-name">{name}</span><span class="muted">{size}</span><button type="button" class="chip-x" data-path="{path}" title="添付を外す">×</button></span>', { path: esc(a.path || a.name), v: icon(IMG_TYPES.has(a.mediaType) ? 'image' : 'file'), name: esc(a.name), size: fmtBytes(a.size || 0) })).join('')}</div>` })
+      : '';
+    el.querySelectorAll('.chip-x').forEach((b) => {
+      b.onclick = () => {
+        removed.add(b.dataset.path);
+        drawNow();
+      };
+    });
+  };
+  drawNow();
+  const editAttach = attachField({ box: $('editAttach'), input: $('editPrompt'), drop: $('editPrompt').closest('.field') });
+  $('saveEdit').onclick = async () => {
+    const files = editAttach.list();
+    const ok = await runBusy(tr('保存しています…'), () => api.updateCard({ id: c.id, title: $('editTitle').value, prompt: $('editPrompt').value, skill: editSkill || '', attachments: files.length ? files : undefined, removeAttachments: removed.size ? [...removed] : undefined }).then(() => true), tr('保存しました'));
+    if (ok) {
+      // 外したものはホストでも外れたので、一覧はホストから届く内容に任せる（入力中のタイトル・指示はそのまま）
+      removed.clear();
+      editAttach.clear();
+      nowSig = null;
+      drawNow();
+    }
+  };
+  $('editAttachNow')._sync = drawNow;
 }
 // 開始する前にサブタスクを足す・直す欄（サブタスクがあれば「サブタスク」タブ、なければ「進捗」タブに出す）
 function bindSubEdit(c, slot) {
@@ -2141,6 +2175,7 @@ function renderProgress(c, { force = false } = {}) {
     if (editable) bindPromptEdit(c);
   }
   syncProgressSubEdit(c);
+  $('editAttachNow')?._sync?.();
   const html = progressHtml(c);
   // 経過時間は1秒ごとに書き換わるので、比べるときは除く
   const sig = html.replace(/(<span class="elapsed"[^>]*>)[^<]*/g, '$1');
@@ -3603,22 +3638,19 @@ function onSendKey(el, send) {
   });
 }
 
-// 会話の入力欄にだけ、添付ファイルを付けられる（タスクの追加の指示には付けない）
+// 会話のメッセージにも、タスクの追加の指示（質問への返事・完了後の会話も）にも、添付ファイルを付けられる
 const followAttach = attachField({
   box: $('followAttach'),
   input: $('followInput'),
   drop: $('detailFoot'),
-  enabled: () => {
-    const c = card(state.selected);
-    return isChat(c) && canSendFollow(c);
-  },
+  enabled: () => canSendFollow(card(state.selected)),
 });
 
 async function sendFollow() {
   const c = card(state.selected);
   const msg = $('followInput').value.trim();
   if (!c || !msg) return;
-  const files = isChat(c) ? followAttach.list() : [];
+  const files = followAttach.list();
   const ok = await run(() => api.send(c.id, msg, waitingAnswer(c) ? null : state.followSkill, files.length ? files : undefined).then(() => true));
   if (ok) {
     $('followInput').value = '';
