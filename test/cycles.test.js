@@ -258,7 +258,7 @@ test('つなぎ: main・preload・遠隔操作・画面のスクリプト', () =
     assert.ok(isProxyChannel(ch), `遠隔操作ではホストで行う: ${ch}`);
   }
   assert.match(main, /cycles: store\.cyclesOf\(store\.settings\.repoPath\)/);
-  assert.match(main, /'weeklyResetTime', 'cycleView'\]/);
+  assert.match(main, /'weeklyResetTime', 'cycleView'[,\]]/);
   assert.match(main, /cycleApi\.assignNew\(cards\.map\(\(c\) => c\.id\), cycleIds\)/);
   const preload = read('preload.js');
   for (const fn of ['createCycle', 'updateCycle', 'deleteCycle', 'setCardCycles']) assert.match(preload, new RegExp(`${fn}: `));

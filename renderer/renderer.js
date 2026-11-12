@@ -586,10 +586,19 @@ function spriteInfo(c) {
   else label = tr('開始を待っています');
   const detail = progress.now ? `▶ ${progress.now}` : c.lastMessage && mood !== 'done' ? plainText(c.lastMessage) : '';
   const { kind, color } = AgentSprite.characterFor({ agent: agentOf(c), persona: c.persona, character: c.character });
-  return { mood, tool, label, detail, progress, kind, color };
+  const scene = AgentSprite.sceneFor(state.board.settings && state.board.settings.progressScene, c.id);
+  return { mood, tool, label, detail, progress, kind, color, scene };
 }
 // ボードのカードに出すのは、始めたあとのタスク（実行中・待ち・レビュー・完了・失敗）。
 // カードではチャットの最後の一言の代わりに、このロボットを出す（チャットのカードは一言のまま）
+// 設定の「進捗のアニメーション」の選択肢（並びは AgentSprite.SCENE_SETTINGS と同じ）
+const PROGRESS_SCENES = [
+  ['random', tr('ランダム（タスクごとに変わる）')],
+  ['quest', tr('冒険（旗の並ぶ道を進む）')],
+  ['dance', tr('ダンス（スポットライトの下で踊る）')],
+  ['garden', tr('ガーデニング（TODO ごとに花が咲く）')],
+  ['space', tr('宇宙（ロケットで星をめぐる）')],
+];
 function showCardSprite(c) {
   return !isChat(c) && c.status !== 'todo';
 }
@@ -5011,6 +5020,9 @@ function renderSettingsView() {
       <label class="field"><span>${tr('スプリントの表示')}</span>
         <select id="sCycleView">${[['top', tr('ボードの上にタブで並べて切り替える')], ['sidebar', tr('ボードの左のサイドバーで切り替える')], ['lanes', tr('切り替えずに、列の中をスプリントごとの段（スイムレーン）に分ける')]].map(([v, l]) => `<option value="${v}" ${CycleModel.cleanCycleView(s.cycleView) === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
         <small>${tr('スプリントは、期間とゴールを持つタスクのまとまりです（プロジェクトごと）。ボードの「＋ スプリント」から作れます。')}</small></label>
+      <label class="field"><span>${tr('進捗のアニメーション')}</span>
+        <select id="sProgressScene">${PROGRESS_SCENES.map(([v, l]) => `<option value="${v}" ${AgentSprite.cleanScene(s.progressScene) === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+        <small>${tr('ボードのカードと「進捗」タブで、エージェントが動くアニメーションです。「ランダム」にすると、タスクごとにどれかを選びます（同じタスクはいつも同じ）。')}</small></label>
       <label class="check"><input type="checkbox" id="sSuggestSkills" ${s.suggestSkillsOnDone !== false ? 'checked' : ''} /> ${tr('タスクが完了したとき、前に完了したタスクと似た作業が続いていたら、スキルにしないか通知で聞く（右上のベル）')}</label>
       <label class="check"><input type="checkbox" id="sDeleteSessions" ${s.deleteSessionsOnMerge !== false ? 'checked' : ''} /> ${tr('マージして完了したら、そのタスクの作業に使った Claude Code の会話（セッション）を消す（引き継いだ元の会話は残します）')}</label>`,
     update: `<div id="updPanel" class="gh-panel upd-panel">${updatePanelHtml(state.update)}</div>`,
@@ -5710,6 +5722,7 @@ ${tr('読めなかったファイル: {v1}', { v1: (parsed.skipped.join(tr('、'
         maxParallel: $('sMax').value,
         // 変えたときだけ送る（古い版のホストは知らない設定を受け取らないので、変えていなければエラーにしない）
         ...($('sCycleView').value !== CycleModel.cleanCycleView(s.cycleView) ? { cycleView: $('sCycleView').value } : {}),
+        ...($('sProgressScene').value !== AgentSprite.cleanScene(s.progressScene) ? { progressScene: $('sProgressScene').value } : {}),
         model: $('sModel').value.trim(),
         claudePath: $('sClaude').value.trim() || 'claude',
         codexPath: $('sCodex').value.trim() || 'codex',

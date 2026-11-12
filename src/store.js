@@ -326,6 +326,8 @@ const DEFAULT_SETTINGS = {
   apiPort: 47821, // API の待ち受けポート（127.0.0.1）。ふさがっていたら空いているポートを使う
   apiDevices: [], // ペアリングしたほかの PC（トークンは SHA-256 だけ）
   // ---- サイクル（期間とゴールを持つ、タスクのまとまり） ----
+  // ---- 進捗のアニメーション（renderer/agent-sprite.js の SCENES） ----
+  progressScene: 'random', // 'random' = タスクごとにランダム / 'quest' / 'dance' / 'garden' / 'space'
   cycleView: 'top', // 'top' = ボードの上のタブ / 'sidebar' = 左のサイドバー / 'lanes' = 列の中をサイクルごとの段に分ける
 };
 
