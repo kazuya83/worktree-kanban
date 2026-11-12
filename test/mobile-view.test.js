@@ -57,7 +57,7 @@ test('Markdown: DOM は textContent と setAttribute だけで組み立てる（
   assert.strictEqual(wrap.kids[1].kids[0].textContent, '<script>');
 });
 
-test('チャットの並べ方: ツールの結果は呼び出しにまとめ、チャットは最後の返事だけ（実行中は出さない）', () => {
+test('チャットの並べ方: ツールの結果は呼び出しにまとめ、チャットは途中も含めた返事を出す', () => {
   const logs = [
     { kind: 'user', text: 'やって' },
     { kind: 'text', text: '考え中' },
@@ -72,8 +72,9 @@ test('チャットの並べ方: ツールの結果は呼び出しにまとめ、
   assert.strictEqual(items[2].result.text, 'ok');
   assert.deepStrictEqual(items.map((x) => !!x.head), [false, true, false, false, false, true]);
   const fin = Chat.final(logs, 'claude', false);
-  assert.deepStrictEqual(fin.map((x) => [x.type, x.entry.text]), [['user', 'やって'], ['assistant', '終わりました'], ['assistant', '追記']]);
-  assert.strictEqual(Chat.final(logs, 'claude', true).length, 2, '実行中の途中の返事は出さない');
+  assert.deepStrictEqual(fin.map((x) => [x.type, x.entry.text]), [['user', 'やって'], ['assistant', '考え中'], ['assistant', '終わりました'], ['assistant', '追記']]);
+  assert.deepStrictEqual(fin.map((x) => !!x.head), [false, true, false, true], '名前はまとまりの最初と、エージェントが替わったときだけ');
+  assert.strictEqual(Chat.final(logs.slice(0, 2), 'claude', true).length, 2, '実行中も途中の返事を出す');
   const live = [];
   assert.strictEqual(Chat.push(live, { kind: 'tool', text: 'Read  a.js' }, 'claude').op, 'append');
   assert.strictEqual(Chat.push(live, { kind: 'tool_error', text: 'x' }, 'claude').op, 'replace');

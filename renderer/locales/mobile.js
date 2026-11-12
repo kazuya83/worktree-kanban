@@ -47,7 +47,7 @@
   "画像（{v}）": {"en":"Image ({v})","es":"Imagen ({v})","fr":"Image ({v})","zh":"图片（{v}）"},
   "（出力はありません）": {"en":"(no output)","es":"(sin salida)","fr":"(aucune sortie)","zh":"（没有输出）"},
   "（結果はまだありません）": {"en":"(no result yet)","es":"(aún sin resultado)","fr":"(pas encore de résultat)","zh":"（还没有结果）"},
-  "{v} が作業しています…（途中の様子は「ログ」で見られます）": {"en":"{v} is working… (see “Log” for progress)","es":"{v} está trabajando… (consulta el progreso en «Registro»)","fr":"{v} travaille… (voir la progression dans « Journal »)","zh":"{v} 正在工作…（可在「日志」中查看进展）"},
+  "{v} が作業しています…（ツールの動きは「ログ」で見られます）": {"en":"{v} is working… (tool activity is in “Log”)","es":"{v} está trabajando… (la actividad de herramientas está en «Registro»)","fr":"{v} travaille… (l’activité des outils est dans « Journal »)","zh":"{v} 正在工作…（工具的操作可在「日志」中查看）"},
   "まだログはありません": {"en":"No log yet","es":"Aún no hay registro","fr":"Pas encore de journal","zh":"还没有日志"},
   "差分を読めませんでした": {"en":"Could not load the diff","es":"No se pudo cargar el diff","fr":"Impossible de charger le diff","zh":"无法读取差异"},
   "変更はまだありません": {"en":"No changes yet","es":"Aún no hay cambios","fr":"Aucun changement pour l’instant","zh":"还没有变更"},
