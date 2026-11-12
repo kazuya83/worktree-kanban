@@ -844,6 +844,8 @@ class AgentManager extends EventEmitter {
     for (const c of this.store.cards) {
       c.permissions = [];
       c.questions = [];
+      c.bgWaiting = false;
+      c.bgTasks = [];
       if (c.conflict) c.conflict.resolving = false;
       // 完了したタスクについての会話が途中だった: タスクは「完了」のまま（もう一度送れば続きを話せる）
       if (c.afterDone && (c.status === 'queued' || c.status === 'running')) {
@@ -2593,6 +2595,21 @@ class AgentManager extends EventEmitter {
       this.replyToQuestions(c, this.withAttachments(c, message.trim(), atts));
       return;
     }
+    // ターンを終えて、バックグラウンドの作業（run_in_background のコマンドなど）を待っているあいだは、
+    // 動いているエージェントにそのまま次のメッセージとして渡す（終わるのを待たなくてよい）
+    const bgRun = this.backgroundRun(c);
+    if (bgRun) {
+      skill = cleanSkill(skill);
+      const parsed = attachments.parseAttachments(files);
+      const atts = attachments.saveAttachments(this.attachRoot, c.id, parsed);
+      this.log(c, 'user', message.trim(), userLogExtra(skill, atts, parsed));
+      const body = this.withAttachments(c, message.trim(), atts);
+      clearTimeout(bgRun.idleTimer);
+      this.writeMessage(bgRun, promptWithSkill(agentOf(c), skill, body), null, attachments.imageBlocks(atts));
+      c.bgWaiting = false;
+      this.changed(c);
+      return;
+    }
     if (!['review', 'failed', 'done'].includes(c.status)) throw new Error(tr('実行中・待機中は追加指示を送れません'));
     if (c.relay && c.relay.waiting) throw new Error(c.conflict ? tr('合流でのコンフリクトを、上の「コンフリクト」の欄から解消してください') : tr('Pipelineの並列の枝が終わるのを待っています。直したいときは、枝のタスクに追加指示を送ってください'));
     if (c.subtasks && c.subtasks.phase === 'run') throw new Error(c.conflict ? tr('サブタスクのマージでのコンフリクトを、上の「コンフリクト」の欄から解消してください') : tr('サブタスクが終わるのを待っています。直したいときは、サブタスクに追加指示を送ってください'));
@@ -3683,7 +3700,7 @@ class AgentManager extends EventEmitter {
     this.procs.set(c.id, child);
     // sent: stdin に書いたメッセージ（acked = claude が受け取ったことをリプレイで確認済み）
     // costUsd: この起動で足した金額（ACP の usage_update から）
-    const run = { agent, resultError: null, finished: false, child, sent: [], stdinClosed: false, idleTimer: null, costUsd: 0 };
+    const run = { agent, resultError: null, finished: false, child, sent: [], stdinClosed: false, idleTimer: null, costUsd: 0, bgTasks: [], turnOver: false };
     if (rpcKind) {
       run.rpcKind = rpcKind;
       run.rpc = AgentRpc.createRpcSession(rpcKind, {
@@ -3758,6 +3775,8 @@ class AgentManager extends EventEmitter {
       }
       this.procs.delete(c.id);
       this.runs.delete(c.id);
+      c.bgWaiting = false;
+      c.bgTasks = [];
       // 受け取られないまま終わった btw は「届かなかった」にする（終了後の追加指示待ち follow は残す）
       for (const m of c.btw || []) if (m.state === 'sent') m.state = 'lost';
       this.denyAllPending(c.id, tr('エージェントが終了しました'));
@@ -3951,13 +3970,21 @@ class AgentManager extends EventEmitter {
     }
     switch (ev.type) {
       case 'system':
+        if (ev.subtype === 'background_tasks_changed') {
+          this.onBackgroundTasks(c, run, ev.tasks);
+          break;
+        }
         if (ev.subtype === 'init') {
+          run.turnOver = false; // バックグラウンドの作業の知らせで、次のターンが始まるときにも来る
           if (ev.session_id) this.recordSession(c, ev.session_id);
           this.log(c, 'system', tr('セッション開始（モデル: {model} / 権限モード: {mode}）', { model: ev.model || tr('不明'), mode: ev.permissionMode || tr('不明') }));
           this.changed(c);
         }
         break;
       case 'assistant':
+        // バックグラウンドの作業が終わった知らせや、待っているあいだに送ったメッセージで、次のターンが始まった
+        run.turnOver = false;
+        if (c.bgWaiting) c.bgWaiting = false;
         for (const b of (ev.message && ev.message.content) || []) {
           if (b.type === 'text' && b.text && b.text.trim()) {
             // 仕様の確認の印は覚えておいて、画面には出さない
@@ -4128,12 +4155,46 @@ class AgentManager extends EventEmitter {
 
   // 1ターン終わったとき: まだ受け取られていない btw がなければ stdin を閉じて終わらせる。
   // あれば、claude がそれを次のターンとして処理するのを待つ
+  // バックグラウンドの作業（run_in_background のコマンド・Monitor など）が残っているときは、stdin を開けたまま待つ。
+  // claude はその作業が終わると、知らせを受けて次のターンを動かす。待っているあいだは、追加の指示を送れる
   afterResult(c, run, isError) {
     clearTimeout(run.idleTimer);
+    run.turnOver = true;
     const waiting = run.sent.some((x) => !x.acked);
+    if (!isError && !waiting && run.bgTasks.length) {
+      c.bgWaiting = true;
+      this.changed(c);
+      return;
+    }
     if (!waiting || isError) return this.closeInput(run);
     // 念のため、しばらく何も起きなければ閉じる
     run.idleTimer = setTimeout(() => this.closeInput(run), 15000);
+  }
+
+  // claude のバックグラウンドの作業の一覧が変わった
+  onBackgroundTasks(c, run, tasks) {
+    run.bgTasks = (Array.isArray(tasks) ? tasks : []).map((t) => ({ id: String(t.task_id || ''), description: truncate(String(t.description || ''), 200), type: String(t.task_type || '') }));
+    c.bgTasks = run.bgTasks;
+    if (!run.bgTasks.length && run.turnOver && !run.stdinClosed) {
+      // ターンを終えたあとで、待っていた作業がなくなった。ふつうは知らせを受けて次のターンが始まるので、しばらく待ってから閉じる
+      c.bgWaiting = false;
+      clearTimeout(run.idleTimer);
+      run.idleTimer = setTimeout(() => {
+        if (run.turnOver && !run.bgTasks.length && !run.sent.some((x) => !x.acked)) this.closeInput(run);
+      }, 30000);
+    }
+    this.changed(c);
+  }
+
+  /**
+   * ターンを終えて、バックグラウンドの作業を待っている claude の実行（なければ null）。
+   * このあいだは、追加の指示をそのまま次のメッセージとして渡せる
+   */
+  backgroundRun(c) {
+    if (!c || c.status !== 'running' || !c.bgWaiting) return null;
+    const run = this.runs && this.runs.get(c.id);
+    if (!run || run.finished || run.stdinClosed || run.rpc || run.parser || !run.turnOver || !run.bgTasks.length) return null;
+    return run;
   }
 
   closeInput(run) {

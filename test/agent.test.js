@@ -656,6 +656,43 @@ test('btw: 実行中のエージェントにメッセージを送ると、今の
   }
 });
 
+test('バックグラウンドの作業を待っているあいだも、追加の指示を送れる', async () => {
+  const { store, agents } = setup();
+  store.settings.permissionMode = 'bypassPermissions';
+  process.env.FAKE_BG_MS = '2500';
+  try {
+    const c = agents.createCard({ title: 'bg', prompt: '裏で待つ [bg]' });
+    agents.start(c.id);
+    // ターンは終わったが、バックグラウンドの作業が残っているので実行中のまま待つ
+    await waitFor(() => c.bgWaiting);
+    assert.strictEqual(c.status, 'running');
+    assert.deepStrictEqual(c.bgTasks.map((t) => t.description), ['Sleep then echo']);
+    // 待っているあいだに送った指示は、次のメッセージとしてすぐ渡す
+    agents.send(c.id, '待っているあいだの指示', null);
+    assert.strictEqual(c.bgWaiting, false);
+    await waitFor(() => /done \(allow\)/.test(c.lastMessage || ''));
+    assert.strictEqual(c.status, 'running', '作業はまだ残っている');
+    assert.match(await agents.diff(c.id), /待っているあいだの指示/);
+    // 作業が終わると知らせを受けて続きを進め、そのあとで終わる
+    await waitFor(() => c.status === 'review');
+    assert.strictEqual(c.lastMessage, 'bg finished');
+    assert.strictEqual(c.bgWaiting, false);
+    assert.deepStrictEqual(c.bgTasks, []);
+  } finally {
+    delete process.env.FAKE_BG_MS;
+  }
+});
+
+test('バックグラウンドの作業がなければ、ターンを終えたらそのまま終わる', async () => {
+  const { store, agents } = setup();
+  store.settings.permissionMode = 'bypassPermissions';
+  const c = agents.createCard({ title: 'nobg', prompt: 'ふつう' });
+  agents.start(c.id);
+  await waitFor(() => c.status === 'review');
+  assert.ok(!c.bgWaiting);
+  assert.throws(() => agents.send(c.id, ''), /追加指示を入力/);
+});
+
 test('会話（セッション）: 既存の会話を引き継ぐ・新しい会話にする・カードの会話に戻る', async () => {
   const { store, agents } = setup();
   store.settings.permissionMode = 'bypassPermissions';

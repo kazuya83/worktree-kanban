@@ -51,6 +51,7 @@ async function askPermission(configPath, toolName, input) {
 const streamIn = opt('--input-format') === 'stream-json';
 const inbox = []; // まだ処理していないメッセージ
 let inputEnded = false;
+let bgPending = 0; // 終わるのを待っているバックグラウンドの作業（本物は、stdin が閉じられても終わるまで待つ）
 let wake = null;
 const notify = () => {
   if (wake) {
@@ -87,7 +88,7 @@ function startInput() {
 }
 async function nextMessage() {
   while (!inbox.length) {
-    if (inputEnded) return null;
+    if (inputEnded && !bgPending) return null;
     await new Promise((r) => (wake = r));
   }
   return inbox.shift();
@@ -95,6 +96,28 @@ async function nextMessage() {
 
 // ---- 1ターン分の作業 ----
 async function turn(prompt, sessionId) {
+  // バックグラウンドの作業が終わった知らせ（本物は task_notification を受けて次のターンを動かす）
+  if (prompt === '[bg-done]') {
+    out({ type: 'assistant', message: { content: [{ type: 'text', text: 'bg finished' }] } });
+    out({ type: 'result', subtype: 'success', is_error: false, result: 'bg finished', session_id: sessionId, total_cost_usd: 0, duration_ms: 10 });
+    return;
+  }
+  // [bg] があれば、run_in_background のコマンドを動かしてターンを終える（FAKE_BG_MS のあとで終わる）
+  if (prompt.includes('[bg]')) {
+    out({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_bg', name: 'Bash', input: { command: 'sleep 1', run_in_background: true } }] } });
+    bgPending++;
+    out({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'bg1', task_type: 'local_bash', description: 'Sleep then echo' }], session_id: sessionId });
+    out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_bg', content: 'Command running in background with ID: bg1' }] } });
+    out({ type: 'assistant', message: { content: [{ type: 'text', text: 'started' }] } });
+    out({ type: 'result', subtype: 'success', is_error: false, result: 'started', session_id: sessionId, total_cost_usd: 0, duration_ms: 10 });
+    setTimeout(() => {
+      bgPending--;
+      out({ type: 'system', subtype: 'background_tasks_changed', tasks: [], session_id: sessionId });
+      inbox.push('[bg-done]');
+      notify();
+    }, Number(process.env.FAKE_BG_MS || 1500));
+    return;
+  }
   out({ type: 'assistant', message: { content: [{ type: 'text', text: `了解: ${prompt}` }] } });
   if (process.env.FAKE_SLEEP) await sleep(Number(process.env.FAKE_SLEEP));
 

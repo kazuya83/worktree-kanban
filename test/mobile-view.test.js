@@ -112,6 +112,9 @@ test('カードの見方: 列・確認待ち・バッジ・動かせる列・入
   assert.strictEqual(BM.composerMode(cards[3]), 'send');
   assert.strictEqual(BM.composerMode(cards[0]), 'off');
   assert.strictEqual(BM.composerMode({ status: 'done', afterDone: true }), 'off');
+  // バックグラウンドの作業を待っているあいだは、追加指示として送る（質問の返事を待っているときは、今までどおり btw）
+  assert.strictEqual(BM.composerMode({ status: 'running', bgWaiting: true }), 'send');
+  assert.strictEqual(BM.composerMode({ status: 'running', bgWaiting: true, questions: [{ id: 'q' }] }), 'btw');
   assert.deepStrictEqual([...BM.unreadCardIds([{ cardId: 'a' }, { cardId: 'b', read: true }, { id: 'n' }])], ['a']);
   I18n.setLanguage('en');
   assert.deepStrictEqual(m.badge(cards[2]), ['waiting', 'Waiting for approval']);
