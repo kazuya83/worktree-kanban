@@ -94,6 +94,31 @@ test('buildPickMessage: 英語のときは見出しも英語になる', () => {
   assert.match(msg, /- Screenshot: s\.png/);
 });
 
+test('buildPickMessage: ペンで囲んだ範囲は、範囲・中にある部品・まとめた HTML を書く', () => {
+  const pick = {
+    kind: 'area',
+    url: 'http://localhost:20010/',
+    rect: { x: 40, y: 60, width: 300, height: 120 },
+    viewport: { width: 1024, height: 700 },
+    text: 'タイトル\n 説明',
+    elements: [
+      { tag: 'h1', selector: 'header > h1', html: '<h1>タイトル</h1>' },
+      { tag: 'p', selector: 'header > p', html: '<p>説明</p>' },
+    ],
+    more: 3,
+  };
+  const msg = BV.buildPickMessage('ここを詰めて', [{ pick, shotName: 'design-a.png' }]);
+  assert.match(msg, /### 1\. ペンで囲んだ範囲/);
+  assert.match(msg, /x=40, y=60, 300×120px/);
+  assert.match(msg, /- スクリーンショット: design-a\.png（赤い線で囲んだところ）/);
+  assert.match(msg, /- 文字: タイトル 説明/);
+  assert.match(msg, /囲んだ中にある部品:\n- `header > h1`\n- `header > p`\n- ほか 3 個/);
+  assert.match(msg, /```html\n<h1>タイトル<\/h1>\n\n<p>説明<\/p>\n```/);
+  // 部品を選んだものと混ぜても番号が続く
+  const mixed = BV.buildPickMessage('x', [{ pick: { selector: 'nav' } }, { pick }]);
+  assert.match(mixed, /### 1\. `nav`[\s\S]*### 2\. ペンで囲んだ範囲/);
+});
+
 test('PICK_SCRIPT は JavaScript として読め、何度入れても同じものを返す', () => {
   // ページの中で動かす: 最低限の window / document をまねる
   const listeners = [];
@@ -111,7 +136,16 @@ test('PICK_SCRIPT は JavaScript として読め、何度入れても同じも�
   assert.strictEqual(a.on, false);
   a.start();
   assert.strictEqual(a.on, true);
+  assert.strictEqual(a.tool, 'pick');
   assert.ok(listeners.includes('click') && listeners.includes('keydown'));
+  assert.ok(listeners.includes('pointerdown') && listeners.includes('pointermove') && listeners.includes('pointerup'));
+  // 動いているときに呼ぶと、道具だけを切り替える（二重に登録しない）
+  const n = listeners.length;
+  a.start('pen');
+  assert.strictEqual(a.tool, 'pen');
+  assert.strictEqual(listeners.length, n);
+  a.start('pick');
+  assert.strictEqual(a.tool, 'pick');
   assert.strictEqual(ctx.document.documentElement.style.cursor, 'crosshair');
   a.stop();
   assert.strictEqual(a.on, false);

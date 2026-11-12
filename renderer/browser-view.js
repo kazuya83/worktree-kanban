@@ -4,6 +4,7 @@
 // <webview> は作り直すと読み込み直しになるので、1つだけ作って #browserPane に置いたままにし、タブを切り替えても残す。
 // デザインモードでは、ページに小さなスクリプト（PICK_SCRIPT）を入れて、マウスの下の部品を枠で示し、クリックした部品の情報を
 // console に印付きの JSON で書いてもらう（<webview> の console-message で受け取る）。スクリーンショットは capturePage で撮る。
+// 「ペン」では、ページの上に線を描いて囲んだ範囲と、その中にある部品の HTML を同じように受け取り、線ごとスクリーンショットを撮る。
 //
 // 境界: window.BrowserView = {
 //   init(deps)          renderer.js の部品（api・icon・esc・toast・run・canSendFollow・viewingHost）を受け取る
@@ -93,6 +94,29 @@
     return t.length > n ? `${t.slice(0, n)}\n<!-- ${tr('（長いので、ここまでにしました）')} -->` : t;
   }
 
+  function rectLine(p) {
+    const r = p.rect || {};
+    return `- ${tr('位置と大きさ')}: x=${Math.round(r.x || 0)}, y=${Math.round(r.y || 0)}, ${Math.round(r.width || 0)}×${Math.round(r.height || 0)}px（${tr('画面の幅 {w}px', { w: Math.round((p.viewport && p.viewport.width) || 0) })}）`;
+  }
+
+  // ペンで囲んだ範囲: 範囲と、その中にある部品の HTML
+  function areaSection(p, shotName, i) {
+    const lines = [`### ${i + 1}. ${tr('ペンで囲んだ範囲')}`];
+    if (p.url) lines.push(`- ${tr('ページ')}: ${p.url}`);
+    lines.push(rectLine(p));
+    if (shotName) lines.push(`- ${tr('スクリーンショット')}: ${shotName}（${tr('赤い線で囲んだところ')}）`);
+    if (p.text) lines.push(`- ${tr('文字')}: ${String(p.text).replace(/\s+/g, ' ').trim()}`);
+    const els = (p.elements || []).filter((x) => x && (x.selector || x.tag));
+    if (els.length) {
+      lines.push('', `${tr('囲んだ中にある部品')}:`);
+      for (const x of els) lines.push(`- \`${String(x.selector || x.tag).replace(/`/g, "'")}\``);
+      if (p.more > 0) lines.push(`- ${tr('ほか {n} 個', { n: p.more })}`);
+      const html = els.filter((x) => x.html).map((x) => x.html).join('\n\n');
+      if (html) lines.push('', 'HTML:', fence('html', clip(html, MAX_HTML)));
+    }
+    return lines.join('\n');
+  }
+
   /**
    * エージェントに送るメッセージを作る
    * @param {string} text  ユーザーが書いた指示
@@ -104,10 +128,13 @@
     if (!list.length) return parts[0];
     parts.push(`## ${tr('内蔵ブラウザで選んだ画面の部品')}`);
     list.forEach(({ pick: p, shotName }, i) => {
-      const r = p.rect || {};
+      if (p.kind === 'area') {
+        parts.push(areaSection(p, shotName, i));
+        return;
+      }
       const lines = [`### ${i + 1}. \`${String(p.selector || p.tag || '?').replace(/`/g, "'")}\``];
       if (p.url) lines.push(`- ${tr('ページ')}: ${p.url}`);
-      lines.push(`- ${tr('位置と大きさ')}: x=${Math.round(r.x || 0)}, y=${Math.round(r.y || 0)}, ${Math.round(r.width || 0)}×${Math.round(r.height || 0)}px（${tr('画面の幅 {w}px', { w: Math.round((p.viewport && p.viewport.width) || 0) })}）`);
+      lines.push(rectLine(p));
       if (shotName) lines.push(`- ${tr('スクリーンショット')}: ${shotName}`);
       if (p.text) lines.push(`- ${tr('文字')}: ${String(p.text).replace(/\s+/g, ' ').trim()}`);
       if (p.html) lines.push('', `HTML:`, fence('html', clip(p.html, MAX_HTML)));
@@ -133,7 +160,8 @@
   const PROPS = ['display','position','top','right','bottom','left','z-index','box-sizing','width','height','min-width','max-width','min-height','max-height','margin','padding','border','border-radius','outline','color','background-color','background-image','opacity','box-shadow','font-family','font-size','font-weight','font-style','line-height','letter-spacing','text-align','text-decoration','text-transform','white-space','overflow','gap','flex-direction','flex-wrap','justify-content','align-items','flex','grid-template-columns','grid-template-rows','transform','transition','cursor'];
   const KEEP = new Set(['display','position','width','height','color','font-size','font-family']);
   const EMPTY = new Set(['none','normal','auto','0px','0','rgba(0, 0, 0, 0)','static','visible','0s','start','stretch','0px none','0px none rgb(0, 0, 0)','1','nowrap normal','row','nowrap','0 1 auto','all','all 0s ease 0s','default','auto auto']);
-  let box = null, label = null, on = false, cur = null;
+  let box = null, label = null, on = false, cur = null, tool = 'pick';
+  let ink = null, pen = null, drawing = false, pts = [];
   const ensure = () => {
     if (box && box.isConnected) return;
     box = document.createElement('div');
@@ -214,7 +242,120 @@
     label.style.top = r.top < 20 ? '100%' : 'auto';
   };
   const hide = () => { if (box) box.style.display = 'none'; };
+  // ペン: 画面いっぱいの透明な canvas に線を描く（クリックは受けない）。線はスクリーンショットを撮るまで残す
+  const clearInk = () => { if (ink) ink.remove(); ink = null; pen = null; drawing = false; pts = []; };
+  const ensureInk = () => {
+    if (ink && ink.isConnected) return;
+    const dpr = devicePixelRatio || 1;
+    ink = document.createElement('canvas');
+    ink.setAttribute('data-worktree-kanban', '');
+    ink.width = Math.round(innerWidth * dpr);
+    ink.height = Math.round(innerHeight * dpr);
+    ink.style.cssText = 'position:fixed;left:0;top:0;width:' + innerWidth + 'px;height:' + innerHeight + 'px;pointer-events:none;z-index:2147483647';
+    (document.body || document.documentElement).appendChild(ink);
+    pen = ink.getContext('2d');
+    pen.scale(dpr, dpr);
+    pen.strokeStyle = '#ff3b30';
+    pen.lineWidth = 3;
+    pen.lineCap = 'round';
+    pen.lineJoin = 'round';
+  };
+  const inPoly = (x, y) => {
+    let hit = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i], [xj, yj] = pts[j];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit;
+    }
+    return hit;
+  };
+  const SKIP = new Set(['script', 'style', 'link', 'meta', 'noscript', 'template', 'br', 'html', 'body', 'head', 'title']);
+  // 囲んだ中にある部品（大部分が囲みの中に入っているもの。親が入っていれば子は入れない）
+  const enclosed = (b) => {
+    const found = [];
+    if (!document.body) return found;
+    for (const el of Array.from(document.body.getElementsByTagName('*'))) {
+      if (found.length >= 50) break;
+      const tag = el.tagName.toLowerCase();
+      if (SKIP.has(tag) || ours(el)) continue;
+      let r = el.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2 || r.right <= b.x || r.left >= b.x + b.width || r.bottom <= b.y || r.top >= b.y + b.height) continue;
+      // 横いっぱいに広がるブロックでも、文字や中身が実際にあるところで判断する
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const c = range.getBoundingClientRect();
+        if (c.width >= 2 && c.height >= 2 && c.width * c.height < r.width * r.height) r = c;
+      } catch (e) { /* そのまま */ }
+      const ox = Math.min(r.right, b.x + b.width) - Math.max(r.left, b.x);
+      const oy = Math.min(r.bottom, b.y + b.height) - Math.max(r.top, b.y);
+      if (ox <= 0 || oy <= 0 || (ox * oy) / (r.width * r.height) < 0.6) continue;
+      if (!inPoly(r.left + r.width / 2, r.top + r.height / 2)) continue;
+      if (el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+      if (found.some((f) => f.contains(el))) continue;
+      found.push(el);
+    }
+    if (!found.length) {
+      // 部品の一部だけを囲んだ: 囲みの真ん中にある部品を渡す
+      const hits = document.elementsFromPoint ? document.elementsFromPoint(b.x + b.width / 2, b.y + b.height / 2) : [];
+      const el = hits.find((x) => !ours(x) && !SKIP.has(x.tagName.toLowerCase()));
+      if (el) found.push(el);
+    }
+    return found;
+  };
+  const finishInk = () => {
+    if (!drawing) return;
+    drawing = false;
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    const b = { x: Math.min(...xs), y: Math.min(...ys) };
+    b.width = Math.max(...xs) - b.x;
+    b.height = Math.max(...ys) - b.y;
+    if (pts.length < 3 || (b.width < 8 && b.height < 8)) { clearInk(); return; }
+    // 線を閉じる（どこを囲んだかがスクリーンショットで分かるように）
+    pen.lineTo(pts[0][0], pts[0][1]);
+    pen.stroke();
+    const found = enclosed(b);
+    const MAXEL = 8;
+    const info = {
+      kind: 'area',
+      url: location.href,
+      title: document.title,
+      rect: b,
+      viewport: { width: innerWidth, height: innerHeight },
+      dpr: devicePixelRatio,
+      text: found.map((el) => (el.innerText || el.textContent || '').trim()).filter(Boolean).join('\\n').slice(0, 300),
+      elements: found.slice(0, MAXEL).map((el) => {
+        const html = el.outerHTML || '';
+        return { tag: el.tagName.toLowerCase(), selector: selector(el), text: (el.innerText || el.textContent || '').trim().slice(0, 120), html: html.length > 4000 ? html.slice(0, 4000) : html };
+      }),
+      more: Math.max(0, found.length - MAXEL),
+    };
+    requestAnimationFrame(() => requestAnimationFrame(() => console.log(MARK + JSON.stringify(info))));
+  };
+  const onDown = (e) => {
+    block(e);
+    if (tool !== 'pen' || e.button !== 0) return;
+    clearInk();
+    ensureInk();
+    drawing = true;
+    pts = [[e.clientX, e.clientY]];
+    pen.beginPath();
+    pen.moveTo(e.clientX, e.clientY);
+  };
+  const onDraw = (e) => {
+    if (!drawing) return;
+    if (!(e.buttons & 1)) return finishInk(); // 画面の外でボタンを離した
+    const [lx, ly] = pts[pts.length - 1];
+    if (Math.hypot(e.clientX - lx, e.clientY - ly) < 2) return;
+    pts.push([e.clientX, e.clientY]);
+    pen.lineTo(e.clientX, e.clientY);
+    pen.stroke();
+  };
+  const onUp = (e) => {
+    block(e);
+    finishInk();
+  };
   const onMove = (e) => {
+    if (tool === 'pen') return;
     const el = e.target;
     if (!el || el.nodeType !== 1 || ours(el)) return;
     cur = el;
@@ -223,6 +364,7 @@
   const block = (e) => { if (on) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); } };
   const onClick = (e) => {
     block(e);
+    if (tool === 'pen') return;
     const el = cur && cur.isConnected ? cur : e.target;
     if (!el || el.nodeType !== 1 || ours(el)) return;
     const r = el.getBoundingClientRect();
@@ -246,13 +388,17 @@
   const onKey = (e) => {
     if (e.key !== 'Escape') return;
     block(e);
+    clearInk();
     console.log(MARK + JSON.stringify({ cancel: true }));
   };
-  const EVENTS = [['mousemove', onMove], ['mouseover', onMove], ['click', onClick], ['mousedown', block], ['mouseup', block], ['pointerdown', block], ['pointerup', block], ['dblclick', block], ['auxclick', block], ['contextmenu', block], ['keydown', onKey]];
+  const EVENTS = [['mousemove', onMove], ['mouseover', onMove], ['click', onClick], ['mousedown', block], ['mouseup', block], ['pointerdown', onDown], ['pointermove', onDraw], ['pointerup', onUp], ['dblclick', block], ['auxclick', block], ['contextmenu', block], ['selectstart', block], ['dragstart', block], ['keydown', onKey]];
   const api = {
-    start() { if (on) return; on = true; for (const [t, f] of EVENTS) addEventListener(t, f, true); document.documentElement.style.cursor = 'crosshair'; },
-    stop() { if (!on) return; on = false; for (const [t, f] of EVENTS) removeEventListener(t, f, true); hide(); cur = null; document.documentElement.style.cursor = ''; },
+    // t: 'pick'（クリックで部品を選ぶ）か 'pen'（ペンで囲む）。動いているときに呼ぶと、道具だけを切り替える
+    start(t) { tool = t === 'pen' ? 'pen' : 'pick'; if (tool === 'pen') { hide(); cur = null; } else clearInk(); if (on) return; on = true; for (const [t, f] of EVENTS) addEventListener(t, f, true); document.documentElement.style.cursor = 'crosshair'; },
+    stop() { clearInk(); if (!on) return; on = false; for (const [t, f] of EVENTS) removeEventListener(t, f, true); hide(); cur = null; document.documentElement.style.cursor = ''; },
+    clearInk,
     get on() { return on; },
+    get tool() { return tool; },
   };
   g.__wkDesign = api;
   return api;
@@ -269,6 +415,7 @@
     scripts: null, // api.scripts の結果
     scriptsFor: '', // どのカードのどの状態で読んだか
     design: false,
+    tool: 'pick', // デザインモードの道具: 'pick'（クリックで部品を選ぶ）・'pen'（ペンで囲む）
     picks: [], // { pick, shot (data URL), name }
     failed: null, // 読み込めなかったときの { code, desc }
     retries: 0,
@@ -323,6 +470,7 @@
         <button type="button" class="icon bv-nav" data-bv="reload" title="${d.esc(tr('読み込み直す'))}">${d.icon('refresh')}</button>
         <input id="browserUrl" class="bv-url mono" spellcheck="false" autocomplete="off" placeholder="http://localhost:3000/" />
         <button type="button" class="btn small bv-design" data-bv="design" title="${d.esc(tr('画面の部品をクリックすると、その HTML・CSS とスクリーンショットをエージェントに渡せます（Esc でやめます）'))}">${d.icon('crosshair')}${d.esc(tr('デザインモード'))}</button>
+        <button type="button" class="btn small bv-design" data-bv="pen" title="${d.esc(tr('画面をペンで囲むと、囲んだところのスクリーンショットと HTML をエージェントに渡せます（Esc でやめます）'))}">${d.icon('pen')}${d.esc(tr('ペン'))}</button>
         <button type="button" class="icon bv-nav" data-bv="full" title="${d.esc(tr('画面に大きく表示します'))}">${d.icon('maximize')}</button>
         <button type="button" class="icon bv-nav" data-bv="external" title="${d.esc(tr('いつものブラウザで開く'))}">${d.icon('external')}</button>
       </div>
@@ -423,9 +571,20 @@
     const w = view();
     if (!w) return;
     try {
-      await w.executeJavaScript(`${PICK_SCRIPT}.${on ? 'start' : 'stop'}()`);
+      await w.executeJavaScript(on ? `${PICK_SCRIPT}.start(${JSON.stringify(st.tool)})` : `${PICK_SCRIPT}.stop()`);
     } catch {
       // ページがまだない・移動中: dom-ready でもう一度入れる
+    }
+  }
+
+  // ペンの線は、スクリーンショットを撮ったら消す
+  function clearInk() {
+    const w = view();
+    if (!w) return;
+    try {
+      w.executeJavaScript('window.__wkDesign && window.__wkDesign.clearInk()').catch(() => {});
+    } catch {
+      // ページがない
     }
   }
 
@@ -434,9 +593,10 @@
       setDesign(false);
       return;
     }
-    if (!st.design) return;
+    if (!st.design) return clearInk();
     if (st.picks.length >= MAX_PICKS) {
       d.toast(tr('選べる部品は {n} 個までです', { n: MAX_PICKS }));
+      clearInk();
       return;
     }
     let shot = '';
@@ -447,14 +607,16 @@
     } catch {
       // スクリーンショットが撮れなくても、HTML と CSS は渡す
     }
+    if (pick.kind === 'area') clearInk();
     st.picks.push({ pick, shot, name: `design-${Date.now().toString(36)}-${st.picks.length + 1}.png` });
     drawPicks();
     const input = $('browserPickText');
     if (input) input.focus();
   }
 
-  function setDesign(on) {
+  function setDesign(on, tool) {
     st.design = !!on;
+    if (tool) st.tool = tool === 'pen' ? 'pen' : 'pick';
     inject(st.design);
     drawBar();
   }
@@ -478,7 +640,11 @@
       if (st.failed || !ready()) {
         if (u) navigate(u);
       } else w.reload();
-    } else if (kind === 'design') setDesign(!st.design);
+    } else if (kind === 'design' || kind === 'pen') {
+      // 同じ道具のボタンでやめ、もう一方のボタンでは道具だけを切り替える
+      const tool = kind === 'pen' ? 'pen' : 'pick';
+      setDesign(!(st.design && st.tool === tool), tool);
+    }
     else if (kind === 'full') setFull(!st.full);
     else if (kind === 'external' && st.url) d.run(() => d.api.openExternal(st.url));
     else if (kind === 'runScript' && st.cardId) startServer();
@@ -535,9 +701,11 @@
     p.querySelector('[data-bv="back"]').disabled = !(ok && w.canGoBack());
     p.querySelector('[data-bv="forward"]').disabled = !(ok && w.canGoForward());
     p.querySelector('[data-bv="reload"]').classList.toggle('spinning', st.loading);
-    const design = p.querySelector('[data-bv="design"]');
-    design.classList.toggle('primary', st.design);
-    design.disabled = !st.url;
+    for (const [key, tool] of [['design', 'pick'], ['pen', 'pen']]) {
+      const b = p.querySelector(`[data-bv="${key}"]`);
+      b.classList.toggle('primary', st.design && st.tool === tool);
+      b.disabled = !st.url;
+    }
     p.querySelector('[data-bv="external"]').disabled = !st.url;
     p.classList.toggle('designing', st.design);
   }
@@ -575,6 +743,14 @@
     if (r) r.onclick = () => navigate(st.failed ? st.failed.url || st.url : st.url);
   }
 
+  function pickLabel(p) {
+    return p.kind === 'area' ? tr('ペンで囲んだ範囲') : p.selector || p.tag || '';
+  }
+  function pickTitle(p) {
+    if (p.kind !== 'area') return p.selector || '';
+    return (p.elements || []).map((x) => x.selector || x.tag).filter(Boolean).join('\n');
+  }
+
   function drawPicks() {
     const el = $('browserPicks');
     if (!el) return;
@@ -589,7 +765,7 @@
     el.innerHTML = `
       <div class="bv-pick-list">${st.picks
         .map(
-          (x, i) => `<span class="attach-chip bv-pick" title="${d.esc(x.pick.selector || '')}">${x.shot ? `<img src="${x.shot}" alt="" />` : d.icon('image')}<span class="attach-name mono">${d.esc(x.pick.selector || x.pick.tag || '')}</span><button type="button" class="chip-x" data-i="${i}" title="${d.esc(tr('外す'))}">×</button></span>`,
+          (x, i) => `<span class="attach-chip bv-pick" title="${d.esc(pickTitle(x.pick))}">${x.shot ? `<img src="${x.shot}" alt="" />` : d.icon(x.pick.kind === 'area' ? 'pen' : 'image')}<span class="attach-name${x.pick.kind === 'area' ? '' : ' mono'}">${d.esc(pickLabel(x.pick))}</span><button type="button" class="chip-x" data-i="${i}" title="${d.esc(tr('外す'))}">×</button></span>`,
         )
         .join('')}</div>
       <div class="composer">

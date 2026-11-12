@@ -90,6 +90,8 @@ The "Browser" tab in the detail panel opens the task's development server (`http
 
 Press "Design Mode" and click an element on the page to collect its HTML, the CSS rules that match it, its computed styles, and a screenshot (the click is not passed to the page; Esc stops). You can select up to 5 elements. Write what you want changed and send it: for a task that is waiting for review, failed, or done, it goes as a follow-up instruction with the screenshots attached. For a running task it goes as btw (screenshots cannot be sent then, only the HTML and CSS).
 
+Press "Pen" to drag a line around part of the page. The circled area is collected as a screenshot that includes the red line, together with the HTML of the elements inside it (useful when your instruction covers several elements, like "tighten the spacing around here"). Circled areas count toward the same limit of 5, and the "Design Mode" and "Pen" buttons switch between the two tools.
+
 While you are looking at a task on another machine through remote control, its development server runs on that machine, so the built-in browser cannot open it.
 
 ## Detail panel (diff and merge)
