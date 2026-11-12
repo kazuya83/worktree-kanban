@@ -525,11 +525,9 @@
     const s = st.scripts;
     const running = s && s.run && s.run.running && s.run.kind === 'run';
     const parts = [];
-    if (st.port) parts.push(d.esc(tr('このタスクのポート: {port}（WORKTREE_KANBAN_PORT）', { port: st.port })));
-    else parts.push(d.esc(tr('このタスクにはまだポートがありません。実行スクリプトを動かすと割り当てます')));
+    if (!st.port) parts.push(d.esc(tr('このタスクにはまだポートがありません。実行スクリプトを動かすと割り当てます')));
     if (running) parts.push(`<span class="bv-ok">${d.esc(tr('実行スクリプトが動いています'))}</span>`);
     else if (s && s.scripts && s.scripts.run) parts.push(`<button type="button" class="btn small" data-bv="runScript">${d.icon('play')}${d.esc(tr('実行スクリプトで開発サーバーを起動'))}</button>`);
-    else parts.push(d.esc(tr('設定の「ブランチと取り込み」の実行スクリプトに開発サーバーの起動（例: npm run dev -- --port "$WORKTREE_KANBAN_PORT"）を書くと、ここから起動できます')));
     el.innerHTML = parts.map((x) => (x.startsWith('<') ? x : `<span>${x}</span>`)).join('');
     const b = el.querySelector('[data-bv="runScript"]');
     if (b) b.onclick = () => onAction('runScript');
