@@ -167,3 +167,79 @@ test('どのキャラクターも、どの様子でも 9 × 11 マスの中に�
     }
   }
 });
+
+// ---- 進捗のアニメーションの種類（設定の progressScene） ----
+test('sceneFor: 選んだシーンを使う。ランダムはタスクごとに決まり、同じタスクはいつも同じ', () => {
+  const A = require('../renderer/agent-sprite.js');
+  assert.deepStrictEqual(A.SCENES, ['quest', 'dance', 'garden', 'space']);
+  assert.deepStrictEqual(A.SCENE_SETTINGS, ['random', ...A.SCENES]);
+  for (const s of A.SCENES) assert.strictEqual(A.sceneFor(s, 'abc'), s);
+  assert.strictEqual(A.cleanScene('nope'), 'random');
+  assert.strictEqual(A.cleanScene(undefined), 'random');
+  assert.strictEqual(A.sceneFor('random', 'task-1'), A.sceneFor('random', 'task-1'));
+  assert.strictEqual(A.sceneFor(undefined, 'task-1'), A.sceneFor('random', 'task-1'), '設定がない前からのデータはランダム');
+  const seen = new Set();
+  for (let i = 0; i < 200; i++) seen.add(A.sceneFor('random', `t${i}`));
+  assert.strictEqual(seen.size, A.SCENES.length, 'ランダムでは、どのシーンも出る');
+});
+
+test('dancePose: 踊りは左右に 2 マスまで・上に 2 マスまでで、ときどき反転する', () => {
+  const A = require('../renderer/agent-sprite.js');
+  let flips = 0;
+  for (let f = 0; f < 64; f++) {
+    const p = A.dancePose(f);
+    assert.ok(Math.abs(p.dx) <= 2 && p.dy <= 0 && p.dy >= -2, `${f}`);
+    assert.ok(['work', 'done'].includes(p.mood));
+    if (p.flip) flips++;
+  }
+  assert.ok(flips > 0);
+});
+
+test('どのシーンも、どの様子でも、カードと進捗タブを描ける（エラーにならない）', () => {
+  const A = require('../renderer/agent-sprite.js');
+  const src = read('renderer/agent-sprite.js');
+  const body = src.slice(src.indexOf('  const HEX ='), src.indexOf('  // ---------- 動かす ----------'));
+  const api = new Function(`${body}; return { drawMini, drawStage };`)();
+  const ctx = {
+    fillRect() {}, clearRect() {}, fillText() {}, measureText: (s) => ({ width: String(s).length * 6 }),
+    createLinearGradient: () => ({ addColorStop() {} }),
+    set fillStyle(v) {}, set globalAlpha(v) {}, set font(v) {}, set textBaseline(v) {},
+  };
+  const th = { panel: '#161922', panel2: '#1d212c', line: '#2a2f3c', text: '#e6e8ee', muted: '#8b92a5', accent: '#6d8bff', ok: '#3ccf8e', warn: '#ffb547', err: '#ff6b6b', run: '#4fb8ff' };
+  const progress = A.progressOf([{ text: 'a', status: 'completed' }, { text: 'b', status: 'in_progress' }, { text: 'c', status: 'pending' }]);
+  for (const scene of [...A.SCENES, 'unknown']) {
+    for (const mood of ['idle', 'queued', 'think', 'work', 'wait', 'done', 'fail']) {
+      for (const still of [false, true]) {
+        for (const p of [progress, A.progressOf([])]) {
+          const m = { x: null, lastDone: null, lastMood: null, parts: [] };
+          for (let f = 0; f < 30; f++) {
+            const info = { mood, tool: mood === 'wait' ? 'review' : 'edit', label: 'x', detail: 'y', progress: p, kind: 'cat', color: '#4285f4', scene, still };
+            api.drawStage(ctx, 600, 164, info, m, f, th);
+            api.drawMini(ctx, 280, 36, info, { lastDone: null, parts: [] }, f, th);
+          }
+        }
+      }
+    }
+  }
+});
+
+test('設定: 進捗のアニメーションを選べて、ランダムが既定。保存できる項目に入れて、知らない値はランダムに戻す', () => {
+  const { DEFAULT_SETTINGS } = require('../src/store.js');
+  assert.strictEqual(DEFAULT_SETTINGS.progressScene, 'random');
+  const main = read('main.js');
+  assert.match(main, /'cycleView', 'progressScene'\]/);
+  assert.match(main, /progressScene: require\('\.\/renderer\/agent-sprite'\)\.cleanScene\(patch\.progressScene\)/);
+  const src = read('renderer/renderer.js');
+  assert.match(src, /id="sProgressScene"/);
+  assert.match(src, /\$\('sProgressScene'\)\.value !== AgentSprite\.cleanScene\(s\.progressScene\) \? \{ progressScene:/);
+  assert.match(src, /AgentSprite\.sceneFor\(state\.board\.settings && state\.board\.settings\.progressScene, c\.id\)/);
+  // 選択肢は SCENE_SETTINGS と同じ並び
+  const A = require('../renderer/agent-sprite.js');
+  const list = src.slice(src.indexOf('const PROGRESS_SCENES'), src.indexOf('function showCardSprite'));
+  assert.deepStrictEqual([...list.matchAll(/\['(\w+)', tr\(/g)].map((m) => m[1]), A.SCENE_SETTINGS);
+  for (const lang of ['en', 'es', 'fr', 'zh']) {
+    I18n.setLanguage(lang);
+    for (const k of [...list.matchAll(/tr\('([^']+)'\)/g)].map((m) => m[1]).concat('進捗のアニメーション')) assert.notStrictEqual(I18n.tr(k), k, `${lang}: ${k}`);
+  }
+  I18n.setLanguage('ja');
+});

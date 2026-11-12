@@ -1494,7 +1494,7 @@ app.whenReady().then(async () => {
     return { branches, current, hasOrigin };
   });
   handle('settings:update', (patch) => {
-    const allowed = ['portStart', 'portCount', 'baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'reviewAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView'];
+    const allowed = ['portStart', 'portCount', 'baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'reviewAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView', 'progressScene'];
     if (patch && 'branchNamingRule' in patch) patch = { ...patch, branchNamingRule: String(patch.branchNamingRule || '').trim() };
     for (const k of ['setupScript', 'teardownScript', 'runScript']) if (patch && k in patch) patch = { ...patch, [k]: cleanScript(patch[k]) };
     if (patch && 'portCount' in patch) patch = { ...patch, portCount: require('./src/store').cleanPortCount(patch.portCount) };
@@ -1539,6 +1539,7 @@ app.whenReady().then(async () => {
     // カスタムエージェントを消したら、競争からも外す
     else if (patch && 'customAgents' in patch) patch = { ...patch, competes: providers.cleanCompetes(store.settings.competes, patch.customAgents) };
     if (patch && 'cycleView' in patch) patch = { ...patch, cycleView: require('./renderer/cycle-model').cleanCycleView(patch.cycleView) };
+    if (patch && 'progressScene' in patch) patch = { ...patch, progressScene: require('./renderer/agent-sprite').cleanScene(patch.progressScene) };
     if (patch && 'statusFieldName' in patch) patch = { ...patch, statusFieldName: String(patch.statusFieldName || '').trim() };
     if (patch && 'statusMapping' in patch) {
       const m = patch.statusMapping || {};
