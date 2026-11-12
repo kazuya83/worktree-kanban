@@ -20,7 +20,6 @@
   "読み込み直す": {"en": "Reload", "es": "Recargar", "fr": "Recharger", "zh": "重新加载"},
   "画面の部品をクリックすると、その HTML・CSS とスクリーンショットをエージェントに渡せます（Esc でやめます）": {"en": "Click an element on the page to hand its HTML, CSS and a screenshot to the agent (Esc to stop)", "es": "Haz clic en un elemento de la página para pasar su HTML, su CSS y una captura al agente (Esc para salir)", "fr": "Cliquez sur un élément de la page pour transmettre son HTML, son CSS et une capture à l’agent (Échap pour arrêter)", "zh": "点击页面上的元素，即可把它的 HTML、CSS 和截图交给智能体（按 Esc 退出）"},
   "デザインモード": {"en": "Design Mode", "es": "Modo diseño", "fr": "Mode design", "zh": "设计模式"},
-  "詳細パネルを広げる・戻す": {"en": "Widen or restore the detail panel", "es": "Ensanchar o restaurar el panel de detalles", "fr": "Élargir ou rétablir le panneau de détails", "zh": "加宽或还原详情面板"},
   "いつものブラウザで開く": {"en": "Open in your usual browser", "es": "Abrir en tu navegador habitual", "fr": "Ouvrir dans votre navigateur habituel", "zh": "在常用浏览器中打开"},
   "選べる部品は {n} 個までです": {"en": "You can select up to {n} elements", "es": "Puedes seleccionar hasta {n} elementos", "fr": "Vous pouvez sélectionner jusqu’à {n} éléments", "zh": "最多可以选择 {n} 个元素"},
   "このタスクにはまだポートがありません。実行スクリプトを動かすと割り当てます": {"en": "This task has no port yet. One is assigned when you run the run script", "es": "Esta tarea aún no tiene puerto. Se asigna uno al ejecutar el script de ejecución", "fr": "Cette tâche n’a pas encore de port. Un port est attribué quand vous lancez le script d’exécution", "zh": "此任务还没有端口。运行运行脚本时会分配"},

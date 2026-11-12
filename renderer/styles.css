@@ -1259,7 +1259,12 @@ body.term-resizing { cursor: ns-resize; user-select: none; }
 
 /* 内蔵ブラウザ（詳細の「ブラウザ」タブ）。<webview> は読み込み直さないよう、タブの中身とは別の #browserPane に置いたままにする */
 .d-browser { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.detail.browser-wide:not(.as-modal) { width: calc(100vw - 240px); }
+/* 画面に大きくモーダルで出す（差分タブの .dv.full と同じ） */
+.bv-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 8; }
+.d-browser.full {
+  position: fixed; z-index: 9; inset: 24px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
 .bv-bar { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .bv-bar .icon { padding: 4px 6px; display: inline-flex; }
 .bv-bar .icon:disabled { opacity: 0.35; cursor: default; background: transparent; }
