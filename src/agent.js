@@ -25,6 +25,7 @@ const { isNoGitRepo, cleanRelayFlow, pipelineOf } = require('./store');
 const FlowModel = require('../renderer/flow-model');
 const CycleModel = require('../renderer/cycle-model');
 const Subtasks = require('./subtasks');
+const FixTask = require('./fix-task');
 const Checkpoints = require('./checkpoints');
 const { SCRIPT_KINDS, SCRIPT_SETTINGS, PORT_START, PORT_END, PORT_COUNT, portsFree, cleanScript, appendOutput, startScript } = require('./worktree-scripts');
 const { SHARED_REL } = require('./shared-settings');
@@ -174,7 +175,8 @@ const AFTER_DONE_NOTE = [
   'このタスクはもう完了（マージ済み）です。ここではユーザーの質問に答えたり、調べものや相談に乗ったりしてください。',
   '',
   '- ファイルの変更・コミット・マージはしないでください（計画モードで動いています）',
-  '- 修正や追加の作業が必要そうなときは、どう直すかの案を書いたうえで、「修正タスクを作る」ボタンから別のタスクにするようユーザーに伝えてください',
+  '- 修正や追加の作業が必要そうなときは、どう直すかの案を書いたうえで、チャットに出る「修正タスクを作る」ボタンを押せば修正タスクを作れることをユーザーに伝えてください',
+  FixTask.FIX_TASK_NOTE,
 ].join('\n');
 // 完了したタスクで最初に話すときの指示。worktree はもうないので新しい会話で始め、元のタスクの中身を渡す
 // CI の失敗を続けて自動で直す回数の上限（通ったら数え直す）
@@ -2654,6 +2656,7 @@ class AgentManager extends EventEmitter {
     c.sessionId = c.afterDoneSession || null;
     c.forkNext = false;
     c.afterDone = true;
+    c.afterDoneAt = Date.now();
     this.enqueue(c, promptWithSkill(agentOf(c), skill, this.withAttachments(c, first ? buildAfterDonePrompt(c, message) : message, atts)), atts);
   }
 
@@ -3966,7 +3969,7 @@ class AgentManager extends EventEmitter {
           this.log(c, 'error', tr('エラーで終了しました: {resultError}', { resultError: run.resultError }));
         } else {
           // 仕様の確認の印・質問フォーム用のブロックは、カードの一言には出さない
-          const said = typeof ev.result === 'string' ? Subtasks.stripSubtasks(extractSpecQuestions(stripSpecMarker(ev.result)).text).trim() : '';
+          const said = typeof ev.result === 'string' ? FixTask.extractFixTask(Subtasks.stripSubtasks(extractSpecQuestions(stripSpecMarker(ev.result)).text)).text.trim() : '';
           if (said) c.lastMessage = truncate(said, 200);
           this.log(c, 'result', tr('完了しました（{secs}秒 / ${amount}）', { secs, amount: cost.toFixed(3) }));
         }
@@ -4167,6 +4170,7 @@ class AgentManager extends EventEmitter {
       c.sessionId = c.afterDoneSession || null;
       c.forkNext = false;
       c.afterDone = true;
+      c.afterDoneAt = Date.now();
       this.enqueue(c, promptWithSkill(agentOf(c), null, first ? buildAfterDonePrompt(c, text) : text));
       return true;
     }
@@ -4231,6 +4235,10 @@ class AgentManager extends EventEmitter {
 
   // 返事の文章から仕様の確認の印と、質問フォーム用の JSON ブロックを取り出してカードに覚えておく（どちらも画面に出さない）
   takeSpecQuestions(c, raw) {
+    // 完了したタスクについての会話では、修正タスクの案（```fix-task のブロック）を取り出して覚えておく（画面には出さない）
+    const fix = FixTask.extractFixTask(raw);
+    if (fix.proposal && c.afterDone) c.fixTaskProposal = { ...fix.proposal, at: Date.now() };
+    raw = fix.text;
     // サブタスクの印と ```subtasks のブロックも、ここで取り出す（画面には出さない）
     const sub = Subtasks.extractSubtasks(raw);
     if (sub.items && (sub.marked || c.lastSubtasksMarked)) c.lastSubtaskPlan = sub.items;

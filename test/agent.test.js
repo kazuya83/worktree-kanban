@@ -1226,6 +1226,18 @@ test('完了（マージ済み）のタスクと話しても、開き直さな�
   await waitFor(() => c.status === 'done' && !c.afterDone);
   assert.strictEqual(c.sessionId, talk);
   assert.strictEqual(c.lastPromptSent, 'もう少し詳しく');
+  assert.ok(c.afterDoneAt, '完了後に話したことを覚えておく（チャットに「修正タスクを作る」を出す）');
+  assert.match(require('../src/agent').buildAfterDonePrompt(c, 'x'), /```fix-task/, '修正タスクの案の書き方を伝える');
+  // 完了後の会話の返事に修正タスクの案があれば、本文から消してカードに覚えておく
+  c.afterDone = true;
+  assert.strictEqual(agents.takeSpecQuestions(c, '直すならこうします\n```fix-task\n{"title": "色を直す", "prompt": "ボタンを青にする"}\n```'), '直すならこうします');
+  c.afterDone = false;
+  assert.strictEqual(c.fixTaskProposal.title, '色を直す');
+  assert.strictEqual(c.fixTaskProposal.prompt, 'ボタンを青にする');
+  // 完了後の会話でないときは、案として扱わない
+  const other = { id: 'other-fix' };
+  agents.takeSpecQuestions(other, 'x\n```fix-task\n{"prompt": "p"}\n```');
+  assert.ok(!other.fixTaskProposal);
 
   // 修正は別のタスクにする: 元のタスクのやりとりを引き継ぐ
   const [fix] = agents.createTask({ title: '修正: reopen', prompt: '直して', agent: 'claude', fromChat: c.id, session: { mode: 'resume', id: c.sessionId } });
