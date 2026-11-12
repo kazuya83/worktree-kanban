@@ -31,7 +31,6 @@
   const SHOT_PAD = 16; // スクリーンショットは部品のまわりも少し入れる
   const RETRY_MS = 3000;
   const MAX_RETRIES = 60; // 開発サーバーが立ち上がるのを、3秒ごとに3分まで待つ
-  const WIDE_KEY = 'browserWide';
 
   // ---------------- 純粋な関数 ----------------
 
@@ -275,6 +274,7 @@
     retries: 0,
     retryTimer: null,
     visible: false,
+    full: false, // 画面に大きく表示しているか（差分タブの大きな表示と同じ。タスクやタブを変えると戻す）
     built: false,
     loading: false,
   };
@@ -284,6 +284,19 @@
 
   function init(deps) {
     d = deps;
+    // Esc は、大きな表示を閉じるだけにする（詳細パネルは閉じない）。デザインモード中はデザインモードを先にやめる
+    document.addEventListener(
+      'keydown',
+      (ev) => {
+        if (ev.key !== 'Escape' || !st.full || document.querySelector('.img-overlay')) return;
+        const modal = $('modal');
+        if (modal && !modal.classList.contains('hidden')) return;
+        if (st.design) setDesign(false);
+        else setFull(false);
+        ev.stopImmediatePropagation();
+      },
+      true,
+    );
   }
 
   function cardLive(c) {
@@ -310,7 +323,7 @@
         <button type="button" class="icon bv-nav" data-bv="reload" title="${d.esc(tr('読み込み直す'))}">${d.icon('refresh')}</button>
         <input id="browserUrl" class="bv-url mono" spellcheck="false" autocomplete="off" placeholder="http://localhost:3000/" />
         <button type="button" class="btn small bv-design" data-bv="design" title="${d.esc(tr('画面の部品をクリックすると、その HTML・CSS とスクリーンショットをエージェントに渡せます（Esc でやめます）'))}">${d.icon('crosshair')}${d.esc(tr('デザインモード'))}</button>
-        <button type="button" class="icon bv-nav" data-bv="wide" title="${d.esc(tr('詳細パネルを広げる・戻す'))}">${d.icon('maximize')}</button>
+        <button type="button" class="icon bv-nav" data-bv="full" title="${d.esc(tr('画面に大きく表示します'))}">${d.icon('maximize')}</button>
         <button type="button" class="icon bv-nav" data-bv="external" title="${d.esc(tr('いつものブラウザで開く'))}">${d.icon('external')}</button>
       </div>
       <div id="browserServer" class="bv-server muted small"></div>
@@ -466,30 +479,41 @@
         if (u) navigate(u);
       } else w.reload();
     } else if (kind === 'design') setDesign(!st.design);
-    else if (kind === 'wide') setWide(!isWide());
+    else if (kind === 'full') setFull(!st.full);
     else if (kind === 'external' && st.url) d.run(() => d.api.openExternal(st.url));
     else if (kind === 'runScript' && st.cardId) startServer();
   }
 
-  function isWide() {
-    try {
-      return localStorage.getItem(WIDE_KEY) === '1';
-    } catch {
-      return false;
+  // 差分タブの大きな表示と同じく、#browserPane をそのまま画面いっぱいに広げ、後ろを暗くする。
+  // <webview> は DOM の中で動かすと読み込み直すので、置き場所は変えずに CSS だけで広げる
+  function backdrop() {
+    let bd = $('browserBackdrop');
+    const p = pane();
+    if (!bd && p && p.parentNode) {
+      bd = document.createElement('div');
+      bd.id = 'browserBackdrop';
+      bd.className = 'bv-backdrop hidden';
+      bd.onmousedown = () => setFull(false);
+      p.parentNode.insertBefore(bd, p);
     }
+    return bd;
   }
-  function setWide(on) {
-    try {
-      if (on) localStorage.setItem(WIDE_KEY, '1');
-      else localStorage.removeItem(WIDE_KEY);
-    } catch {
-      // 覚えられないだけ
+  function setFull(on) {
+    st.full = !!on && st.visible;
+    applyFull();
+  }
+  function applyFull() {
+    const p = pane();
+    if (!p) return;
+    p.classList.toggle('full', st.full);
+    const bd = backdrop();
+    if (bd) bd.classList.toggle('hidden', !st.full);
+    const b = p.querySelector('[data-bv="full"]');
+    if (b) {
+      b.innerHTML = d.icon(st.full ? 'minimize' : 'maximize');
+      b.title = st.full ? tr('大きな表示を閉じます（Esc）') : tr('画面に大きく表示します');
+      b.classList.toggle('active', st.full);
     }
-    applyWide();
-  }
-  function applyWide() {
-    const panel = $('detail');
-    if (panel) panel.classList.toggle('browser-wide', st.visible && isWide());
   }
 
   async function startServer() {
@@ -515,7 +539,6 @@
     design.classList.toggle('primary', st.design);
     design.disabled = !st.url;
     p.querySelector('[data-bv="external"]').disabled = !st.url;
-    p.querySelector('[data-bv="wide"]').classList.toggle('active', isWide());
     p.classList.toggle('designing', st.design);
   }
 
@@ -660,8 +683,8 @@
     st.visible = !!on;
     const p = pane();
     if (p) p.classList.toggle('hidden', !st.visible);
-    applyWide();
     if (!st.visible) {
+      if (st.full) setFull(false); // 別のタブに移ったら、普通の表示に戻す
       clearTimeout(st.retryTimer);
       if (st.design) setDesign(false);
     } else if (st.failed) scheduleRetry();
@@ -690,6 +713,7 @@
       st.scriptsFor = '';
       st.url = '';
       if (st.design) setDesign(false);
+      if (st.full) setFull(false); // 別のタスクを開いたら、普通の表示で開く
       drawPicks();
       const saved = st.urls.get(c.id);
       if (saved) navigate(saved);
