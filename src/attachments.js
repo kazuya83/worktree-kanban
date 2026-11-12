@@ -179,6 +179,7 @@ module.exports = {
   saveAttachments,
   removeCardAttachments,
   cardDir,
+  fmtSize,
   isInlineImage,
   attachmentNote,
   withAttachmentNote,
