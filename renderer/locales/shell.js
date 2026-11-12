@@ -2153,11 +2153,11 @@
     "fr": "Faites glisser pour changer la largeur (double-clic pour revenir à la largeur d’origine)",
     "zh": "拖动可改变宽度（双击恢复原来的宽度）"
   },
-  "指示や質問と、それに対するエージェントの最後の返事だけを見ます（ツールの結果などは「ログ」で見られます）": {
-    "en": "Shows only your prompts and the agent’s last reply (tool results are in “Log”)",
-    "es": "Muestra solo las indicaciones y la última respuesta del agente (los resultados de las herramientas están en «Registro»)",
-    "fr": "Affiche seulement les consignes et la dernière réponse de l’agent (les résultats d’outils sont dans « Journal »)",
-    "zh": "只看指示、提问和智能体的最后一次回复（工具结果等请在「日志」里看）"
+  "指示や質問と、エージェントの返事（途中の返事も含む）を見ます（ツールの結果などは「ログ」で見られます）": {
+    "en": "Shows your prompts and the agent’s replies, including in-progress ones (tool results are in “Log”)",
+    "es": "Muestra las indicaciones y las respuestas del agente, incluidas las intermedias (los resultados de las herramientas están en «Registro»)",
+    "fr": "Affiche les consignes et les réponses de l’agent, y compris intermédiaires (les résultats d’outils sont dans « Journal »)",
+    "zh": "查看指示、提问和智能体的回复（包括中途的回复；工具结果等请在「日志」里看）"
   },
   "worktree の作業状況（コミット・未コミットの変更・ベースとの関係）を見ます": {
     "en": "Shows the worktree (commits, uncommitted changes, and how it relates to the base)",

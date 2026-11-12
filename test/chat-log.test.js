@@ -74,15 +74,16 @@ test('build: agent の無い古いツールは、まとまりのエージェン�
   assert.strictEqual(items[1].head, false);
 });
 
-test('final: チャットタブには、指示と最後の返事だけを出す（ツールやお知らせは出さない）', () => {
+test('final: チャットタブには、指示と途中も含めた返事を出す（ツールやお知らせは出さない）', () => {
   const items = final(
     [L('system', 'worktree を作成しました'), L('user', '直して'), L('text', '見てみます'), L('tool', 'Read  a.js'), L('tool_result', '...'), L('text', '直しました'), L('result', '完了しました'), L('user', '次も'), L('text', 'やりました')],
     'claude',
     false,
   );
-  assert.deepStrictEqual(items.map((it) => [it.type, it.entry.text]), [['user', '直して'], ['assistant', '直しました'], ['user', '次も'], ['assistant', 'やりました']]);
+  assert.deepStrictEqual(items.map((it) => [it.type, it.entry.text]), [['user', '直して'], ['assistant', '見てみます'], ['assistant', '直しました'], ['user', '次も'], ['assistant', 'やりました']]);
   assert.strictEqual(items[1].agent, 'claude');
-  assert.strictEqual(items[1].head, true);
+  // 名前は返事のまとまりの最初だけ
+  assert.deepStrictEqual(items.map((it) => !!it.head), [false, true, false, false, true]);
 });
 
 test('final: 途中の質問と回答は、その前の返事と一緒にチャットに出す', () => {
@@ -96,11 +97,14 @@ test('final: 途中の質問と回答は、その前の返事と一緒にチャ�
   assert.strictEqual(items[4].agent, 'codex');
 });
 
-test('final: 実行中は、まだ確定していない返事を出さない', () => {
-  const logs = [L('user', 'x'), L('text', '調べています')];
-  assert.deepStrictEqual(final(logs, 'claude', true).map((it) => it.type), ['user']);
-  assert.deepStrictEqual(final(logs, 'claude', false).map((it) => it.type), ['user', 'assistant']);
-  // エラーで終わったら、その前の返事とエラーを出す
+test('final: 実行中も、届いた途中の返事をすぐに出す', () => {
+  const logs = [L('user', 'x'), L('text', 'わかりました。まず台本から作ります'), L('tool', 'Write  a.md')];
+  assert.deepStrictEqual(final(logs, 'claude', true).map((it) => [it.type, it.entry.text]), [['user', 'x'], ['assistant', 'わかりました。まず台本から作ります']]);
   const err = final([...logs, L('error', 'エラーで終了しました')], 'claude', true);
   assert.deepStrictEqual(err.map((it) => it.type), ['user', 'assistant', 'notice']);
+});
+
+test('final: エージェントが替わったら、名前を出し直す', () => {
+  const items = final([L('user', 'x'), L('text', 'a', { agent: 'codex' }), L('text', 'b', { agent: 'codex' }), L('text', 'c')], 'claude', false);
+  assert.deepStrictEqual(items.map((it) => !!it.head), [false, true, false, true]);
 });

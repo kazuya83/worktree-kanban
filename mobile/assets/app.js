@@ -892,7 +892,7 @@
     if (!logs) box.appendChild(h('p.muted.pad.center', { text: tr('読み込んでいます…') }));
     else if (!items.length && !running) box.appendChild(h('p.muted.pad', { text: BM.isChat(c) ? tr('まだ会話はありません。') : tr('まだ返事はありません。「開始」を押すと {v} が動き出します。', { v: BM.agentLabel(BM.agentOf(c)) }) }));
     for (const it of items) box.appendChild(chatItemEl(c, it, false));
-    if (running) box.appendChild(h('div.c-note.k-working', null, h('span.spinner'), h('span.c-note-x', { text: tr('{v} が作業しています…（途中の様子は「ログ」で見られます）', { v: BM.whoShort(c) }) })));
+    if (running) box.appendChild(h('div.c-note.k-working', null, h('span.spinner'), h('span.c-note-x', { text: tr('{v} が作業しています…（ツールの動きは「ログ」で見られます）', { v: BM.whoShort(c) }) })));
     if (stick) body.scrollTop = body.scrollHeight;
   }
   function renderLogTab(c) {

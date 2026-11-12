@@ -2780,14 +2780,14 @@ function appendChatLog(body, c, entry) {
   } else box.insertAdjacentHTML('beforeend', chatItemHtml(item, agent, false, chatPersonaOf(c)));
 }
 
-// 「チャット」タブ: 指示・途中の質問と、エージェントの最後の返事だけを並べる（ツールの呼び出しや結果は出さない）
-const CHAT_TAB_TITLE = tr('指示や質問と、それに対するエージェントの最後の返事だけを見ます（ツールの結果などは「ログ」で見られます）');
+// 「チャット」タブ: 指示・途中の質問と、エージェントの返事（途中の返事も含む）を並べる（ツールの呼び出しや結果は出さない）
+const CHAT_TAB_TITLE = tr('指示や質問と、エージェントの返事（途中の返事も含む）を見ます（ツールの結果などは「ログ」で見られます）');
 function chatItemsHtml(c) {
   const agent = agentOf(c);
   const running = c.status === 'running';
   const items = ChatLog.final(state.logs.get(c.id) || [], agent, running);
   const html = items.map((it) => chatItemHtml(it, agent, false, chatPersonaOf(c))).join('');
-  const working = running ? tr('<div class="c-note k-working">{v}<span class="c-note-x">{v2} が作業しています…（途中の様子は「ログ」で見られます）</span></div>', { v: (icon('clock')), v2: (esc(whoShort(agent, chatPersonaOf(c)))) }) : '';
+  const working = running ? tr('<div class="c-note k-working">{v}<span class="c-note-x">{v2} が作業しています…（ツールの動きは「ログ」で見られます）</span></div>', { v: (icon('clock')), v2: (esc(whoShort(agent, chatPersonaOf(c)))) }) : '';
   if (!html && !working) {
     return `<div class="muted pad">${isChat(c) ? tr('まだ会話はありません。') : tr('まだ返事はありません。「開始」を押すと {v} が動き出します。', { v: (agentLabel(agent)) })}</div>`;
   }
@@ -2800,7 +2800,7 @@ function renderChatTab(body, c) {
   body.innerHTML = `<div class="chat-log" id="chatItems">${html}</div><div id="logActions" class="log-actions"></div>`;
   drawLogActions(c, true);
 }
-// 新しいログや状態の変化で、最後の返事が変わったときだけ描き直す
+// 新しいログや状態の変化で、表示が変わったときだけ描き直す
 function updateChatTab(c) {
   const box = $('chatItems');
   if (!box || !state.chatView || state.chatView.id !== c.id) return;
