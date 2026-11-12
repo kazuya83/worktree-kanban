@@ -98,6 +98,7 @@
       if (isInterrupted(c)) return ['interrupted', tr('中断')];
       if ((c.questions || []).length) return ['question', tr('質問')];
       if ((c.permissions || []).length) return ['waiting', tr('承認待ち')];
+      if (waitingBackground(c)) return ['running', tr('バックグラウンド待ち')];
       if (c.conflict && !c.conflict.resolving && !isActive(c)) return ['conflict', tr('コンフリクト')];
       if (isSpecPending(c)) return ['spec', tr('仕様の確認')];
       if (c.prState === 'OPEN' && c.prChecks && c.prChecks.state === 'FAILURE' && (c.status === 'review' || c.status === 'failed')) return ['conflict', tr('CI 失敗')];
@@ -140,12 +141,16 @@
     return { columns, card, needsYou, badge, columnOf, laneOf, columnCards, byAttention, canMove, subtaskParent, isHiddenSubtask, subtaskNeedsCheck, subKids, isUnreadChat };
   }
 
+  // 実行中に、ターンを終えてバックグラウンドの作業（run_in_background のコマンドなど）が終わるのを待っているか
+  const waitingBackground = (c) => !!c && c.status === 'running' && !!c.bgWaiting && !(c.questions || []).length;
   // 追加指示を送れる状態か（完了したタスクにも送れる。送ると、ファイルを変えずに話す）
-  const canSendFollow = (c) => !!c && (c.status === 'review' || c.status === 'failed' || c.status === 'done');
+  // バックグラウンドの作業を待っているあいだも送れる（次のメッセージとしてすぐ渡す）
+  const canSendFollow = (c) => !!c && (c.status === 'review' || c.status === 'failed' || c.status === 'done' || waitingBackground(c));
 
   // 下の入力欄で何をするか: 'btw'（実行中の作業に差し込む）/ 'send'（追加指示）/ 'off'（送れない）
   function composerMode(c) {
     if (!c) return 'off';
+    if (waitingBackground(c)) return 'send';
     if (isActive(c)) return 'btw';
     if (canSendFollow(c) && !c.afterDone) return 'send';
     if (canSendFollow(c) && c.afterDone) return 'off';
@@ -253,6 +258,7 @@
     subtasksRunning,
     hasSubtaskProposal,
     canSendFollow,
+    waitingBackground,
     composerMode,
     specAnswerMessage,
     agentChoices,

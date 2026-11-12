@@ -309,6 +309,7 @@ function badgeFor(c) {
   if (isInterrupted(c)) return ['interrupted', tr('中断')];
   if ((c.questions || []).length) return ['question', tr('質問')];
   if ((c.permissions || []).length) return ['waiting', tr('承認待ち')];
+  if (waitingBackground(c)) return ['running', tr('バックグラウンド待ち')];
   if (c.conflict && !c.conflict.resolving && c.status !== 'running' && c.status !== 'queued') return ['conflict', tr('コンフリクト')];
   if (isSpecPending(c)) return ['spec', tr('仕様の確認')];
   if (c.prState === 'OPEN' && c.prChecks?.state === 'FAILURE' && (c.status === 'review' || c.status === 'failed')) return ['conflict', tr('CI 失敗')];
@@ -2380,6 +2381,7 @@ function renderDetailHead() {
   $('followBtn').disabled = !canFollow;
   $('followInput').placeholder =
     chat ? (canFollow ? tr('メッセージを送る（Ctrl/⌘ + Enter で送信）。同じ会話の続きとして話せます') : tr('返事が来たら、続きを話せます'))
+    : waitingBackground(c) ? tr('{v} はバックグラウンドの作業が終わるのを待っています。ここに書いて送ると、待たずにすぐ渡します（Ctrl/⌘ + Enter で送信）', { v: (agentShort(agentOf(c))) })
     : waitingAnswer(c) ? tr('{v} が質問しています。選択肢で答えるか、ここにメッセージを書いて送ると、質問への返事として渡します（Ctrl/⌘ + Enter で送信）', { v: (agentShort(agentOf(c))) })
     : canFollow && isSpecPending(c) ? tr('質問への答えを書く（Ctrl/⌘ + Enter で送信）。分からないところは「おまかせ」と書いてもかまいません')
     : canFollow && c.awaitingReply ? tr('{v} への回答を書く（Ctrl/⌘ + Enter で送信）', { v: (agentShort(agentOf(c))) })
@@ -2674,10 +2676,18 @@ function chatActionsHtml(c) {
       : c.awaitingReply && (s === 'review' || s === 'failed')
         ? tr('<div class="d-awaiting"><b>{v}{who} が質問しています</b><small>このすぐ下の欄（または画面のいちばん下の入力欄）に答えを書いて送ると、同じ会話の続きから進めます。</small></div>{v2}', { v: (icon('chat')), who, v2: (replyFormHtml(c)) })
         : '',
+    backgroundBoxHtml(c),
     completeBoxHtml(c),
     fixTaskBoxHtml(c),
   ];
   return parts.join('');
+}
+// ターンを終えて、バックグラウンドの作業を待っているときの知らせ（待っている作業の一覧と、メッセージを送れること）
+function backgroundBoxHtml(c) {
+  if (!waitingBackground(c)) return '';
+  const tasks = (c.bgTasks || []).filter((t) => t && t.description);
+  const list = tasks.length ? `<ul class="bg-tasks">${tasks.map((t) => `<li>${esc(t.description)}</li>`).join('')}</ul>` : '';
+  return tr('<div class="d-awaiting d-bg"><b>{v}バックグラウンドの作業が終わるのを待っています</b><small>終わると、{who} が続きを進めます。待っているあいだも、下の欄からメッセージを送れます（すぐに渡します）。</small>{list}</div>', { v: (icon('clock')), who: (esc(agentShort(agentOf(c)))), list });
 }
 // 完了したタスクについての会話のあと、チャットの最後に出す「修正タスクを作る」（押すとすぐにカードを作る）
 // エージェントが修正タスクの案（```fix-task）を付けていればその内容で、なければ会話の内容をもとに直すタスクにする
@@ -3611,8 +3621,14 @@ function attachFilesHtml(atts, { all = false } = {}) {
 
 // 追加指示を送れる状態か（完了したタスクにも送れる。送ると、タスクは完了のまま、ファイルを変えずに話す）
 // 実行中でも、選択肢の質問の返事を待って止まっているときは送れる（質問への返事として渡す）
+// ターンを終えて、バックグラウンドの作業（run_in_background のコマンドなど）が終わるのを待っているときも送れる（次のメッセージとしてすぐ渡す）
 function canSendFollow(c) {
-  return !!c && (c.status === 'review' || c.status === 'failed' || c.status === 'done' || waitingAnswer(c));
+  return !!c && (c.status === 'review' || c.status === 'failed' || c.status === 'done' || waitingAnswer(c) || waitingBackground(c));
+}
+
+// 実行中に、ターンを終えてバックグラウンドの作業が終わるのを待っているか
+function waitingBackground(c) {
+  return !!c && c.status === 'running' && !!c.bgWaiting && !(c.questions || []).length;
 }
 
 // 実行中に、エージェントが選択肢の質問の返事を待っているか

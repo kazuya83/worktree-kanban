@@ -131,4 +131,5 @@
   "このターミナルを閉じて、シェルを終わらせますか？": {"en": "Close this terminal and end the shell?", "es": "¿Cerrar esta terminal y terminar la shell?", "fr": "Fermer ce terminal et terminer le shell ?", "zh": "要关闭此终端并结束 shell 吗？"},
   "このターミナルは閉じられました": {"en": "This terminal has been closed", "es": "Esta terminal se ha cerrado", "fr": "Ce terminal a été fermé", "zh": "此终端已关闭"},
   "{v} が質問の返事を待っています。送ると、質問への返事として渡します": {"en": "{v} is waiting for an answer to its question. What you send is passed as the reply", "es": "{v} está esperando la respuesta a su pregunta. Lo que envíe se entregará como respuesta", "fr": "{v} attend la réponse à sa question. Ce que vous envoyez lui est transmis comme réponse", "zh": "{v} 正在等待问题的回复。发送的内容会作为回复传递"},
+  "{v} はバックグラウンドの作業が終わるのを待っています。送ると、待たずにすぐ渡します": {"en": "{v} is waiting for background work to finish. What you send is passed on right away", "es": "{v} está esperando a que termine el trabajo en segundo plano. Lo que envíe se entregará enseguida", "fr": "{v} attend la fin du travail en arrière-plan. Ce que vous envoyez est transmis aussitôt", "zh": "{v} 正在等待后台任务完成。发送的内容会立即传递"},
 });
