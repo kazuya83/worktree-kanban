@@ -991,6 +991,62 @@ select:focus {
   max-width: 100%;
   max-height: 100%;
 }
+/* 画像のダウンロードボタン（スマホはマウスを乗せられないので、いつも出しておく） */
+.log-img-wrap {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+.log-img-dl {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+}
+.log-img-dl .ic {
+  width: 15px;
+  height: 15px;
+}
+.img-overlay .img-overlay-dl {
+  position: fixed;
+  top: calc(var(--safe-t) + 12px);
+  right: calc(var(--safe-r) + 12px);
+  width: auto;
+  height: auto;
+  padding: 8px 14px;
+  font-size: 14px;
+}
+/* チャットタブ: エージェントが最後に撮った画像 */
+.c-shots-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.c-shots-head .ic {
+  width: 14px;
+  height: 14px;
+}
+.c-shots .log-img {
+  max-width: 100%;
+  max-height: 280px;
+}
+.c-shots-more {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
 .attach-files {
   display: flex;
   flex-wrap: wrap;

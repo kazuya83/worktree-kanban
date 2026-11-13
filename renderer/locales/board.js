@@ -572,4 +572,8 @@
   "裏で {n} 件": {"en": "{n} in background", "es": "{n} en segundo plano", "fr": "{n} en arrière-plan", "zh": "后台 {n} 项"},
   "バックグラウンドの作業（{n} 件）": {"en": "Background work ({n})", "es": "Trabajo en segundo plano ({n})", "fr": "Travail en arrière-plan ({n})", "zh": "后台任务（{n} 项）"},
   "{desc}（{type}）": {"en": "{desc} ({type})", "es": "{desc} ({type})", "fr": "{desc} ({type})", "zh": "{desc}（{type}）"},
+  "画像をダウンロード": {"en":"Download image","es":"Descargar imagen","fr":"Télécharger l’image","zh":"下载图像"},
+  "ダウンロード": {"en":"Download","es":"Descargar","fr":"Télécharger","zh":"下载"},
+  "最後に撮った画像": {"en":"Latest image","es":"Última imagen","fr":"Dernière image","zh":"最后截取的图像"},
+  "途中の画像（{n} 枚）": {"en":"Earlier images ({n})","es":"Imágenes anteriores ({n})","fr":"Images précédentes ({n})","zh":"中途的图像（{n} 张）"},
 });

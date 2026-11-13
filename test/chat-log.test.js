@@ -108,3 +108,48 @@ test('final: エージェントが替わったら、名前を出し直す', () =
   const items = final([L('user', 'x'), L('text', 'a', { agent: 'codex' }), L('text', 'b', { agent: 'codex' }), L('text', 'c')], 'claude', false);
   assert.deepStrictEqual(items.map((it) => !!it.head), [false, true, false, true]);
 });
+
+
+test('final: ツールの結果の画像は、やり取りのまとまりの最後に「最後に撮った画像」として出す', () => {
+  const a = { mediaType: 'image/png', data: 'AAAA' };
+  const b = { mediaType: 'image/png', data: 'BBBB' };
+  const c = { mediaType: 'image/png', data: 'CCCC' };
+  const items = final(
+    [
+      L('user', '直して'),
+      L('text', '確かめます'),
+      L('tool', 'screenshot'),
+      L('tool_result', '', { images: [a] }),
+      L('tool', 'screenshot'),
+      L('tool_result', '', { images: [b, { omitted: '大きすぎる' }] }),
+      L('tool', 'Read  x'),
+      L('tool_result', 'ok'),
+      L('text', '直しました'),
+      L('result', '完了'),
+      L('user', '次も'),
+      L('tool', 'screenshot'),
+      L('tool_error', 'x', { images: [c] }),
+    ],
+    'codex',
+  );
+  assert.deepStrictEqual(items.map((it) => it.type), ['user', 'assistant', 'assistant', 'shots', 'user', 'shots']);
+  assert.deepStrictEqual(items[3].images, [b], '最後に撮った画像だけ（消された画像は除く）');
+  assert.deepStrictEqual(items[3].earlier, [a], 'それより前の画像は earlier に');
+  assert.strictEqual(items[3].agent, 'claude');
+  assert.deepStrictEqual(items[5].images, [c]);
+  assert.deepStrictEqual(items[5].earlier, []);
+  assert.strictEqual(items[5].agent, 'codex', '返事がなければカードのエージェント');
+});
+
+test('final: 画像のあとの返事は、名前を出し直す。画像の無いまとまりには出さない', () => {
+  const items = final([L('user', 'x'), L('tool_result', '', { images: [{ omitted: '消しました' }] }), L('text', 'a'), L('question', 'どっち？'), L('user', 'A')], 'claude');
+  assert.deepStrictEqual(items.map((it) => it.type), ['user', 'assistant', 'notice', 'user']);
+});
+
+test('final: スマホ用のチャットも、同じように最後に撮った画像を出す', () => {
+  const Mobile = require('../mobile/assets/chat-model');
+  const a = { mediaType: 'image/png', data: 'AAAA' };
+  const logs = [L('user', 'x'), L('text', 'a'), L('tool_result', '', { images: [a] }), L('error', 'だめでした')];
+  assert.deepStrictEqual(Mobile.final(logs, 'claude').map((it) => it.type), ['user', 'assistant', 'shots', 'notice']);
+  assert.deepStrictEqual(final(logs, 'claude').map((it) => it.type), ['user', 'assistant', 'shots', 'notice']);
+});
