@@ -62,6 +62,8 @@
     pause: ['M8 5v14', 'M16 5v14'],
     chat: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
     terminal: ['M3 5h18v14H3z', 'M7 10l3 2-3 2', 'M13 15h4'],
+    download: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M7 10l5 5 5-5', 'M12 15V3'],
+    image: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M9 7a2 2 0 1 0 0 4a2 2 0 1 0 0-4', 'M21 15l-5-5L5 21'],
     branch: ['M6 3v12', 'M18 9a3 3 0 1 0 0-6a3 3 0 1 0 0 6', 'M6 21a3 3 0 1 0 0-6a3 3 0 1 0 0 6', 'M18 9a9 9 0 0 1-9 9'],
   };
   function icon(name, cls) {
@@ -843,7 +845,12 @@
       null,
       images.map((im) =>
         im && IMG_TYPES.has(im.mediaType) && typeof im.data === 'string' && /^[A-Za-z0-9+/]+=*$/.test(im.data)
-          ? h('img.log-img', { src: `data:${im.mediaType};base64,${im.data}`, alt: tr('画像') })
+          ? h(
+              'span.log-img-wrap',
+              null,
+              h('img.log-img', { src: `data:${im.mediaType};base64,${im.data}`, alt: tr('画像') }),
+              h('button.log-img-dl', { type: 'button', title: tr('画像をダウンロード'), 'aria-label': tr('画像をダウンロード') }, icon('download')),
+            )
           : h('span.muted.small', { text: tr('画像（{v}）', { v: (im && im.omitted) || tr('表示できません') }) }),
       ),
     );
@@ -870,6 +877,11 @@
       if (open) det.open = true;
       return h('div.c-row.c-agent.c-toolrow', null, it.head ? chatHead(c, it.agent || agent, e || r) : null, det, r ? imagesEl(r.images) : null);
     }
+    if (it.type === 'shots') {
+      // やり取りのまとまりで、エージェントが最後に撮った画像（それより前のものは折りたたむ）
+      const more = it.earlier && it.earlier.length ? h('details.c-shots-more', null, h('summary', { text: tr('途中の画像（{n} 枚）', { n: it.earlier.length }) }), imagesEl(it.earlier)) : null;
+      return h('div.c-row.c-agent.c-shots', null, h('div.c-shots-head', null, icon('image'), h('span', { text: tr('最後に撮った画像') })), imagesEl(it.images), more);
+    }
     const k = e.kind;
     const NOTE = { result: 'check', error: 'alert', question: 'question', permission: 'lock' };
     const body = k === 'question' || k === 'result' ? mdEl(e.text) : h('span.c-note-x', { text: e.text || '' });
@@ -884,7 +896,7 @@
     const running = c.status === 'running';
     const items = logs ? MobileChat.final(logs, BM.agentOf(c), running) : [];
     const last = items[items.length - 1];
-    const sig = JSON.stringify([I18n.getLanguage(), !!logs, running, items.length, last && last.entry && last.entry.t, last && last.entry && String(last.entry.text || '').length]);
+    const sig = JSON.stringify([I18n.getLanguage(), !!logs, running, items.length, last && last.entry && last.entry.t, last && last.entry && String(last.entry.text || '').length, items.reduce((n, it) => n + (it.type === 'shots' ? it.images.length + it.earlier.length : 0), 0)]);
     if (!force && sig === S.chatSig) return;
     S.chatSig = sig;
     const stick = nearBottom(body) || !box.childNodes.length;
@@ -1421,12 +1433,38 @@
       else toast(tr('コピーできませんでした'));
       return;
     }
+    const dl = e.target.closest && e.target.closest('.log-img-dl');
+    if (dl) {
+      e.preventDefault();
+      e.stopPropagation();
+      const im = dl.dataset.src ? null : dl.parentElement && dl.parentElement.querySelector('img');
+      downloadImage(dl.dataset.src || (im ? im.src : ''));
+      return;
+    }
     const img = e.target.closest && e.target.closest('.log-img');
     if (img) {
-      const ov = h('div.img-overlay', { onclick: () => ov.remove() }, h('img', { src: img.src, alt: '' }));
+      const ov = h(
+        'div.img-overlay',
+        { onclick: (ev) => !ev.target.closest('.img-overlay-dl') && ov.remove() },
+        h('img', { src: img.src, alt: '' }),
+        h('button.log-img-dl.img-overlay-dl', { type: 'button', dataset: { src: img.src } }, icon('download'), h('span', { text: tr('ダウンロード') })),
+      );
       document.body.appendChild(ov);
     }
   });
+
+  // 画像をファイルに保存する（data: の URL をそのままダウンロードする）
+  const IMG_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+  function downloadImage(src) {
+    const m = /^data:(image\/[a-z+.-]+)[;,]/.exec(src || '');
+    if (!m) return;
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    const a = h('a', { href: src, download: `image-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${IMG_EXT[m[1]] || 'png'}` });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
 
   // ---------------- 起動 ----------------
 

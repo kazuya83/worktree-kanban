@@ -2644,10 +2644,19 @@ function chatItemHtml(it, agent, open, persona) {
     const out = r && r.text ? `<pre class="c-tool-out">${esc(r.text)}</pre>` : r ? tr('<div class="c-tool-out muted small">（出力はありません）</div>') : tr('<div class="c-tool-out muted small">（結果はまだありません）</div>');
     return `<div class="c-row c-agent c-toolrow">${it.head ? chatHeadHtml(it.agent || agent, e || r, pp) : ''}<details class="c-tool${err ? ' err' : ''}"${open ? ' open' : ''}><summary title="${esc(logTime(e || r))}">${icon('wrench')}<span class="c-tool-name">${esc(name)}</span><span class="c-tool-arg">${esc(arg)}</span>${st}</summary>${out}</details>${r ? logImagesHtml(r.images) : ''}</div>`;
   }
+  if (it.type === 'shots') return chatShotsHtml(it);
   // システムのお知らせ・完了・エラー・承認・質問などは、会話の間に小さく挟む
   const k = e.kind;
   const body = k === 'question' ? mdHtml(e.text) : k === 'result' ? mdHtml(e.text) : `<span class="c-note-x">${esc(e.text)}</span>`;
   return `<div class="c-note k-${esc(k)}" title="${esc(LOG_LABEL[k] || k)} ${esc(logTime(e))}">${NOTE_ICON[k] ? icon(NOTE_ICON[k]) : ''}${body}${logImagesHtml(e.images)}</div>`;
+}
+// チャットタブ: やり取りのまとまりで、エージェントが最後に撮った画像（スクリーンショットなど）。
+// それより前に撮った画像は「途中の画像」として折りたたむ
+function chatShotsHtml(it) {
+  const more = it.earlier && it.earlier.length
+    ? `<details class="c-shots-more"><summary>${esc(tr('途中の画像（{n} 枚）', { n: it.earlier.length }))}</summary>${logImagesHtml(it.earlier)}</details>`
+    : '';
+  return `<div class="c-row c-agent c-shots"><div class="c-shots-head">${icon('image')}<span>${esc(tr('最後に撮った画像'))}</span></div>${logImagesHtml(it.images)}${more}</div>`;
 }
 function renderChatLog(body, c, logs) {
   const agent = agentOf(c);
@@ -2869,14 +2878,41 @@ function logImagesHtml(images) {
   if (!Array.isArray(images) || !images.length) return '';
   const items = images.map((im) => {
     if (im && IMG_TYPES.has(im.mediaType) && typeof im.data === 'string' && /^[A-Za-z0-9+/]+=*$/.test(im.data)) {
-      return tr('<img class="log-img" src="data:{mediaType};base64,{data}" alt="画像" title="クリックで大きく表示" />', { mediaType: (im.mediaType), data: (im.data) });
+      const img = tr('<img class="log-img" src="data:{mediaType};base64,{data}" alt="画像" title="クリックで大きく表示" />', { mediaType: (im.mediaType), data: (im.data) });
+      return `<span class="log-img-wrap">${img}<button type="button" class="log-img-dl" title="${esc(tr('画像をダウンロード'))}" aria-label="${esc(tr('画像をダウンロード'))}">${icon('download')}</button></span>`;
     }
     return tr('<span class="log-img-omitted">{v}画像（{v2}）</span>', { v: (icon('image')), v2: (esc((im && im.omitted) || tr('表示できません'))) });
   });
   return `<div class="log-imgs">${items.join('')}</div>`;
 }
 
+// 画像をファイルに保存する（data: の URL をそのままダウンロードする。保存先はいつものダウンロードと同じく選べる）
+const IMG_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+function imageFileName(src, d = new Date()) {
+  const m = /^data:([^;,]+)/.exec(src || '');
+  const p = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `image-${stamp}.${(m && IMG_EXT[m[1]]) || 'png'}`;
+}
+function downloadImage(src) {
+  if (!/^data:image\//.test(src || '')) return;
+  const a = document.createElement('a');
+  a.href = src;
+  a.download = imageFileName(src);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 document.addEventListener('click', (ev) => {
+  const dl = ev.target.closest && ev.target.closest('.log-img-dl');
+  if (dl) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const src = dl.dataset.src || (dl.parentElement && dl.parentElement.querySelector('img') ? dl.parentElement.querySelector('img').src : '');
+    downloadImage(src);
+    return;
+  }
   const img = ev.target.closest && ev.target.closest('.log-img');
   if (img) {
     const ov = document.createElement('div');
@@ -2885,7 +2921,16 @@ document.addEventListener('click', (ev) => {
     const big = document.createElement('img');
     big.src = img.src;
     ov.appendChild(big);
-    ov.onclick = () => ov.remove();
+    // 大きく表示しているときも保存できるようにする
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'log-img-dl img-overlay-dl';
+    save.dataset.src = img.src;
+    save.innerHTML = `${icon('download')}<span>${esc(tr('ダウンロード'))}</span>`;
+    ov.appendChild(save);
+    ov.onclick = (e) => {
+      if (!e.target.closest('.img-overlay-dl')) ov.remove();
+    };
     document.body.appendChild(ov);
   }
 });

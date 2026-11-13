@@ -9,6 +9,7 @@
   else root.MobileChat = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   const RESULT_KINDS = new Set(['tool_result', 'tool_error']);
+  const ARR = (x) => (Array.isArray(x) ? x : []);
   const agentSide = (it) => !!it && (it.type === 'assistant' || it.type === 'tool');
 
   // 末尾から続いているエージェント側のまとまりで、最後に分かっているエージェント（分からなければ null）
@@ -59,20 +60,40 @@
   // 「チャット」タブ用: ツールの呼び出し・結果やシステムのお知らせは出さず、
   // あなたの指示（と回答）・途中の質問・エラーと、エージェントの返事（途中の返事も含む）を並べる。
   // 実行中も、届いた返事はすぐに出す。名前は返事のまとまりの最初（またはエージェントが替わったとき）だけ出す。
+  // ツールの結果に入っていた画像（検証で撮ったスクリーンショットなど）は、やり取りのまとまりごとに
+  // 最後に撮ったもの（＝最終的にこうなった、という画像）を、そのまとまりの最後に type: 'shots' として出す。
+  // それより前の画像は earlier に入れる（画面では折りたたんで見せる）。
   const CHAT_STOPS = new Set(['user', 'question', 'error']);
-  function final(logs) {
+  const hasData = (im) => !!im && typeof im.data === 'string' && !!im.data;
+  function final(logs, defaultAgent) {
     const items = [];
-    for (const e of Array.isArray(logs) ? logs : []) {
+    let shots = []; // 今のまとまりで、画像が入っていたツールの結果ごとの画像
+    let shotAgent = '';
+    const flush = () => {
+      if (!shots.length) return;
+      const images = shots[shots.length - 1];
+      const earlier = shots.slice(0, -1).flat();
+      items.push({ type: 'shots', images, earlier, agent: shotAgent || defaultAgent || 'claude', entry: null });
+      shots = [];
+    };
+    for (const e of ARR(logs)) {
       if (!e || typeof e !== 'object') continue;
-      const last = items[items.length - 1];
       if (e.kind === 'text') {
+        const last = items[items.length - 1];
         const agent = e.agent || 'claude';
         const head = !last || last.type !== 'assistant' || last.agent !== agent;
         items.push({ type: 'assistant', entry: e, agent, known: true, head });
+        shotAgent = agent;
+      } else if (RESULT_KINDS.has(e.kind)) {
+        const ims = Array.isArray(e.images) ? e.images.filter(hasData) : [];
+        if (ims.length) shots.push(ims);
       } else if (CHAT_STOPS.has(e.kind)) {
+        flush();
+        shotAgent = '';
         items.push(e.kind === 'user' ? { type: 'user', entry: e } : { type: 'notice', entry: e });
       }
     }
+    flush();
     return items;
   }
 
