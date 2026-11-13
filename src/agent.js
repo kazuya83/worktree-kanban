@@ -4173,7 +4173,13 @@ class AgentManager extends EventEmitter {
 
   // claude のバックグラウンドの作業の一覧が変わった
   onBackgroundTasks(c, run, tasks) {
-    run.bgTasks = (Array.isArray(tasks) ? tasks : []).map((t) => ({ id: String(t.task_id || ''), description: truncate(String(t.description || ''), 200), type: String(t.task_type || '') }));
+    // 経過時間を出すために、それぞれの作業を最初に見た時刻を覚えておく（一覧が変わっても、同じ作業の時刻はそのまま）
+    const prev = new Map(run.bgTasks.map((t) => [t.id, t.startedAt]));
+    const now = Date.now();
+    run.bgTasks = (Array.isArray(tasks) ? tasks : []).map((t) => {
+      const id = String(t.task_id || '');
+      return { id, description: truncate(String(t.description || ''), 200), type: String(t.task_type || ''), startedAt: (id && prev.get(id)) || now };
+    });
     c.bgTasks = run.bgTasks;
     if (!run.bgTasks.length && run.turnOver && !run.stdinClosed) {
       // ターンを終えたあとで、待っていた作業がなくなった。ふつうは知らせを受けて次のターンが始まるので、しばらく待ってから閉じる

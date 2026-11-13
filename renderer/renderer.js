@@ -541,6 +541,7 @@ function cardHtml(c) {
       ${c.skill ? tr('<div class="card-skill-row"><span class="skill-chip small" title="最初の指示で使うスキル">{v}/{skill}</span></div>', { v: (icon('zap')), skill: (esc(c.skill)) }) : ''}
       ${c.error && c.status === 'failed' ? `<div class="card-err">${icon('alert')}<span>${esc(c.error)}</span></div>` : ''}
       ${showCardSprite(c) ? spriteCanvasHtml(c, 'mini') : ''}
+      ${cardBgHtml(c)}
       ${isChat(c) && c.lastMessage && !waiting ? `<div class="card-msg">${esc(plainText(c.lastMessage))}</div>` : ''}
       ${isSpecPending(c) ? tr('<div class="card-msg card-spec">{v}内容が詰まっていないので、開発を開始できません。開いて質問に答えてください</div>', { v: (icon('note')) }) : ''}
       ${hasSubtaskProposal(c) ? tr('<div class="card-msg card-spec">{v}サブタスクに分けて進めることを提案しています。開いて、サブタスクでやるかを選んでください</div>', { v: (icon('branch')) }) : ''}
@@ -2088,6 +2089,7 @@ function progressHtml(c) {
   if (cost) rows.push(tr('<dt>コスト</dt><dd>${v}{v2}</dd>', { v: (cost.toFixed(3)), v2: (hasSubtasks(c) ? tr(' <span class="muted small">サブタスクを含む</span>') : '') }));
   const parts = [`<section class="pg-sec"><dl class="d-meta pg-summary">${rows.join('')}</dl></section>`];
   if (s !== 'todo') parts.push(`<section class="pg-sec pg-stage">${spriteCanvasHtml(c, 'stage')}</section>`);
+  parts.push(bgProgressHtml(c));
   // 競争の候補（採用・比べてもらう）
   const compete = competeBoxHtml(c);
   if (compete) parts.push(`<section class="pg-sec">${compete}</section>`);
@@ -2694,9 +2696,48 @@ function chatActionsHtml(c) {
 // ターンを終えて、バックグラウンドの作業を待っているときの知らせ（待っている作業の一覧と、メッセージを送れること）
 function backgroundBoxHtml(c) {
   if (!waitingBackground(c)) return '';
-  const tasks = (c.bgTasks || []).filter((t) => t && t.description);
-  const list = tasks.length ? `<ul class="bg-tasks">${tasks.map((t) => `<li>${esc(t.description)}</li>`).join('')}</ul>` : '';
+  const tasks = bgTasksOf(c);
+  const list = tasks.length ? bgTaskListHtml(tasks) : '';
   return tr('<div class="d-awaiting d-bg"><b>{v}バックグラウンドの作業が終わるのを待っています</b><small>終わると、{who} が続きを進めます。待っているあいだも、下の欄からメッセージを送れます（すぐに渡します）。</small>{list}</div>', { v: (icon('clock')), who: (esc(agentShort(agentOf(c)))), list });
+}
+// エージェントが裏で動かしている作業（run_in_background のコマンド・Monitor・バックグラウンドのサブエージェントなど）。
+// 実行中のあいだだけ（ターンの途中も、ターンを終えて待っているときも）
+function bgTasksOf(c) {
+  if (!c || c.status !== 'running') return [];
+  return (c.bgTasks || []).filter((t) => t && (t.description || t.id));
+}
+// 作業の種類（Claude Code の task_type）を読める名前にする。知らない種類はそのまま出す
+function bgTypeLabel(type) {
+  const t = String(type || '');
+  if (!t) return '';
+  if (/bash|shell|command/i.test(t)) return tr('コマンド');
+  if (/monitor/i.test(t)) return tr('監視');
+  if (/remote/i.test(t) && /agent/i.test(t)) return tr('リモートのエージェント');
+  if (/agent/i.test(t)) return tr('サブエージェント');
+  return t;
+}
+// 裏の作業の一覧（説明・種類・経過時間）。経過時間は .elapsed なので、毎秒の更新で進む
+function bgTaskListHtml(tasks) {
+  return `<ul class="bg-tasks">${tasks
+    .map((t) => {
+      const type = bgTypeLabel(t.type);
+      return `<li><span class="bg-desc">${esc(t.description || t.id)}</span>${type ? `<span class="bg-type">${esc(type)}</span>` : ''}${t.startedAt ? `<span class="elapsed bg-elapsed" data-since="${esc(t.startedAt)}">${esc(elapsed(t.startedAt))}</span>` : ''}</li>`;
+    })
+    .join('')}</ul>`;
+}
+// ボードのカードに出す「裏で N 件」
+function cardBgHtml(c) {
+  const tasks = bgTasksOf(c);
+  if (!tasks.length) return '';
+  const since = Math.min(...tasks.map((t) => t.startedAt || Date.now()));
+  const title = tasks.map((t) => (t.type ? tr('{desc}（{type}）', { desc: t.description || t.id, type: bgTypeLabel(t.type) }) : t.description || t.id)).join('\n');
+  return `<div class="card-bg" title="${esc(title)}">${icon('clock')}<span>${esc(tr('裏で {n} 件', { n: tasks.length }))}</span><span class="elapsed" data-since="${esc(since)}">${esc(elapsed(since))}</span></div>`;
+}
+// 進捗タブの「バックグラウンドの作業」
+function bgProgressHtml(c) {
+  const tasks = bgTasksOf(c);
+  if (!tasks.length) return '';
+  return `<section class="pg-sec pg-bg"><div class="pg-sec-head"><b>${icon('clock')}${esc(tr('バックグラウンドの作業（{n} 件）', { n: tasks.length }))}</b></div>${bgTaskListHtml(tasks)}</section>`;
 }
 // 完了したタスクについての会話のあと、チャットの最後に出す「修正タスクを作る」（押すとすぐにカードを作る）
 // エージェントが修正タスクの案（```fix-task）を付けていればその内容で、なければ会話の内容をもとに直すタスクにする
