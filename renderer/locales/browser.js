@@ -41,4 +41,8 @@
   "この部品をどうしたいかを書いてください": {"en": "Describe what you want to change about these elements", "es": "Describe qué quieres cambiar en estos elementos", "fr": "Décrivez ce que vous voulez changer sur ces éléments", "zh": "请写下想如何修改这些元素"},
   "エージェントに送りました": {"en": "Sent to the agent", "es": "Enviado al agente", "fr": "Envoyé à l’agent", "zh": "已发送给智能体"},
   "遠隔操作中は、接続先のマシンの開発サーバーを内蔵ブラウザで開けません": {"en": "While operating another machine remotely, its dev server cannot be opened in the built-in browser", "es": "Mientras controlas otra máquina de forma remota, su servidor de desarrollo no se puede abrir en el navegador integrado", "fr": "Pendant le contrôle à distance d’une autre machine, son serveur de développement ne peut pas être ouvert dans le navigateur intégré", "zh": "远程操作期间，无法在内置浏览器中打开连接目标机器的开发服务器"},
+  "新しいタブ": {"en": "New tab", "es": "Nueva pestaña", "fr": "Nouvel onglet", "zh": "新标签页"},
+  "新しいタブを開く": {"en": "Open a new tab", "es": "Abrir una pestaña nueva", "fr": "Ouvrir un nouvel onglet", "zh": "打开新标签页"},
+  "このタブを閉じる": {"en": "Close this tab", "es": "Cerrar esta pestaña", "fr": "Fermer cet onglet", "zh": "关闭此标签页"},
+  "開けるタブは {n} 個までです": {"en": "You can open up to {n} tabs", "es": "Puedes abrir hasta {n} pestañas", "fr": "Vous pouvez ouvrir jusqu’à {n} onglets", "zh": "最多可以打开 {n} 个标签页"},
 });
