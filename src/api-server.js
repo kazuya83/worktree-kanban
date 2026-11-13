@@ -51,6 +51,7 @@ const API_CHANNELS = new Set([
   'card:diff',
   'card:merge',
   'card:pr',
+  'card:prDraft',
   'card:discard',
   'card:complete',
   'card:markSeen',

@@ -1630,3 +1630,61 @@ test('バックグラウンドの作業の一覧が変わっても、同じ作�
   assert.deepStrictEqual(c.bgTasks.map((t) => t.type), ['local_bash', 'local_agent']);
   void store;
 });
+
+test('PR テンプレートがあれば、それに従った文面をエージェントに書いてもらって PR を作る', async () => {
+  const { tmp, repo, store, agents, g } = setup();
+  store.settings.permissionMode = 'bypassPermissions';
+  store.settings.integration = 'pr';
+  fs.mkdirSync(path.join(repo, '.github'));
+  fs.writeFileSync(path.join(repo, '.github', 'pull_request_template.md'), '## 概要\n\n## テスト\n');
+  fs.writeFileSync(path.join(repo, 'CONTRIBUTING.md'), 'PR のタイトルは feat: で始める\n');
+  g('add', '.');
+  g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'template');
+  const remote = path.join(tmp, 'remote.git');
+  execFileSync('git', ['init', '-q', '--bare', remote]);
+  g('remote', 'add', 'origin', remote);
+  g('push', '-q', 'origin', 'main');
+  const ghLog = path.join(tmp, 'gh.log');
+  const ghBin = path.join(tmp, 'gh');
+  fs.writeFileSync(ghBin, `#!/bin/sh\nprintf '%s\\n' "$@" >> "${ghLog}"\nif [ "$1 $2" = "pr create" ]; then echo 'https://github.com/o/r/pull/8'; exit 0; fi\nexit 1\n`, { mode: 0o755 });
+  agents.opts.ghPath = ghBin;
+
+  const c = agents.createCard({ title: 'tpl task', prompt: 'テンプレート向け' });
+  agents.start(c.id);
+  await waitFor(() => c.status === 'review');
+
+  const prompts = [];
+  agents.askOnce = async (agent, cwd, prompt) => {
+    prompts.push({ cwd, prompt });
+    return '```json\n{"title":"feat: tpl task","body":"## 概要\\nやったこと\\n\\n## テスト\\nなし"}\n```';
+  };
+  const d = await agents.prDraft(c.id);
+  assert.deepStrictEqual(d, { title: 'feat: tpl task', body: '## 概要\nやったこと\n\n## テスト\nなし', ai: true, template: '.github/pull_request_template.md', docs: ['CONTRIBUTING.md'] });
+  assert.strictEqual(prompts[0].cwd, c.worktreePath);
+  assert.ok(prompts[0].prompt.includes('## テスト') && prompts[0].prompt.includes('feat: で始める') && prompts[0].prompt.includes('テンプレート向け'));
+
+  // 本文を渡さない（CLI・API）ときも、テンプレートに従って作る
+  await agents.createPullRequest(c.id);
+  const log = fs.readFileSync(ghLog, 'utf8');
+  assert.match(log, /feat: tpl task/);
+  assert.match(log, /## 概要\nやったこと/);
+  assert.strictEqual(prompts.length, 2);
+
+  // 書いてもらえなかったときは既定の文面
+  agents.askOnce = async () => 'だめでした';
+  const d2 = await agents.prDraft(c.id);
+  assert.strictEqual(d2.ai, false);
+  assert.ok(d2.error);
+  assert.match(d2.body, /Worktree Kanban/);
+});
+
+test('PR テンプレートもルールもなければ、エージェントに聞かずに既定の文面', async () => {
+  const { agents } = setup();
+  const c = agents.createCard({ title: 'plain', prompt: 'p' });
+  agents.askOnce = async () => assert.fail('聞かない');
+  const d = await agents.prDraft(c.id);
+  assert.strictEqual(d.ai, false);
+  assert.strictEqual(d.template, null);
+  assert.deepStrictEqual(d.docs, []);
+  assert.strictEqual(d.title, 'plain');
+});
