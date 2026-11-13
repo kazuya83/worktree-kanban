@@ -1,7 +1,9 @@
 // 内蔵ブラウザ（タスクの開発サーバーのプレビュー）と、デザインモード（画面の部品をクリックして、その HTML・CSS・スクリーンショットをエージェントに渡す）
 //
 // 詳細パネルの「ブラウザ」タブ。タスクごとのポート（WORKTREE_KANBAN_PORT）の http://localhost:<port>/ を <webview> で開く。
-// <webview> は作り直すと読み込み直しになるので、1つだけ作って #browserPane に置いたままにし、タブを切り替えても残す。
+// 上の「+」でタブを増やし、いくつものページを開ける。<webview> はタブごとに1つ作り、見ていないタブのものは隠すだけにする
+// （作り直すと読み込み直しになるので、#browserPane に置いたままにし、詳細パネルのタブやブラウザのタブを切り替えても残す）。
+// タブはタスクごとに覚えておき（アプリを開いているあいだだけ）、別のタスクを開くとそのタスクのタブに入れ替える。
 // デザインモードでは、ページに小さなスクリプト（PICK_SCRIPT）を入れて、マウスの下の部品を枠で示し、クリックした部品の情報を
 // console に印付きの JSON で書いてもらう（<webview> の console-message で受け取る）。スクリーンショットは capturePage で撮る。
 // 「ペン」では、ページの上に線を描いて囲んだ範囲と、その中にある部品の HTML を同じように受け取り、線ごとスクリーンショットを撮る。
@@ -12,7 +14,7 @@
 //   render(c)           タブを描く（カードが変わったときだけ URL を開き直す）
 //   update(c)           カードの状態が変わった（送れるかどうかの表示だけを直す）
 // }
-// テストからは純粋な関数（previewUrl・normalizeUrl・buildPickMessage・parsePickMessage・captureRect・PICK_SCRIPT）を使う
+// テストからは純粋な関数（previewUrl・normalizeUrl・buildPickMessage・parsePickMessage・captureRect・tabLabel・PICK_SCRIPT）を使う
 (function (root, factory) {
   const api = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -32,6 +34,7 @@
   const SHOT_PAD = 16; // スクリーンショットは部品のまわりも少し入れる
   const RETRY_MS = 3000;
   const MAX_RETRIES = 60; // 開発サーバーが立ち上がるのを、3秒ごとに3分まで待つ
+  const MAX_TABS = 10; // 1つのタスクで開けるタブの数（<webview> はタブごとに作るので、増やしすぎない）
 
   // ---------------- 純粋な関数 ----------------
 
@@ -404,30 +407,50 @@
   return api;
 })()`;
 
+  // タブに出す名前: ページのタイトル → ホスト名と道筋 → 「新しいタブ」
+  function tabLabel(tab) {
+    const title = String((tab && tab.title) || '').trim();
+    if (title) return title;
+    const url = String((tab && tab.url) || '');
+    if (url && url !== 'about:blank') {
+      try {
+        const u = new URL(url);
+        const rest = `${u.pathname === '/' ? '' : u.pathname}${u.search}`;
+        return `${u.host}${rest}`;
+      } catch {
+        return url;
+      }
+    }
+    return tr('新しいタブ');
+  }
+
   // ---------------- 画面 ----------------
 
+  // タブ1つ: { id, url, title, failed（読み込めなかったときの { code, desc, url }）, retries, retryTimer, loading, el（<webview>） }
+  // <webview> はタブごとに1つ作り、見えていないタブのものは隠すだけにする（切り替えても読み込み直さない）
   let d = null; // renderer.js から受け取る部品
+  let tabSeq = 0;
   const st = {
     cardId: null,
-    url: '', // 今開いている URL
-    urls: new Map(), // カード ID → 最後に開いていた URL（アプリを開いているあいだだけ）
+    tabs: [], // 今のタスクのタブ
+    active: '', // 見ているタブの id
+    saved: new Map(), // カード ID → { tabs: [{ url, title }], active }（アプリを開いているあいだだけ）
     port: null,
     scripts: null, // api.scripts の結果
     scriptsFor: '', // どのカードのどの状態で読んだか
     design: false,
     tool: 'pick', // デザインモードの道具: 'pick'（クリックで部品を選ぶ）・'pen'（ペンで囲む）
     picks: [], // { pick, shot (data URL), name }
-    failed: null, // 読み込めなかったときの { code, desc }
-    retries: 0,
-    retryTimer: null,
     visible: false,
     full: false, // 画面に大きく表示しているか（差分タブの大きな表示と同じ。タスクやタブを変えると戻す）
     built: false,
-    loading: false,
   };
   const $ = (id) => document.getElementById(id);
   const pane = () => $('browserPane');
-  const view = () => $('browserWebview');
+  const cur = () => st.tabs.find((t) => t.id === st.active) || null;
+  const curUrl = () => (cur() ? cur().url : '');
+  const view = () => (cur() ? cur().el : null);
+  const isActive = (t) => !!t && t.id === st.active;
 
   function init(deps) {
     d = deps;
@@ -464,6 +487,10 @@
     st.built = true;
     const p = pane();
     p.innerHTML = `
+      <div class="bv-tabs">
+        <div id="browserTabs" class="bv-tab-list" role="tablist"></div>
+        <button type="button" class="icon bv-nav bv-tab-add" data-bv="newTab" title="${d.esc(tr('新しいタブを開く'))}" aria-label="${d.esc(tr('新しいタブを開く'))}">${d.icon('plus')}</button>
+      </div>
       <div class="bv-bar">
         <button type="button" class="icon bv-nav" data-bv="back" title="${d.esc(tr('前のページに戻る'))}">${d.icon('arrowLeft')}</button>
         <button type="button" class="icon bv-nav" data-bv="forward" title="${d.esc(tr('次のページに進む'))}">${d.icon('arrowRight')}</button>
@@ -475,74 +502,166 @@
         <button type="button" class="icon bv-nav" data-bv="external" title="${d.esc(tr('いつものブラウザで開く'))}">${d.icon('external')}</button>
       </div>
       <div id="browserServer" class="bv-server muted small"></div>
-      <div class="bv-stage">
-        <webview id="browserWebview" partition="${PARTITION}" src="about:blank" webpreferences="contextIsolation=yes, sandbox=yes"></webview>
+      <div class="bv-stage" id="browserStage">
         <div id="browserNote" class="bv-note hidden"></div>
       </div>
       <div id="browserPicks" class="bv-picks hidden"></div>`;
     p.querySelectorAll('[data-bv]').forEach((b) => (b.onclick = () => onAction(b.dataset.bv)));
     const url = $('browserUrl');
     url.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter') return;
+      if (e.key !== 'Enter' || e.isComposing) return;
       e.preventDefault();
       const u = normalizeUrl(url.value);
       if (!u) return d.toast(tr('開けない URL です'));
       navigate(u);
     });
-    const w = view();
-    w.addEventListener('did-navigate', (e) => onNavigated(e.url));
-    w.addEventListener('did-navigate-in-page', (e) => e.isMainFrame && onNavigated(e.url));
+    const list = $('browserTabs');
+    list.addEventListener('click', (e) => {
+      const x = e.target.closest('[data-tab-close]');
+      if (x) {
+        e.stopPropagation();
+        closeTab(x.dataset.tabClose);
+        return;
+      }
+      const t = e.target.closest('[data-tab]');
+      if (t) activate(t.dataset.tab);
+    });
+    // 真ん中のボタンで閉じる（ふつうのブラウザと同じ）
+    list.addEventListener('auxclick', (e) => {
+      const t = e.button === 1 && e.target.closest('[data-tab]');
+      if (!t) return;
+      e.preventDefault();
+      closeTab(t.dataset.tab);
+    });
+  }
+
+  // タブを1つ作る（<webview> も作る）。まだ見せない
+  function createTab(url, title) {
+    const t = { id: `bt${++tabSeq}`, url: url || '', title: title || '', failed: null, retries: 0, retryTimer: null, loading: false, el: null };
+    const stage = $('browserStage');
+    const src = t.url || 'about:blank';
+    stage.insertAdjacentHTML('afterbegin', `<webview class="bv-view bv-hidden" data-tab-view="${t.id}" partition="${PARTITION}" src="${d.esc(src)}" webpreferences="contextIsolation=yes, sandbox=yes"></webview>`);
+    const w = stage.querySelector(`[data-tab-view="${t.id}"]`);
+    t.el = w;
+    w.addEventListener('did-navigate', (e) => onNavigated(t, e.url));
+    w.addEventListener('did-navigate-in-page', (e) => e.isMainFrame && onNavigated(t, e.url));
+    w.addEventListener('page-title-updated', (e) => {
+      t.title = e.title || '';
+      drawTabs();
+    });
     w.addEventListener('did-start-loading', () => {
-      st.loading = true;
-      drawBar();
+      t.loading = true;
+      if (isActive(t)) drawBar();
     });
     w.addEventListener('did-stop-loading', () => {
-      st.loading = false;
-      drawBar();
+      t.loading = false;
+      if (isActive(t)) drawBar();
     });
     w.addEventListener('did-fail-load', (e) => {
       // -3 は読み込みの中断（次の移動が始まった）なので、失敗にしない
       if (!e.isMainFrame || e.errorCode === -3) return;
-      st.failed = { code: e.errorCode, desc: e.errorDescription || '', url: e.validatedURL || st.url };
-      drawNote();
-      scheduleRetry();
+      t.failed = { code: e.errorCode, desc: e.errorDescription || '', url: e.validatedURL || t.url };
+      if (isActive(t)) drawNote();
+      scheduleRetry(t);
     });
     w.addEventListener('dom-ready', () => {
       // 読み込みに失敗したときのエラーの画面でも dom-ready は来るので、そのときは入れない
-      if (st.design && !st.failed && w.getURL() !== 'about:blank') inject(true);
+      if (isActive(t) && st.design && !t.failed && w.getURL() !== 'about:blank') inject(true);
     });
     w.addEventListener('console-message', (e) => {
       const pick = parsePickMessage(e.message);
-      if (pick) onPick(pick);
+      if (pick && isActive(t)) onPick(pick);
     });
+    st.tabs.push(t);
+    return t;
+  }
+
+  function dropTab(t) {
+    clearTimeout(t.retryTimer);
+    if (t.el) t.el.remove();
+    t.el = null;
+  }
+
+  // 見るタブを変える。デザインモードは、見ているタブのページにだけ入れる
+  function activate(id) {
+    const next = st.tabs.find((t) => t.id === id);
+    if (!next) return;
+    const prev = cur();
+    if (prev && prev !== next) {
+      if (st.design) inject(false);
+      clearTimeout(prev.retryTimer);
+    }
+    st.active = next.id;
+    for (const t of st.tabs) if (t.el) t.el.classList.toggle('bv-hidden', t !== next);
+    const input = $('browserUrl');
+    if (input) input.value = next.url;
+    if (st.design) {
+      if (next.url) inject(true);
+      else setDesign(false);
+    }
+    if (next.failed) scheduleRetry(next);
+    drawTabs();
+    drawBar();
+    drawNote();
+  }
+
+  function newTab() {
+    if (!st.cardId) return;
+    if (st.tabs.length >= MAX_TABS) return d.toast(tr('開けるタブは {n} 個までです', { n: MAX_TABS }));
+    const url = previewUrl(st.port);
+    const t = createTab(url);
+    activate(t.id);
+    // ほかのページを開きたいときにすぐ打てるように、アドレス欄を選んでおく
+    const input = $('browserUrl');
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }
+
+  function closeTab(id) {
+    const i = st.tabs.findIndex((t) => t.id === id);
+    if (i < 0 || st.tabs.length <= 1) return; // 最後の1つは閉じない
+    const t = st.tabs[i];
+    const wasActive = isActive(t);
+    if (wasActive && st.design) setDesign(false);
+    st.tabs.splice(i, 1);
+    dropTab(t);
+    if (wasActive) activate(st.tabs[Math.min(i, st.tabs.length - 1)].id);
+    else drawTabs();
   }
 
   // did-navigate は、読み込みに成功したときだけ来る（失敗は did-fail-load）
-  function onNavigated(url) {
+  function onNavigated(t, url) {
     if (!url || url === 'about:blank' || /^chrome-error:/.test(url)) return;
-    if (st.failed) {
-      st.failed = null;
-      st.retries = 0;
-      clearTimeout(st.retryTimer);
-      drawNote();
+    if (t.failed) {
+      t.failed = null;
+      t.retries = 0;
+      clearTimeout(t.retryTimer);
+      if (isActive(t)) drawNote();
     }
-    st.url = url;
-    if (st.cardId) st.urls.set(st.cardId, url);
+    t.url = url;
+    drawTabs();
+    if (!isActive(t)) return;
     const input = $('browserUrl');
     if (input && document.activeElement !== input) input.value = url;
     drawBar();
   }
 
+  // 見ているタブで URL を開く
   function navigate(url) {
-    st.url = url;
-    if (st.cardId) st.urls.set(st.cardId, url);
-    st.failed = null;
-    st.retries = 0;
-    clearTimeout(st.retryTimer);
+    const t = cur();
+    if (!t) return;
+    t.url = url;
+    t.title = '';
+    t.failed = null;
+    t.retries = 0;
+    clearTimeout(t.retryTimer);
     const input = $('browserUrl');
     if (input) input.value = url;
     drawNote();
-    const w = view();
+    drawTabs();
+    const w = t.el;
     if (!w) return;
     try {
       w.loadURL(url).catch(() => {}); // 失敗は did-fail-load で受け取る
@@ -552,15 +671,15 @@
     }
   }
 
-  function scheduleRetry() {
-    clearTimeout(st.retryTimer);
-    if (!st.visible || st.retries >= MAX_RETRIES || !st.failed) return;
-    st.retryTimer = setTimeout(() => {
-      if (!st.visible || !st.failed || document.hidden) return scheduleRetry();
-      st.retries++;
-      const w = view();
+  // 開発サーバーが立ち上がるまで、見ているタブだけを読み込み直す
+  function scheduleRetry(t) {
+    clearTimeout(t.retryTimer);
+    if (!st.visible || !isActive(t) || t.retries >= MAX_RETRIES || !t.failed) return;
+    t.retryTimer = setTimeout(() => {
+      if (!st.visible || !isActive(t) || !t.failed || document.hidden) return scheduleRetry(t);
+      t.retries++;
       try {
-        w.loadURL(st.failed.url || st.url).catch(() => {});
+        t.el.loadURL(t.failed.url || t.url).catch(() => {});
       } catch {
         // 次の機会にもう一度
       }
@@ -633,11 +752,12 @@
 
   function onAction(kind) {
     const w = view();
+    const t = cur();
     if (kind === 'back' && ready() && w.canGoBack()) w.goBack();
     else if (kind === 'forward' && ready() && w.canGoForward()) w.goForward();
     else if (kind === 'reload') {
-      const u = st.url || previewUrl(st.port);
-      if (st.failed || !ready()) {
+      const u = curUrl() || previewUrl(st.port);
+      if ((t && t.failed) || !ready()) {
         if (u) navigate(u);
       } else w.reload();
     } else if (kind === 'design' || kind === 'pen') {
@@ -645,8 +765,12 @@
       const tool = kind === 'pen' ? 'pen' : 'pick';
       setDesign(!(st.design && st.tool === tool), tool);
     }
+    else if (kind === 'newTab') newTab();
     else if (kind === 'full') setFull(!st.full);
-    else if (kind === 'external' && st.url) d.run(() => d.api.openExternal(st.url));
+    else if (kind === 'external' && curUrl()) {
+      const u = curUrl();
+      d.run(() => d.api.openExternal(u));
+    }
     else if (kind === 'runScript' && st.cardId) startServer();
   }
 
@@ -690,23 +814,42 @@
     st.port = data.port || st.port;
     drawServer();
     // サーバーが立ち上がるまでは繋がらないので、繋がるまで読み込み直す
-    navigate(st.urls.get(id) || previewUrl(st.port));
+    navigate(curUrl() || previewUrl(st.port));
+  }
+
+  function drawTabs() {
+    const el = $('browserTabs');
+    if (!el) return;
+    const many = st.tabs.length > 1;
+    el.innerHTML = st.tabs
+      .map((t) => {
+        const on = isActive(t);
+        const label = tabLabel(t);
+        const x = many
+          ? `<button type="button" class="bv-tab-x" data-tab-close="${t.id}" title="${d.esc(tr('このタブを閉じる'))}" aria-label="${d.esc(tr('このタブを閉じる'))}">${d.icon('x')}</button>`
+          : '';
+        return `<div class="bv-tab${on ? ' active' : ''}" data-tab="${t.id}" role="tab" aria-selected="${on}" title="${d.esc(t.url ? `${label}\n${t.url}` : label)}"><span class="bv-tab-name">${d.esc(label)}</span>${x}</div>`;
+      })
+      .join('');
+    const add = pane() && pane().querySelector('[data-bv="newTab"]');
+    if (add) add.disabled = st.tabs.length >= MAX_TABS;
   }
 
   function drawBar() {
     const p = pane();
     if (!p || !st.built) return;
     const w = view();
+    const t = cur();
     const ok = ready();
     p.querySelector('[data-bv="back"]').disabled = !(ok && w.canGoBack());
     p.querySelector('[data-bv="forward"]').disabled = !(ok && w.canGoForward());
-    p.querySelector('[data-bv="reload"]').classList.toggle('spinning', st.loading);
+    p.querySelector('[data-bv="reload"]').classList.toggle('spinning', !!(t && t.loading));
     for (const [key, tool] of [['design', 'pick'], ['pen', 'pen']]) {
       const b = p.querySelector(`[data-bv="${key}"]`);
       b.classList.toggle('primary', st.design && st.tool === tool);
-      b.disabled = !st.url;
+      b.disabled = !curUrl();
     }
-    p.querySelector('[data-bv="external"]').disabled = !st.url;
+    p.querySelector('[data-bv="external"]').disabled = !curUrl();
     p.classList.toggle('designing', st.design);
   }
 
@@ -727,20 +870,22 @@
   function drawNote() {
     const el = $('browserNote');
     if (!el) return;
+    const t = cur();
+    const url = curUrl();
     let html = '';
-    if (!st.url) {
+    if (!url) {
       html = `<p>${d.esc(tr('開くページがありません。上のアドレス欄に URL かポート番号を入れてください'))}</p>`;
-    } else if (st.failed) {
-      const waiting = st.visible && st.retries < MAX_RETRIES;
+    } else if (t.failed) {
+      const waiting = st.visible && t.retries < MAX_RETRIES;
       html = `<p><b>${d.esc(tr('ページを開けませんでした'))}</b></p>
-        <p class="muted small mono">${d.esc(st.failed.url || st.url)}<br>${d.esc(st.failed.desc || String(st.failed.code))}</p>
+        <p class="muted small mono">${d.esc(t.failed.url || url)}<br>${d.esc(t.failed.desc || String(t.failed.code))}</p>
         <p class="muted small">${d.esc(waiting ? tr('開発サーバーが動いていないかもしれません。立ち上がるまで、数秒ごとに読み込み直します') : tr('開発サーバーが動いているかを確かめてください'))}</p>
         <button type="button" class="btn small" data-note="retry">${d.icon('refresh')}${d.esc(tr('読み込み直す'))}</button>`;
     }
     el.innerHTML = html;
     el.classList.toggle('hidden', !html);
     const r = el.querySelector('[data-note="retry"]');
-    if (r) r.onclick = () => navigate(st.failed ? st.failed.url || st.url : st.url);
+    if (r) r.onclick = () => navigate(t.failed ? t.failed.url || t.url : t.url);
   }
 
   function pickLabel(p) {
@@ -750,7 +895,6 @@
     if (p.kind !== 'area') return p.selector || '';
     return (p.elements || []).map((x) => x.selector || x.tag).filter(Boolean).join('\n');
   }
-
   function drawPicks() {
     const el = $('browserPicks');
     if (!el) return;
@@ -852,18 +996,28 @@
     st.port = port;
     drawServer();
     // ポートが分かったら、まだ何も開いていなければ開く
-    if (first && !st.url) navigate(previewUrl(port));
+    if (first && !curUrl()) navigate(previewUrl(port));
   }
 
   function show(on) {
     st.visible = !!on;
     const p = pane();
     if (p) p.classList.toggle('hidden', !st.visible);
+    const t = cur();
     if (!st.visible) {
       if (st.full) setFull(false); // 別のタブに移ったら、普通の表示に戻す
-      clearTimeout(st.retryTimer);
+      if (t) clearTimeout(t.retryTimer);
       if (st.design) setDesign(false);
-    } else if (st.failed) scheduleRetry();
+    } else if (t && t.failed) scheduleRetry(t);
+  }
+
+  // 今のタスクのタブを覚えておき、<webview> を片付ける
+  function saveTabs() {
+    if (!st.cardId) return;
+    const tabs = st.tabs.filter((t) => t.url).map((t) => ({ url: t.url, title: t.title }));
+    const i = st.tabs.filter((t) => t.url).findIndex((t) => isActive(t));
+    if (tabs.length) st.saved.set(st.cardId, { tabs, active: Math.max(0, i) });
+    else st.saved.delete(st.cardId);
   }
 
   function render(c) {
@@ -881,31 +1035,25 @@
     }
     p.classList.remove('bv-off');
     if (st.cardId !== c.id) {
-      // 別のタスクを開いた: 選んだ部品は前のタスクのものなので捨てる
+      // 別のタスクを開いた: 選んだ部品は前のタスクのものなので捨て、タブはそのタスクで開いていたものに入れ替える
+      if (st.design) setDesign(false);
+      if (st.full) setFull(false); // 別のタスクを開いたら、普通の表示で開く
+      saveTabs();
+      for (const t of st.tabs) dropTab(t);
+      st.tabs = [];
+      st.active = '';
       st.cardId = c.id;
       st.picks = [];
       st.port = null;
       st.scripts = null;
       st.scriptsFor = '';
-      st.url = '';
-      if (st.design) setDesign(false);
-      if (st.full) setFull(false); // 別のタスクを開いたら、普通の表示で開く
       drawPicks();
-      const saved = st.urls.get(c.id);
-      if (saved) navigate(saved);
-      else {
-        clearTimeout(st.retryTimer);
-        st.failed = null;
-        const w = view();
-        try {
-          if (w.getURL() !== 'about:blank') w.loadURL('about:blank').catch(() => {});
-        } catch {
-          // まだ準備ができていない（about:blank のまま）
-        }
-        $('browserUrl').value = '';
-        drawNote();
-      }
+      const saved = st.saved.get(c.id);
+      const list = saved && saved.tabs.length ? saved.tabs : [{ url: '', title: '' }];
+      for (const x of list) createTab(x.url, x.title);
+      activate(st.tabs[Math.min((saved && saved.active) || 0, st.tabs.length - 1)].id);
     }
+    drawTabs();
     drawBar();
     drawServer();
     drawSendState();
@@ -922,11 +1070,13 @@
     PARTITION,
     PICK_MARK,
     PICK_SCRIPT,
+    MAX_TABS,
     previewUrl,
     normalizeUrl,
     parsePickMessage,
     captureRect,
     buildPickMessage,
+    tabLabel,
     init,
     show,
     render,

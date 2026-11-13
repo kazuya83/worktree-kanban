@@ -1265,6 +1265,20 @@ body.term-resizing { cursor: ns-resize; user-select: none; }
   position: fixed; z-index: 9; inset: 24px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
 }
+/* ブラウザのタブ（「+」で増やす）。見ていないタブの <webview> は visibility で隠す（display: none にすると大きさが 0 になり、戻したときに描き直しが要る） */
+.bv-tabs { flex: none; display: flex; align-items: center; gap: 4px; padding: 4px 8px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.bv-tab-list { display: flex; gap: 2px; overflow-x: auto; min-width: 0; scrollbar-width: thin; }
+.bv-tab { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; cursor: pointer; white-space: nowrap; color: var(--muted); font-size: 12px; min-width: 60px; max-width: 200px; }
+.bv-tab:hover { background: var(--panel-2); color: var(--text); }
+.bv-tab.active { background: var(--panel-2); color: var(--text); border-color: var(--line); }
+.bv-tab-name { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; padding-right: 6px; }
+.bv-tab-x { flex: none; display: inline-flex; padding: 2px; border: 0; background: transparent; color: inherit; border-radius: 4px; cursor: pointer; opacity: 0.6; }
+.bv-tab-x:hover { opacity: 1; background: var(--line); }
+.bv-tab-x .ic { width: 12px; height: 12px; }
+.bv-tabs .bv-tab-add { flex: none; padding: 3px 5px; display: inline-flex; margin-bottom: 2px; }
+.bv-tabs .bv-tab-add:disabled { opacity: 0.35; cursor: default; }
+.bv-stage webview.bv-hidden { visibility: hidden; pointer-events: none; }
+.d-browser.bv-off .bv-tabs { display: none; }
 .bv-bar { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .bv-bar .icon { padding: 4px 6px; display: inline-flex; }
 .bv-bar .icon:disabled { opacity: 0.35; cursor: default; background: transparent; }

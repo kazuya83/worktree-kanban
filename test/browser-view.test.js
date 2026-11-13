@@ -119,6 +119,28 @@ test('buildPickMessage: ペンで囲んだ範囲は、範囲・中にある部�
   assert.match(mixed, /### 1\. `nav`[\s\S]*### 2\. ペンで囲んだ範囲/);
 });
 
+test('tabLabel: タブの名前はタイトル → ホスト名と道筋 → 「新しいタブ」の順', () => {
+  assert.strictEqual(BV.tabLabel({ title: ' ログイン ', url: 'http://localhost:3000/login' }), 'ログイン');
+  assert.strictEqual(BV.tabLabel({ url: 'http://localhost:3000/' }), 'localhost:3000');
+  assert.strictEqual(BV.tabLabel({ url: 'http://localhost:3000/admin?x=1' }), 'localhost:3000/admin?x=1');
+  assert.strictEqual(BV.tabLabel({ url: '' }), '新しいタブ');
+  assert.strictEqual(BV.tabLabel({ url: 'about:blank' }), '新しいタブ');
+  assert.strictEqual(BV.tabLabel(null), '新しいタブ');
+  I18n.setLanguage('en');
+  assert.strictEqual(BV.tabLabel({}), 'New tab');
+});
+
+test('タブ: 「+」で増やせ、<webview> はタブごとに作って、見ていないタブのものは隠すだけにする', () => {
+  const src = read('renderer/browser-view.js');
+  assert.match(src, /data-bv="newTab"/);
+  assert.match(src, /data-tab-close=/);
+  assert.match(src, /bv-hidden/);
+  assert.ok(BV.MAX_TABS >= 2);
+  const css = read('renderer/styles.css');
+  // display: none にすると <webview> の大きさが 0 になるので、visibility で隠す
+  assert.match(css, /webview\.bv-hidden \{ visibility: hidden;/);
+});
+
 test('PICK_SCRIPT は JavaScript として読め、何度入れても同じものを返す', () => {
   // ページの中で動かす: 最低限の window / document をまねる
   const listeners = [];
