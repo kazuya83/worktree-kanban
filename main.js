@@ -1788,6 +1788,8 @@ app.whenReady().then(async () => {
     return agents.merge(id, { target, createNew, keep, push });
   });
   handle('card:pr', ({ id, base, title, body, keep }) => agents.createPullRequest(id, { base, title, body, keep }));
+  // PR のタイトルと本文の下書き（PR テンプレートとドキュメントのルールに従う）
+  handle('card:prDraft', ({ id, base } = {}) => agents.prDraft(id, { base }));
   handle('card:discard', (id) => agents.discard(id));
   handle('card:complete', (id) => agents.complete(id));
   handle('conflict:resolve', ({ id, mode }) => agents.resolveConflict(id, mode));

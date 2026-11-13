@@ -26,6 +26,7 @@ const FlowModel = require('../renderer/flow-model');
 const CycleModel = require('../renderer/cycle-model');
 const Subtasks = require('./subtasks');
 const FixTask = require('./fix-task');
+const PrMessage = require('./pr-message');
 const Checkpoints = require('./checkpoints');
 const { SCRIPT_KINDS, SCRIPT_SETTINGS, PORT_START, PORT_END, PORT_COUNT, portsFree, cleanScript, appendOutput, startScript } = require('./worktree-scripts');
 const { SHARED_REL } = require('./shared-settings');
@@ -4646,17 +4647,65 @@ class AgentManager extends EventEmitter {
     }
   }
 
+  // PR の本文に入れる、Issue を閉じる・つなぐ行（タスクの Issue と、マージ済みのサブIssue）
+  prLinkLines(c) {
+    const lines = [];
+    if (c.issue) lines.push(IssueRef.linkLine(c.issue));
+    // サブIssue も、このタスクのブランチで閉じる
+    if (c.subtasks) lines.push(...c.subtasks.items.filter((x) => x.issue && x.state === 'merged').map((x) => IssueRef.linkLine(x.issue)));
+    return lines.filter(Boolean);
+  }
+
   // PR の既定のタイトルと本文
   prDefaults(c) {
     const title = c.issue ? IssueRef.stripKey(c.title, c.issue) : c.title;
     const lines = [];
     if (c.issue) lines.push(IssueRef.linkLine(c.issue), '');
-    // サブIssue も、このタスクのブランチで閉じる
-    const subIssues = c.subtasks ? c.subtasks.items.filter((x) => x.issue && x.state === 'merged').map((x) => IssueRef.linkLine(x.issue)) : [];
+    const subIssues = this.prLinkLines(c).slice(c.issue ? 1 : 0);
     if (subIssues.length) lines.push(...subIssues, '');
     if (c.lastMessage) lines.push(c.lastMessage, '');
     lines.push('---', tr('Worktree Kanban のタスクから作成しました。'));
     return { title, body: lines.join('\n') };
+  }
+
+  /**
+   * PR のタイトルと本文の下書き。リポジトリに PR テンプレートか PR のルールを書いたドキュメントがあれば、
+   * それに従ってカードのエージェントに書いてもらう。なければ（または失敗したら）既定の文面
+   * @param {string} id
+   * @param {{ base?: string }} [opts]
+   * @returns {Promise<{ title: string, body: string, ai: boolean, template: string|null, docs: string[], error?: string }>}
+   */
+  async prDraft(id, opts = {}) {
+    const c = this.must(id);
+    const def = this.prDefaults(c);
+    const dir = c.worktreePath || c.repoPath;
+    const template = PrMessage.findPrTemplate(dir);
+    const docs = PrMessage.findRuleDocs(dir);
+    const sources = { template: template ? template.path : null, docs: docs.map((d) => d.path) };
+    if (!template && !docs.length) return { ...def, ai: false, ...sources };
+    const base = String(opts.base || c.prBase || c.baseBranch || '').trim();
+    const from = c.baseCommit || base;
+    const run = (args) => (from && c.worktreePath ? git.git(c.worktreePath, args).catch(() => '') : Promise.resolve(''));
+    const [commits, diffStat] = await Promise.all([run(['log', '--no-merges', '--format=%s%n%b', `${from}..HEAD`]), run(['diff', '--stat', from])]);
+    try {
+      this.log(c, 'system', this.prText(c, tr('PR のテンプレートとドキュメントのルールに従って、{agentShort} に PR の文面を書いてもらっています…'), { agentShort: agentShort(agentOf(c)) }));
+      const r = await PrMessage.draftPullRequest((prompt) => this.askOnce(agentOf(c), dir, prompt, c.model, 300000), {
+        template,
+        docs,
+        title: def.title,
+        prompt: c.prompt,
+        lastMessage: c.lastMessage,
+        linkLines: this.prLinkLines(c),
+        commits,
+        diffStat,
+        base,
+        branch: c.branch,
+      });
+      return { ...r, ai: true, ...sources };
+    } catch (err) {
+      this.log(c, 'error', this.prText(c, tr('PR の文面を書いてもらえなかったので、既定の文面にしました: {message}'), { message: err.message }));
+      return { ...def, ai: false, ...sources, error: err.message };
+    }
   }
 
   /**
@@ -4701,7 +4750,9 @@ class AgentManager extends EventEmitter {
           this.log(c, 'system', tr('スプリントのブランチ {branch} を origin に push しました', { branch: base }));
         }
       }
-      const def = this.prDefaults(c);
+      // 本文を渡されなかったとき（CLI・API から）も、PR テンプレートとドキュメントのルールに従って書く
+      const noBody = !(opts.body != null && String(opts.body).trim());
+      const def = noBody && !c.prUrl ? await this.prDraft(id, { base }) : this.prDefaults(c);
       const fields = {
         head: c.branch,
         base,

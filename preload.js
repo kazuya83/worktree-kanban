@@ -117,6 +117,7 @@ contextBridge.exposeInMainWorld('api', {
   stopScript: (id) => call('card:stopScript', id),
   merge: (id, opts) => call('card:merge', { id, ...(opts || {}) }),
   createPr: (id, opts) => call('card:pr', { id, ...(opts || {}) }),
+  prDraft: (id, opts) => call('card:prDraft', { id, ...(opts || {}) }),
   discard: (id) => call('card:discard', id),
   complete: (id) => call('card:complete', id),
   resolveConflict: (id, mode) => call('conflict:resolve', { id, mode }),

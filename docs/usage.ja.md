@@ -306,7 +306,7 @@ Windows の cmd では `%WORKTREE_KANBAN_PORT%` と書きます。
 ![マージ先のブランチを選ぶダイアログ](images/ja/merge-dialog.png)
 
 ## 直接マージか PR 作成かを選ぶ
-設定の「レビュー後の取り込み方」で、**PR を作成する**（origin に push して `gh pr create`。初期値）か **直接マージする**（ローカルで `git merge`）かを、プロジェクトごとに選べます。初めて開いたプロジェクトは「PR を作成する」から始まります（origin がない・GitHub でも連携した GitLab でもないリポジトリと、git で管理していないフォルダは「直接マージする」から）。PR にすると、レビュー中のカードのボタンが「PR を作成…」になり、base ブランチ・タイトル・本文を決めて PR を作れます（Issue から作ったタスクには `Closes #番号` が入ります）。追加指示で直したあとにもう一度押すと、同じ PR に push して更新します。PR の作成には gh のインストールとログインが必要です。origin が連携した GitLab のものなら、`gh` の代わりに API で MR を作ります（[integrations.md](integrations.ja.md#gitlab)）。
+設定の「レビュー後の取り込み方」で、**PR を作成する**（origin に push して `gh pr create`。初期値）か **直接マージする**（ローカルで `git merge`）かを、プロジェクトごとに選べます。初めて開いたプロジェクトは「PR を作成する」から始まります（origin がない・GitHub でも連携した GitLab でもないリポジトリと、git で管理していないフォルダは「直接マージする」から）。PR にすると、レビュー中のカードのボタンが「PR を作成…」になり、base ブランチ・タイトル・本文を決めて PR を作れます（Issue から作ったタスクには `Closes #番号` が入ります）。リポジトリに PR テンプレート（`.github/pull_request_template.md`・`.github/PULL_REQUEST_TEMPLATE/`・`.gitlab/merge_request_templates/` など）や、PR の書き方に触れたドキュメント（`CONTRIBUTING.md`・`CLAUDE.md`・`AGENTS.md` など）があれば、ダイアログを開いたときにタスクのエージェントがそれに従ってタイトルと本文を書きます（書き上がったら直してから作れます。「書き直してもらう」でもう一度書いてもらえます）。どちらもなければ、今までどおりの既定の文面です。CLI・MCP から本文を渡さずに PR を作ったときも、同じように書きます。追加指示で直したあとにもう一度押すと、同じ PR に push して更新します。PR の作成には gh のインストールとログインが必要です。origin が連携した GitLab のものなら、`gh` の代わりに API で MR を作ります（[integrations.md](integrations.ja.md#gitlab)）。
 
 作った PR は、アプリが1分ごとに GitHub で状態を確かめます。**PR がマージされると、タスクは自動で「完了」になります**（worktree とローカルのブランチも片付けます）。ただし worktree に PR に入っていない変更（未コミットの変更や、push していないコミット）が残っているときは、消さずにレビュー中のまま残します。
 

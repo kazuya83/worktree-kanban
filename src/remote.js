@@ -194,6 +194,7 @@ const PROXY_CHANNELS = new Set([
   'card:stopScript',
   'card:merge',
   'card:pr',
+  'card:prDraft',
   'card:discard',
   'card:complete',
   'conflict:resolve',

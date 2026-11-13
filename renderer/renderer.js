@@ -4550,7 +4550,8 @@ async function openPr(c) {
          ${agentBranches.length ? `<optgroup label="${esc(tr('ほかのタスクのブランチ'))}">${agentBranches.map(opt).join('')}</optgroup>` : ''}
        </select></label>
      ${updating ? '' : `<label class="field"><span>${tr('タイトル')}</span><input id="pTitle" value="${esc(title)}" /></label>
-     <label class="field"><span>${tr('本文')}</span><textarea id="pBody" rows="6">${esc(body)}</textarea></label>`}
+     <label class="field"><span>${tr('本文')}</span><textarea id="pBody" rows="10">${esc(body)}</textarea></label>
+     <p class="muted small pr-draft"><span id="pDraftNote"></span> <button class="btn small ghost" type="button" id="pRedraft" hidden>${tr('書き直してもらう')}</button></p>`}
      <label class="check"><input type="checkbox" id="pKeep" checked />${prTr(c, tr(' PR を作ったあともタスクを続ける（worktree とブランチを残す）'))}</label>
      <p class="muted small" id="pHint"></p>
      <div class="modal-actions"><button class="btn ghost" id="pCancel">${tr('キャンセル')}</button><button class="btn primary" id="pOk">${updating ? tr('push して更新') : prTr(c, tr('PR を作成'))}</button></div>`,
@@ -4562,6 +4563,46 @@ async function openPr(c) {
       };
       $('pKeep').onchange = update;
       update();
+      // PR テンプレート・ドキュメントのルールがあれば、それに従った文面をエージェントに書いてもらって入れる
+      const draft = async () => {
+        const note = $('pDraftNote');
+        if (!note) return;
+        const fieldsEl = [$('pTitle'), $('pBody')];
+        const busy = (on) => {
+          for (const el of fieldsEl) el.readOnly = on;
+          $('pOk').disabled = on;
+          $('pRedraft').hidden = true;
+        };
+        note.textContent = prTr(c, tr('PR のテンプレートとリポジトリのドキュメントのルールを確かめています…'));
+        busy(true);
+        let r = null;
+        try {
+          r = await api.prDraft(c.id, { base: $('pBase').value });
+        } catch (err) {
+          if ($('pDraftNote') !== note) return;
+          busy(false);
+          note.textContent = err.message;
+          return;
+        }
+        // 待っているあいだにダイアログを閉じた
+        if ($('pDraftNote') !== note) return;
+        busy(false);
+        const sources = [r.template, ...(r.docs || [])].filter(Boolean);
+        if (r.ai) {
+          $('pTitle').value = r.title;
+          $('pBody').value = r.body;
+          note.textContent = tr('{files} に従って書きました。必要なら直してください。', { files: sources.join(', ') });
+        } else if (!sources.length) {
+          note.textContent = prTr(c, tr('PR のテンプレートも、PR のルールを書いたドキュメントも見つからなかったので、既定の文面にしました。'));
+        } else {
+          note.textContent = prTr(c, tr('PR の文面を書いてもらえなかったので、既定の文面にしました: {message}'), { message: r.error || '' });
+        }
+        $('pRedraft').hidden = !sources.length;
+      };
+      if (!updating) {
+        $('pRedraft').onclick = draft;
+        draft();
+      }
       $('pCancel').onclick = closeModal;
       $('pOk').onclick = async () => {
         $('pOk').disabled = true;
