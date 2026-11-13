@@ -565,4 +565,11 @@
   "ダンス（スポットライトの下で踊る）": {"en": "Dance (dance under the spotlights)", "es": "Baile (baila bajo los focos)", "fr": "Danse (danser sous les projecteurs)", "zh": "舞蹈（在聚光灯下跳舞）"},
   "ガーデニング（TODO ごとに花が咲く）": {"en": "Gardening (a flower blooms for each TODO)", "es": "Jardinería (florece una flor por cada TODO)", "fr": "Jardinage (une fleur s’ouvre pour chaque TODO)", "zh": "园艺（每个 TODO 开一朵花）"},
   "宇宙（ロケットで星をめぐる）": {"en": "Space (tour the planets by rocket)", "es": "Espacio (recorre los planetas en cohete)", "fr": "Espace (visiter les planètes en fusée)", "zh": "太空（乘火箭巡游星球）"},
+  "コマンド": {"en": "Command", "es": "Comando", "fr": "Commande", "zh": "命令"},
+  "監視": {"en": "Monitor", "es": "Monitor", "fr": "Surveillance", "zh": "监视"},
+  "リモートのエージェント": {"en": "Remote agent", "es": "Agente remoto", "fr": "Agent distant", "zh": "远程智能体"},
+  "サブエージェント": {"en": "Subagent", "es": "Subagente", "fr": "Sous-agent", "zh": "子智能体"},
+  "裏で {n} 件": {"en": "{n} in background", "es": "{n} en segundo plano", "fr": "{n} en arrière-plan", "zh": "后台 {n} 项"},
+  "バックグラウンドの作業（{n} 件）": {"en": "Background work ({n})", "es": "Trabajo en segundo plano ({n})", "fr": "Travail en arrière-plan ({n})", "zh": "后台任务（{n} 项）"},
+  "{desc}（{type}）": {"en": "{desc} ({type})", "es": "{desc} ({type})", "fr": "{desc} ({type})", "zh": "{desc}（{type}）"},
 });

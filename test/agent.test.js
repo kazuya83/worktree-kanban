@@ -667,6 +667,9 @@ test('バックグラウンドの作業を待っているあいだも、追加�
     await waitFor(() => c.bgWaiting);
     assert.strictEqual(c.status, 'running');
     assert.deepStrictEqual(c.bgTasks.map((t) => t.description), ['Sleep then echo']);
+    // 経過時間を出すために、作業ごとに見つけた時刻を持つ
+    assert.ok(c.bgTasks[0].startedAt > 0 && c.bgTasks[0].startedAt <= Date.now());
+    assert.strictEqual(c.bgTasks[0].type, 'local_bash');
     // 待っているあいだに送った指示は、次のメッセージとしてすぐ渡す
     agents.send(c.id, '待っているあいだの指示', null);
     assert.strictEqual(c.bgWaiting, false);
@@ -1608,4 +1611,22 @@ test('開始したあとにタイトルを変えても、エージェントへ�
     assert.ok(!p.includes('表示だけ変えたタイトル'), p);
     assert.ok(p.includes('最初のタイトル'), p);
   }
+});
+
+test('バックグラウンドの作業の一覧が変わっても、同じ作業の開始時刻はそのまま', () => {
+  const { store, agents } = setup();
+  const c = agents.createCard({ title: 'bg-time', prompt: 'x' });
+  const run = { bgTasks: [], turnOver: false, stdinClosed: false, sent: [] };
+  agents.onBackgroundTasks(c, run, [{ task_id: 'a', task_type: 'local_bash', description: 'A' }]);
+  const t0 = c.bgTasks[0].startedAt;
+  assert.ok(t0 > 0);
+  run.bgTasks[0].startedAt = t0 - 5000; // 5 秒前に見つけたことにする
+  agents.onBackgroundTasks(c, run, [
+    { task_id: 'a', task_type: 'local_bash', description: 'A' },
+    { task_id: 'b', task_type: 'local_agent', description: 'B' },
+  ]);
+  assert.strictEqual(c.bgTasks[0].startedAt, t0 - 5000);
+  assert.ok(c.bgTasks[1].startedAt >= t0);
+  assert.deepStrictEqual(c.bgTasks.map((t) => t.type), ['local_bash', 'local_agent']);
+  void store;
 });
