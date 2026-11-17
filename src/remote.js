@@ -241,7 +241,7 @@ function terminalSide(channel, arg, localPrefix) {
 // 遠隔に接続中でも、操作側のマシンで動かすチャンネル（それ以外の非転送チャンネルは接続中は使えない）
 // mobile: はこのマシンのスマホ用の設定（スマホが見るのも、いつもこのマシンのボード）
 function isLocalChannel(channel) {
-  return channel === 'app:info' || channel === 'app:language' || channel === 'app:setLanguage' || channel === 'open:external' || String(channel).startsWith('file:') || String(channel).startsWith('remote:') || String(channel).startsWith('mobile:') || String(channel).startsWith('cli:') || String(channel).startsWith('api:') || String(channel).startsWith('update:');
+  return channel === 'app:info' || channel === 'app:language' || channel === 'app:setLanguage' || channel === 'open:external' || String(channel).startsWith('file:') || String(channel).startsWith('remote:') || String(channel).startsWith('mobile:') || String(channel).startsWith('cli:') || String(channel).startsWith('api:') || String(channel).startsWith('update:') || String(channel).startsWith('browser:');
 }
 
 function isProxyChannel(channel) {

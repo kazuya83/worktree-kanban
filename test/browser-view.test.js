@@ -218,3 +218,25 @@ test('locales/browser.js は、ほかの辞書と同じキーを持たない（�
     for (const k of mine) assert.ok(!s.includes(`${JSON.stringify(k)}:`), `${f}: ${k}`);
   }
 });
+
+test('parseSavedTabs / rememberTabs: タスクごとのタブを覚え、壊れたもの・http(s) 以外は捨てる', () => {
+  assert.deepStrictEqual(BV.parseSavedTabs('broken'), {});
+  assert.deepStrictEqual(BV.parseSavedTabs('[]'), {});
+  const saved = BV.parseSavedTabs(JSON.stringify({ a: { tabs: [{ url: 'http://localhost:3000/x', title: 'X' }, { url: 'javascript:alert(1)' }], active: 5, at: 1 }, b: { tabs: [] } }));
+  assert.deepStrictEqual(saved, { a: { tabs: [{ url: 'http://localhost:3000/x', title: 'X' }], active: 0, at: 1 } });
+  let m = BV.rememberTabs({}, 'c1', { tabs: [{ url: 'http://localhost:1/', title: '' }], active: 0, at: 10 }, 2);
+  m = BV.rememberTabs(m, 'c2', { tabs: [{ url: 'http://localhost:2/', title: '' }], active: 0, at: 20 }, 2);
+  m = BV.rememberTabs(m, 'c3', { tabs: [{ url: 'http://localhost:3/', title: '' }], active: 0, at: 30 }, 2);
+  assert.deepStrictEqual(Object.keys(m).sort(), ['c2', 'c3']); // 古いものから忘れる
+  assert.deepStrictEqual(Object.keys(BV.rememberTabs(m, 'c3', null)), ['c2']);
+});
+
+test('buildTaskPrompt: 見ていたページの URL とスクリーンショットを添える。部品を選んでいればデザインモードと同じ形', () => {
+  const p = BV.buildTaskPrompt('ログインを直す', { url: 'http://localhost:3000/login', title: 'Login', shotName: 'page.png' }, null);
+  assert.match(p, /^ログインを直す\n\n## 内蔵ブラウザで見ていたページ/);
+  assert.match(p, /http:\/\/localhost:3000\/login/);
+  assert.match(p, /page\.png/);
+  assert.strictEqual(BV.buildTaskPrompt('x', null, null), 'x');
+  const picks = [{ pick: { tag: 'button', selector: 'button.ok', url: 'http://localhost:3000/' }, shotName: 's.png' }];
+  assert.strictEqual(BV.buildTaskPrompt('x', { url: 'http://a/' }, picks), BV.buildPickMessage('x', picks));
+});

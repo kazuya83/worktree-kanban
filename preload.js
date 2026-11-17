@@ -59,6 +59,12 @@ contextBridge.exposeInMainWorld('api', {
   removeTracker: (id) => call('trackers:remove', { id }),
   testTracker: (p) => call('trackers:test', p),
   openExternal: (url) => call('open:external', url),
+  // 内蔵ブラウザのパスワード（サイトとユーザー名だけ。パスワードそのものは画面に来ない）
+  browserPasswords: () => call('browser:passwords'),
+  browserPasswordAnswer: (webContentsId, answer) => call('browser:passwordAnswer', { webContentsId, answer }),
+  browserPasswordDelete: (site, username) => call('browser:passwordDelete', { site, username }),
+  browserPasswordNever: (site, on) => call('browser:passwordNever', { site, on }),
+  onBrowserPasswordOffer: (cb) => ipcRenderer.on('browser:passwordOffer', (_e, d) => cb(d)),
   ghStatus: () => call('gh:status'),
   ghInstall: () => call('gh:install'),
   ghLogin: () => call('gh:login'),

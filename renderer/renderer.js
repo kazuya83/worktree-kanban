@@ -3632,8 +3632,9 @@ function readFileAsAttachment(file) {
  *   box: 添付ボタンと添付の一覧を描く場所 / input: 貼り付けを受け取る入力欄 / drop: ドロップを受け取る場所（省略すると input）
  * @returns {{ list: () => object[], clear: () => void, render: () => void }}
  */
-function attachField({ box, input, drop, enabled = () => true }) {
-  let items = [];
+function attachField({ box, input, drop, enabled = () => true, initial = [] }) {
+  // initial: 先に付けておくファイル [{ name, mediaType, data(base64) }]（内蔵ブラウザの「タスクにする」のスクリーンショットなど）
+  let items = (initial || []).slice(0, ATTACH_MAX_FILES).map((a) => ({ ...a, size: Math.floor((String(a.data || '').length * 3) / 4) }));
   const total = () => items.reduce((n, a) => n + a.size, 0);
   const add = async (files) => {
     if (!enabled()) return;
@@ -3774,7 +3775,7 @@ $('followBtn').onclick = sendFollow;
 onSendKey($('followInput'), sendFollow);
 
 // 詳細の「ブラウザ」タブ（内蔵ブラウザとデザインモード）
-BrowserView.init({ api, icon, esc, toast, run, card, canSendFollow, viewingHost });
+BrowserView.init({ api, icon, esc, toast, run, card, canSendFollow, viewingHost, newTask: (o) => newTask(o), openModal, closeModal });
 
 // ---------------- モーダル ----------------
 
@@ -4034,6 +4035,12 @@ function newTask(opts = {}) {
       if (!from) bindTaskModeTabs();
       bindMoreOpts($('nMore'), !!from);
       $('nPrompt').focus();
+      if (!from && opts.prompt) {
+        // 添えた内容の前に、やってほしいことを書けるように、カーソルを先頭に置く
+        $('nPrompt').value = opts.prompt;
+        $('nPrompt').setSelectionRange(0, 0);
+        $('nPrompt').scrollTop = 0;
+      }
       if (from) $('nPrompt').value = opts.prompt || (fromDone ? `${tr('完了したタスクの内容をもとに、次の点を修正してください。')}\n\n` : tr('ここまでの会話の内容をもとに、作業を進めてください。'));
       if (fromDone) $('nTitle').value = opts.title || tr('修正: {title}', { title: from.title });
       // Claude Code の会話なら会話そのものを引き継ぐ。それ以外の会話・完了したタスクは、やりとりを指示に添えて渡す
@@ -4046,12 +4053,13 @@ function newTask(opts = {}) {
       let skill = state.board.settings.defaultSkill || null;
       const drawSkill = () => renderSkillSlot('nSkill', skill, (v) => ((skill = v), drawSkill()));
       drawSkill();
-      const att = attachField({ box: $('nAttach'), input: $('nPrompt'), drop: $('nPrompt').closest('.field') });
+      const att = attachField({ box: $('nAttach'), input: $('nPrompt'), drop: $('nPrompt').closest('.field'), initial: opts.attachments });
       const submit = async () => {
         const files = att.list();
         const id = await runBusy(tr('タスクを作成しています…'), () => api.createCard({ title: $('nTitle').value, prompt: $('nPrompt').value, autoStart: $('nStart').checked, session: readSessionField('n'), skill, agent: $('nAgent').value, model: readModelField('n', $('nAgent').value), fromChat: from ? from.id : undefined, attachments: files.length ? files : undefined, readOnly: $('nReadOnly').checked || undefined, cycleIds: CycleView.readField('n') }));
         if (id) {
           closeModal();
+          opts.onCreated?.(id);
           selectNew(id);
         }
       };

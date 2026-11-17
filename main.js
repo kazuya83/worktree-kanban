@@ -203,6 +203,9 @@ function createWindow() {
 // 内蔵ブラウザの <webview>。決まったセッション（アプリの画面とは別）で、Node もプリロードも使わせず、http(s) のページだけを開く。
 // ポップアップ（target="_blank" など）は開かず、http(s) ならデフォルトブラウザで開く。カメラ・位置情報などの許可は出さない
 const PREVIEW_PARTITION = 'persist:worktree-kanban-preview';
+const BrowserPasswordsLib = require('./src/browser-passwords');
+let browserPasswords = null; // 内蔵ブラウザで覚えたパスワード（src/browser-passwords.js）
+const previewGuests = new Map(); // <webview> の webContents の id → パスワードの見張り（保存するかを聞いているログイン）
 function previewUrlAllowed(url) {
   return url === 'about:blank' || !!require('./src/external-url').externalUrl(url);
 }
@@ -219,6 +222,12 @@ function guardPreviewWebviews(contents) {
     if (params.partition !== PREVIEW_PARTITION || !previewUrlAllowed(params.src || 'about:blank')) e.preventDefault();
   });
   contents.on('did-attach-webview', (_e, guest) => {
+    // パスワードを覚えて入れる（パスワードはメインプロセスの中だけで扱い、画面にはサイトとユーザー名だけを知らせる）
+    if (browserPasswords) {
+      const watch = BrowserPasswordsLib.attach(guest, { store: browserPasswords, offer: (o) => send('browser:passwordOffer', o) });
+      previewGuests.set(guest.id, watch);
+      guest.once('destroyed', () => previewGuests.delete(guest.id));
+    }
     guest.setWindowOpenHandler(({ url }) => {
       if (require('./src/external-url').externalUrl(url)) shell.openExternal(url).catch(() => {});
       return { action: 'deny' };
@@ -877,6 +886,7 @@ app.whenReady().then(async () => {
   store = new Store(boardFile);
   // 初めて起動したときは、インストールされているエージェントを使う設定にする
   store.adoptAgents(providers.AGENT_IDS.filter((a) => resolveCommand(providers.agentCommand(store.settings, a))));
+  browserPasswords = new BrowserPasswordsLib.BrowserPasswords({ file: path.join(userData, 'browser-passwords.json'), safeStorage });
   secretStore = new SecretStore({ file: path.join(userData, 'secrets.json'), safeStorage, overrides: HEADLESS ? headlessSecretOverrides(userData) : null });
   trackers = new trackersRegistry.Trackers({ store, secrets: secretStore });
   trackers.on('changed', notifyBoard);
@@ -1665,6 +1675,20 @@ app.whenReady().then(async () => {
     if (!target) throw new Error(tr('開けない URL です'));
     await shell.openExternal(target);
   });
+  // 内蔵ブラウザで覚えたパスワード。画面に渡すのはサイトとユーザー名だけ（パスワードはメインプロセスの外に出さない）
+  handle('browser:passwords', () => browserPasswords.list());
+  // 保存するかを聞いたログインに答える。answer: 'save'（保存する）・'never'（このサイトでは保存しない）・'dismiss'（今回はしない）
+  handle('browser:passwordAnswer', ({ webContentsId, answer } = {}) => {
+    const watch = previewGuests.get(Number(webContentsId));
+    const p = watch && watch.pending();
+    if (!p) return false;
+    watch.clear();
+    if (answer === 'save') browserPasswords.save(p.site, p.username, p.password);
+    else if (answer === 'never') browserPasswords.setNever(p.site, true);
+    return true;
+  });
+  handle('browser:passwordDelete', ({ site, username } = {}) => browserPasswords.remove(String(site || ''), String(username || '')));
+  handle('browser:passwordNever', ({ site, on } = {}) => browserPasswords.setNever(String(site || ''), !!on));
   // gh（GitHub CLI）: 状態の確認・インストール・ログイン
   const gh = require('./src/gh');
   const pushEvent = (channel, payload) => {
