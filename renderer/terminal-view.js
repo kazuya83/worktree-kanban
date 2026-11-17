@@ -80,7 +80,7 @@
     const term = new root.Terminal({
       cursorBlink: true,
       fontFamily: cssVar('--mono', 'Menlo, Consolas, monospace'),
-      fontSize: 13,
+      fontSize: 12,
       scrollback: 5000,
       allowProposedApi: false,
       macOptionIsMeta: true,
