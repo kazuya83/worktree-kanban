@@ -3,18 +3,22 @@
 // 詳細パネルの「ブラウザ」タブ。タスクごとのポート（WORKTREE_KANBAN_PORT）の http://localhost:<port>/ を <webview> で開く。
 // 上の「+」でタブを増やし、いくつものページを開ける。<webview> はタブごとに1つ作り、見ていないタブのものは隠すだけにする
 // （作り直すと読み込み直しになるので、#browserPane に置いたままにし、詳細パネルのタブやブラウザのタブを切り替えても残す）。
-// タブはタスクごとに覚えておき（アプリを開いているあいだだけ）、別のタスクを開くとそのタスクのタブに入れ替える。
+// タブはタスクごとに覚えておき（localStorage に保存するので、アプリを開き直しても前に開いていた URL で開く）、
+// 別のタスクを開くとそのタスクのタブに入れ替える。
+// ログインのパスワードはメインプロセスが覚えて入れる（src/browser-passwords.js）。ここでは「保存しますか？」の帯と、保存したものの一覧を出すだけ。
+// 「タスクにする」で、見ているページ（とデザインモードで選んだ部品）から新しいタスクを作れる。
 // デザインモードでは、ページに小さなスクリプト（PICK_SCRIPT）を入れて、マウスの下の部品を枠で示し、クリックした部品の情報を
 // console に印付きの JSON で書いてもらう（<webview> の console-message で受け取る）。スクリーンショットは capturePage で撮る。
 // 「ペン」では、ページの上に線を描いて囲んだ範囲と、その中にある部品の HTML を同じように受け取り、線ごとスクリーンショットを撮る。
 //
 // 境界: window.BrowserView = {
-//   init(deps)          renderer.js の部品（api・icon・esc・toast・run・canSendFollow・viewingHost）を受け取る
+//   init(deps)          renderer.js の部品（api・icon・esc・toast・run・canSendFollow・viewingHost・newTask・openModal・closeModal）を受け取る
 //   show(on)            タブを開いた・閉じた（ペインの表示と、詳細パネルを広げるかを切り替える）
 //   render(c)           タブを描く（カードが変わったときだけ URL を開き直す）
 //   update(c)           カードの状態が変わった（送れるかどうかの表示だけを直す）
 // }
-// テストからは純粋な関数（previewUrl・normalizeUrl・buildPickMessage・parsePickMessage・captureRect・tabLabel・PICK_SCRIPT）を使う
+// テストからは純粋な関数（previewUrl・normalizeUrl・buildPickMessage・parsePickMessage・captureRect・tabLabel・PICK_SCRIPT・
+// parseSavedTabs・rememberTabs・buildTaskPrompt）を使う
 (function (root, factory) {
   const api = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -35,6 +39,9 @@
   const RETRY_MS = 3000;
   const MAX_RETRIES = 60; // 開発サーバーが立ち上がるのを、3秒ごとに3分まで待つ
   const MAX_TABS = 10; // 1つのタスクで開けるタブの数（<webview> はタブごとに作るので、増やしすぎない）
+  const SAVED_KEY = 'agent-kanban.browserTabs'; // タスクごとに開いていたタブ（localStorage）
+  const LAST_URL_KEY = 'agent-kanban.browserLastUrl'; // 最後に開いたページ（ポートの無いタスクで開く）
+  const MAX_SAVED = 200; // 覚えておくタスクの数（古いものから忘れる）
 
   // ---------------- 純粋な関数 ----------------
 
@@ -59,6 +66,54 @@
     } catch {
       return '';
     }
+  }
+
+  // 保存しておいたタブ（localStorage の文字列）を読む。壊れていれば空
+  function parseSavedTabs(text) {
+    let v = null;
+    try {
+      v = JSON.parse(String(text || ''));
+    } catch {
+      return {};
+    }
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+    const out = {};
+    for (const [id, e] of Object.entries(v)) {
+      if (!e || !Array.isArray(e.tabs)) continue;
+      const tabs = e.tabs
+        .filter((t) => t && normalizeUrl(t.url) === t.url)
+        .slice(0, MAX_TABS)
+        .map((t) => ({ url: t.url, title: typeof t.title === 'string' ? t.title.slice(0, 300) : '' }));
+      if (!tabs.length) continue;
+      const active = Number.isInteger(e.active) && e.active >= 0 && e.active < tabs.length ? e.active : 0;
+      out[id] = { tabs, active, at: Number(e.at) || 0 };
+    }
+    return out;
+  }
+
+  // タスクのタブを覚える（entry が null なら忘れる）。多すぎるときは、古いものから忘れる
+  function rememberTabs(saved, cardId, entry, max = MAX_SAVED) {
+    const out = { ...saved };
+    delete out[cardId];
+    if (entry && entry.tabs && entry.tabs.length) out[cardId] = { tabs: entry.tabs, active: entry.active || 0, at: entry.at || Date.now() };
+    const ids = Object.keys(out).sort((a, b) => (out[b].at || 0) - (out[a].at || 0));
+    for (const id of ids.slice(max)) delete out[id];
+    return out;
+  }
+
+  // 「タスクにする」で作るタスクの指示（選んだ部品があれば、デザインモードで送るものと同じ形にする）
+  function buildTaskPrompt(text, page, picks) {
+    const body = String(text || '').trim();
+    if (picks && picks.length) return buildPickMessage(body, picks);
+    const lines = [body];
+    if (page && page.url) {
+      lines.push(`## ${tr('内蔵ブラウザで見ていたページ')}`);
+      const info = [`- ${tr('ページ')}: ${page.url}`];
+      if (page.title) info.push(`- ${tr('タイトル')}: ${page.title}`);
+      if (page.shotName) info.push(`- ${tr('スクリーンショット')}: ${page.shotName}`);
+      lines.push(info.join('\n'));
+    }
+    return lines.filter(Boolean).join('\n\n');
   }
 
   // console に書かれた1行から、デザインモードで選んだ部品を取り出す（印がなければ null）
@@ -434,7 +489,7 @@
     cardId: null,
     tabs: [], // 今のタスクのタブ
     active: '', // 見ているタブの id
-    saved: new Map(), // カード ID → { tabs: [{ url, title }], active }（アプリを開いているあいだだけ）
+    saved: null, // カード ID → { tabs: [{ url, title }], active, at }（localStorage に保存する。初めて使うときに読む）
     port: null,
     scripts: null, // api.scripts の結果
     scriptsFor: '', // どのカードのどの状態で読んだか
@@ -452,8 +507,62 @@
   const view = () => (cur() ? cur().el : null);
   const isActive = (t) => !!t && t.id === st.active;
 
+  function storage() {
+    try {
+      return typeof localStorage !== 'undefined' ? localStorage : null;
+    } catch {
+      return null;
+    }
+  }
+  function savedTabs() {
+    if (!st.saved) {
+      const ls = storage();
+      let text = '';
+      try {
+        text = ls ? ls.getItem(SAVED_KEY) : '';
+      } catch {
+        /* 読めないだけ */
+      }
+      st.saved = parseSavedTabs(text);
+    }
+    return st.saved;
+  }
+  function storeTabs(cardId, entry) {
+    st.saved = rememberTabs(savedTabs(), cardId, entry);
+    const ls = storage();
+    try {
+      if (ls) ls.setItem(SAVED_KEY, JSON.stringify(st.saved));
+    } catch {
+      /* 覚えられないだけ */
+    }
+  }
+  function lastUrl() {
+    const ls = storage();
+    try {
+      const u = ls ? ls.getItem(LAST_URL_KEY) : '';
+      return u && normalizeUrl(u) === u ? u : '';
+    } catch {
+      return '';
+    }
+  }
+  function storeLastUrl(url) {
+    const ls = storage();
+    try {
+      if (ls && url) ls.setItem(LAST_URL_KEY, url);
+    } catch {
+      /* 覚えられないだけ */
+    }
+  }
+  // 今のタスクのタブを、すぐに覚える（ページを移るたびに呼ぶ。アプリを閉じても残るように）
+  let saveTimer = null;
+  function persistSoon() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveTabs, 300);
+  }
+
   function init(deps) {
     d = deps;
+    if (d.api && d.api.onBrowserPasswordOffer) d.api.onBrowserPasswordOffer(onPasswordOffer);
     // Esc は、大きな表示を閉じるだけにする（詳細パネルは閉じない）。デザインモード中はデザインモードを先にやめる
     document.addEventListener(
       'keydown',
@@ -498,10 +607,13 @@
         <input id="browserUrl" class="bv-url mono" spellcheck="false" autocomplete="off" placeholder="http://localhost:3000/" />
         <button type="button" class="btn small bv-design" data-bv="design" title="${d.esc(tr('画面の部品をクリックすると、その HTML・CSS とスクリーンショットをエージェントに渡せます（Esc でやめます）'))}">${d.icon('crosshair')}${d.esc(tr('デザインモード'))}</button>
         <button type="button" class="btn small bv-design" data-bv="pen" title="${d.esc(tr('画面をペンで囲むと、囲んだところのスクリーンショットと HTML をエージェントに渡せます（Esc でやめます）'))}">${d.icon('pen')}${d.esc(tr('ペン'))}</button>
+        <button type="button" class="btn small" data-bv="task" title="${d.esc(tr('見ているページ（デザインモードで選んだ部品があればそれも）を添えて、新しいタスクを作ります'))}">${d.icon('plus')}${d.esc(tr('タスクにする'))}</button>
+        <button type="button" class="icon bv-nav" data-bv="passwords" title="${d.esc(tr('内蔵ブラウザで保存したパスワード'))}" aria-label="${d.esc(tr('内蔵ブラウザで保存したパスワード'))}">${d.icon('lock')}</button>
         <button type="button" class="icon bv-nav" data-bv="full" title="${d.esc(tr('画面に大きく表示します'))}">${d.icon('maximize')}</button>
         <button type="button" class="icon bv-nav" data-bv="external" title="${d.esc(tr('いつものブラウザで開く'))}">${d.icon('external')}</button>
       </div>
       <div id="browserServer" class="bv-server muted small"></div>
+      <div id="browserPw" class="bv-pw hidden" role="status"></div>
       <div class="bv-stage" id="browserStage">
         <div id="browserNote" class="bv-note hidden"></div>
       </div>
@@ -537,7 +649,7 @@
 
   // タブを1つ作る（<webview> も作る）。まだ見せない
   function createTab(url, title) {
-    const t = { id: `bt${++tabSeq}`, url: url || '', title: title || '', failed: null, retries: 0, retryTimer: null, loading: false, el: null };
+    const t = { id: `bt${++tabSeq}`, url: url || '', title: title || '', failed: null, retries: 0, retryTimer: null, loading: false, el: null, pwOffer: null };
     const stage = $('browserStage');
     const src = t.url || 'about:blank';
     stage.insertAdjacentHTML('afterbegin', `<webview class="bv-view bv-hidden" data-tab-view="${t.id}" partition="${PARTITION}" src="${d.esc(src)}" webpreferences="contextIsolation=yes, sandbox=yes"></webview>`);
@@ -548,6 +660,7 @@
     w.addEventListener('page-title-updated', (e) => {
       t.title = e.title || '';
       drawTabs();
+      persistSoon();
     });
     w.addEventListener('did-start-loading', () => {
       t.loading = true;
@@ -603,6 +716,7 @@
     drawTabs();
     drawBar();
     drawNote();
+    drawPw();
   }
 
   function newTab() {
@@ -629,6 +743,7 @@
     dropTab(t);
     if (wasActive) activate(st.tabs[Math.min(i, st.tabs.length - 1)].id);
     else drawTabs();
+    persistSoon();
   }
 
   // did-navigate は、読み込みに成功したときだけ来る（失敗は did-fail-load）
@@ -642,6 +757,8 @@
     }
     t.url = url;
     drawTabs();
+    persistSoon();
+    if (isActive(t)) storeLastUrl(url);
     if (!isActive(t)) return;
     const input = $('browserUrl');
     if (input && document.activeElement !== input) input.value = url;
@@ -661,6 +778,7 @@
     if (input) input.value = url;
     drawNote();
     drawTabs();
+    persistSoon();
     const w = t.el;
     if (!w) return;
     try {
@@ -766,6 +884,8 @@
       setDesign(!(st.design && st.tool === tool), tool);
     }
     else if (kind === 'newTab') newTab();
+    else if (kind === 'task') makeTask();
+    else if (kind === 'passwords') openPasswords();
     else if (kind === 'full') setFull(!st.full);
     else if (kind === 'external' && curUrl()) {
       const u = curUrl();
@@ -850,6 +970,7 @@
       b.disabled = !curUrl();
     }
     p.querySelector('[data-bv="external"]').disabled = !curUrl();
+    p.querySelector('[data-bv="task"]').disabled = !d.newTask;
     p.classList.toggle('designing', st.design);
   }
 
@@ -916,7 +1037,7 @@
         <textarea id="browserPickText" rows="2"></textarea>
         <button type="button" class="composer-send" id="browserPickSend" title="${d.esc(tr('送信（Ctrl/⌘ + Enter）'))}" aria-label="${d.esc(tr('送信'))}">${d.icon('send')}</button>
       </div>
-      <div class="bv-pick-foot"><span class="muted small" id="browserPickHint"></span><button type="button" class="btn small ghost" data-pick="clear">${d.esc(tr('選んだ部品をすべて外す'))}</button></div>`;
+      <div class="bv-pick-foot"><span class="muted small" id="browserPickHint"></span><span class="bv-pick-acts"><button type="button" class="btn small ghost" data-pick="task" title="${d.esc(tr('選んだ部品と書いた指示から、新しいタスクを作ります'))}">${d.icon('plus')}${d.esc(tr('新しいタスクにする'))}</button><button type="button" class="btn small ghost" data-pick="clear">${d.esc(tr('選んだ部品をすべて外す'))}</button></span></div>`;
     const input = $('browserPickText');
     input.value = text;
     input.addEventListener('keydown', (e) => {
@@ -931,6 +1052,7 @@
         drawPicks();
       };
     });
+    el.querySelector('[data-pick="task"]').onclick = () => makeTask();
     el.querySelector('[data-pick="clear"]').onclick = () => {
       st.picks = [];
       drawPicks();
@@ -979,6 +1101,135 @@
     setDesign(false);
   }
 
+  // ---------------- タスクにする ----------------
+
+  // 見ているページ（デザインモードで選んだ部品があればそれも）を添えて、「新しいタスク」を開く
+  async function makeTask() {
+    if (!d.newTask) return;
+    const t = cur();
+    const input = $('browserPickText');
+    const text = input ? input.value.trim() : '';
+    let attachments = [];
+    let prompt = '';
+    const picks = st.picks.slice();
+    if (picks.length) {
+      attachments = picks.filter((x) => x.shot).map((x) => ({ name: x.name, mediaType: 'image/png', data: x.shot.slice(x.shot.indexOf(',') + 1) }));
+      prompt = buildTaskPrompt(text, null, picks.map((x) => ({ pick: x.pick, shotName: x.shot ? x.name : '' })));
+    } else {
+      // 部品を選んでいなければ、ページ全体のスクリーンショットを添える
+      let shotName = '';
+      if (t && t.url && !t.failed && ready()) {
+        try {
+          const img = await view().capturePage();
+          if (img && !img.isEmpty()) {
+            shotName = `page-${Date.now().toString(36)}.png`;
+            const url = img.toDataURL();
+            attachments = [{ name: shotName, mediaType: 'image/png', data: url.slice(url.indexOf(',') + 1) }];
+          }
+        } catch {
+          // スクリーンショットが撮れなくても、URL は渡す
+        }
+      }
+      prompt = buildTaskPrompt(text, t && t.url ? { url: t.url, title: t.title, shotName } : null, null);
+    }
+    if (st.design) setDesign(false);
+    if (st.full) setFull(false);
+    // 何も書いていなければ、先頭を空けておく（そこにやってほしいことを書いてもらう）
+    d.newTask({ prompt: text ? `${prompt}\n` : `\n\n${prompt}\n`, attachments, onCreated: () => {
+      if (!picks.length) return;
+      st.picks = st.picks.filter((x) => !picks.includes(x));
+      drawPicks();
+    } });
+  }
+
+  // ---------------- パスワード ----------------
+
+  // メインプロセスから「保存しますか？」が来た。そのページのタブに帯を出す
+  function onPasswordOffer(o) {
+    if (!o || !o.webContentsId) return;
+    const t = st.tabs.find((x) => {
+      try {
+        return x.el && x.el.getWebContentsId() === o.webContentsId;
+      } catch {
+        return false;
+      }
+    });
+    if (!t) return;
+    t.pwOffer = o;
+    if (isActive(t)) drawPw();
+  }
+
+  function siteLabel(site) {
+    return String(site || '').replace(/^https?:\/\//, '');
+  }
+
+  function drawPw() {
+    const el = $('browserPw');
+    if (!el) return;
+    const t = cur();
+    const o = t && t.pwOffer;
+    el.classList.toggle('hidden', !o);
+    if (!o) {
+      el.innerHTML = '';
+      return;
+    }
+    const who = o.username ? tr('{site} の「{user}」', { site: siteLabel(o.site), user: o.username }) : siteLabel(o.site);
+    const q = o.kind === 'update' ? tr('{who} のパスワードを新しいものに変えますか？', { who }) : tr('{who} のパスワードを保存しますか？', { who });
+    el.innerHTML = `${d.icon('lock')}<span class="bv-pw-text">${d.esc(q)}</span>
+      <button type="button" class="btn small primary" data-pw="save">${d.esc(o.kind === 'update' ? tr('変える') : tr('保存する'))}</button>
+      <button type="button" class="btn small ghost" data-pw="dismiss">${d.esc(tr('今回はしない'))}</button>
+      <button type="button" class="btn small ghost" data-pw="never">${d.esc(tr('このサイトでは保存しない'))}</button>`;
+    el.querySelectorAll('[data-pw]').forEach((b) => {
+      b.onclick = async () => {
+        const answer = b.dataset.pw;
+        t.pwOffer = null;
+        drawPw();
+        const ok = await d.run(() => d.api.browserPasswordAnswer(o.webContentsId, answer));
+        if (ok && answer === 'save') d.toast(tr('パスワードを保存しました。次からこのサイトのログインの欄に入れます'), 'ok');
+      };
+    });
+  }
+
+  // 保存したパスワードの一覧（消す・「保存しない」をやめる）
+  async function openPasswords() {
+    if (!d.openModal || !d.api.browserPasswords) return;
+    const data = await d.run(() => d.api.browserPasswords());
+    if (!data) return;
+    const logins = data.logins || [];
+    const never = data.never || [];
+    const rows = logins.length
+      ? logins.map((x, i) => `<li class="bv-pw-row"><span class="mono">${d.esc(siteLabel(x.site))}</span><span>${d.esc(x.username || tr('（ユーザー名なし）'))}</span><button type="button" class="btn small ghost" data-pw-del="${i}">${d.esc(tr('消す'))}</button></li>`).join('')
+      : `<li class="muted small">${d.esc(tr('まだ保存したパスワードはありません。ログインすると、保存するかを聞きます'))}</li>`;
+    const nev = never.length
+      ? `<h3>${d.esc(tr('保存しないサイト'))}</h3><ul class="bv-pw-list">${never.map((s, i) => `<li class="bv-pw-row"><span class="mono">${d.esc(siteLabel(s))}</span><span></span><button type="button" class="btn small ghost" data-pw-never="${i}">${d.esc(tr('外す'))}</button></li>`).join('')}</ul>`
+      : '';
+    const warn = data.available ? '' : `<p class="small">${d.esc(tr('このマシンでは OS の安全な保存先を使えないので、パスワードを保存できません（平文では保存しません）'))}</p>`;
+    d.openModal(
+      `<h2>${d.esc(tr('内蔵ブラウザで保存したパスワード'))}</h2>
+       <p class="muted small">${d.esc(tr('OS の安全な保存先の鍵で暗号化して、このマシンにだけ保存します。同じホストなら、ポートが違っても（タスクごとの開発サーバーでも）入れます'))}</p>
+       ${warn}
+       <ul class="bv-pw-list">${rows}</ul>
+       ${nev}
+       <div class="modal-actions"><button class="btn primary" id="bvPwClose">${d.esc(tr('閉じる'))}</button></div>`,
+      () => {
+        const box = document.getElementById('modalBox') || document;
+        box.querySelector('#bvPwClose').onclick = d.closeModal;
+        box.querySelectorAll('[data-pw-del]').forEach((b) => {
+          b.onclick = async () => {
+            const x = logins[Number(b.dataset.pwDel)];
+            if (x && (await d.run(() => d.api.browserPasswordDelete(x.site, x.username).then(() => true)))) openPasswords();
+          };
+        });
+        box.querySelectorAll('[data-pw-never]').forEach((b) => {
+          b.onclick = async () => {
+            const site = never[Number(b.dataset.pwNever)];
+            if (site && (await d.run(() => d.api.browserPasswordNever(site, false).then(() => true)))) openPasswords();
+          };
+        });
+      },
+    );
+  }
+
   async function loadScripts(c, { force = false } = {}) {
     const key = `${c.id}:${c.status}:${c.worktreePath || ''}`;
     if (!force && st.scriptsFor === key) return;
@@ -995,8 +1246,9 @@
     const first = !st.port && port;
     st.port = port;
     drawServer();
-    // ポートが分かったら、まだ何も開いていなければ開く
+    // ポートが分かったら、まだ何も開いていなければ開く。ポートの無いタスクでは、前に開いたページを開く
     if (first && !curUrl()) navigate(previewUrl(port));
+    else if (!port && !curUrl() && lastUrl()) navigate(lastUrl());
   }
 
   function show(on) {
@@ -1013,11 +1265,11 @@
 
   // 今のタスクのタブを覚えておき、<webview> を片付ける
   function saveTabs() {
+    clearTimeout(saveTimer);
     if (!st.cardId) return;
-    const tabs = st.tabs.filter((t) => t.url).map((t) => ({ url: t.url, title: t.title }));
-    const i = st.tabs.filter((t) => t.url).findIndex((t) => isActive(t));
-    if (tabs.length) st.saved.set(st.cardId, { tabs, active: Math.max(0, i) });
-    else st.saved.delete(st.cardId);
+    const tabs = st.tabs.filter((t) => t.url && normalizeUrl(t.url) === t.url).map((t) => ({ url: t.url, title: t.title }));
+    const i = st.tabs.filter((t) => t.url && normalizeUrl(t.url) === t.url).findIndex((t) => isActive(t));
+    storeTabs(st.cardId, tabs.length ? { tabs, active: Math.max(0, i), at: Date.now() } : null);
   }
 
   function render(c) {
@@ -1048,7 +1300,7 @@
       st.scripts = null;
       st.scriptsFor = '';
       drawPicks();
-      const saved = st.saved.get(c.id);
+      const saved = savedTabs()[c.id];
       const list = saved && saved.tabs.length ? saved.tabs : [{ url: '', title: '' }];
       for (const x of list) createTab(x.url, x.title);
       activate(st.tabs[Math.min((saved && saved.active) || 0, st.tabs.length - 1)].id);
@@ -1077,6 +1329,9 @@
     captureRect,
     buildPickMessage,
     tabLabel,
+    parseSavedTabs,
+    rememberTabs,
+    buildTaskPrompt,
     init,
     show,
     render,

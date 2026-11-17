@@ -1399,3 +1399,10 @@ body.term-resizing { cursor: ns-resize; user-select: none; }
 .card-bg { display: flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 11px; color: var(--muted); }
 .card-bg .ic { width: 12px; height: 12px; flex: none; }
 .card-bg .elapsed { margin-left: auto; font-variant-numeric: tabular-nums; }
+/* 内蔵ブラウザ: パスワードを保存するかの帯と、保存したものの一覧 */
+.bv-pw { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 12px; }
+.bv-pw-text { flex: 1 1 200px; min-width: 0; word-break: break-word; }
+.bv-pw-list { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow-y: auto; }
+.bv-pw-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.bv-pw-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bv-pick-acts { display: flex; gap: 6px; flex-wrap: wrap; }
