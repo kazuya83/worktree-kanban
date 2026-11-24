@@ -202,6 +202,8 @@ const PROXY_CHANNELS = new Set([
   'conflict:abort',
   'conflict:dismiss',
   'conflict:fromPr',
+  'conflict:retrySubtask',
+  'conflict:inSubtask',
   'ci:fix',
   'review:fix',
   'card:permission',

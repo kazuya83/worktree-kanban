@@ -368,3 +368,77 @@ test('サブタスク: まだ始めていないサブタスクは、名前とや
   assert.throws(() => agents.editSubtask(p.id, 's1', { title: 'x', prompt: 'y' }), /まだ始めていない/);
   await waitFor(() => k.status === 'review' || k.status === 'failed');
 });
+
+// 2つのサブタスクを1つずつ取り込み、2つ目のマージで shared.txt をコンフリクトさせる（親のエージェントは解消に失敗する）
+async function conflictedSubtasks() {
+  process.env.FAKE_BAD_RESOLVE = '1';
+  const env = setup();
+  const { agents, store } = env;
+  const [p] = agents.createTask({ title: 'ぶつかる作業', prompt: '全体の作業', agent: 'claude' });
+  agents.setSubtasks(p.id, { items: [{ title: 'API', prompt: 'API を作る [same-file]' }, { title: '画面', prompt: '画面を作る [same-file]' }] });
+  // 2つとも親のブランチから分けてから、1つずつ取り込む
+  await agents.startSubtaskOnly(p.id, 's1');
+  await agents.startSubtaskOnly(p.id, 's2');
+  const k1 = store.card(p.subtasks.items[0].cardId);
+  const k2 = store.card(p.subtasks.items[1].cardId);
+  await waitFor(() => k1.status === 'review' && k2.status === 'review');
+  await agents.approveSubtask(k1.id);
+  await waitFor(() => p.subtasks.items[0].state === 'review');
+  await agents.approveSubtask(k2.id);
+  await waitFor(() => p.conflict && p.conflict.unresolved && p.status === 'review' && !p.conflict.resolving);
+  assert.strictEqual(p.conflict.subtask, k2.id);
+  assert.deepStrictEqual(p.conflict.unresolved, ['shared.txt']);
+  return { ...env, p, k2 };
+}
+
+test('サブタスク: マージのコンフリクトを、親のタスクに文章で指示して解消すると、サブタスクのマージを終えて先へ進む', async (t) => {
+  t.after(() => delete process.env.FAKE_BAD_RESOLVE);
+  const { agents, store, g, p, k2 } = await conflictedSubtasks();
+  delete process.env.FAKE_BAD_RESOLVE;
+  const kidBranch = k2.branch;
+  // 以前は「上の「コンフリクト」の欄から解消してください」で断っていた
+  await agents.send(p.id, 'shared.txt は両方の変更を残して直してください');
+  assert.ok(p.conflict.resolving);
+  const sent = (p.logs || []).filter((l) => l.kind === 'user').pop();
+  assert.strictEqual(sent.text, 'shared.txt は両方の変更を残して直してください');
+  await waitFor(() => !p.conflict && p.subtasks.items[1].state === 'review' && p.status === 'review');
+  assert.ok(p.subtasks.items[1].merged);
+  assert.ok(!store.card(k2.id), 'マージしたサブタスクのカードは片付ける');
+  assert.ok(g('log', '--oneline', p.branch).includes(kidBranch));
+  assert.ok(!/<<<<<<<|>>>>>>>/.test(g('show', `${p.branch}:shared.txt`)));
+});
+
+test('サブタスク: マージのコンフリクトをサブタスクの側で解消すると、終わったときに親へのマージをやり直して先へ進む', async (t) => {
+  t.after(() => delete process.env.FAKE_BAD_RESOLVE);
+  const { agents, store, g, p, k2 } = await conflictedSubtasks();
+  // サブタスクの側で、親のブランチを取り込んで解消しておく（エージェントが直したのと同じ状態）
+  const w = (...a) => execFileSync('git', a, { cwd: k2.worktreePath }).toString();
+  try {
+    w('merge', '--no-edit', p.branch);
+  } catch {
+    /* コンフリクトする */
+  }
+  fs.writeFileSync(path.join(k2.worktreePath, 'shared.txt'), 'API と画面の両方\n');
+  w('add', '-A');
+  w('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'resolve');
+  await agents.resolveSubtaskConflictInChild(p.id);
+  assert.ok(p.conflict.inChild);
+  assert.ok(!fs.existsSync(path.join(p.worktreePath, '.git')) || !g('-C', p.worktreePath, 'status', '--porcelain').includes('UU'), '親の取り込みの途中は中止する');
+  assert.ok((k2.logs || []).some((l) => l.kind === 'user' && l.text.includes(`git merge ${p.branch}`)));
+  // サブタスクの作業が終わると、マージをやり直す（もうコンフリクトしない）
+  await waitFor(() => !p.conflict && p.subtasks.items[1].state === 'review');
+  assert.ok(!store.card(k2.id));
+  assert.strictEqual((p.logs || []).filter((l) => /コンフリクトしました/.test(l.text)).length, 1);
+  assert.strictEqual(g('show', `${p.branch}:shared.txt`), 'API と画面の両方\n');
+});
+
+test('サブタスク: マージのコンフリクトは「マージをやり直す」で、取り込みを中止してもう一度マージする', async (t) => {
+  t.after(() => delete process.env.FAKE_BAD_RESOLVE);
+  const { agents, p } = await conflictedSubtasks();
+  delete process.env.FAKE_BAD_RESOLVE;
+  // またコンフリクトするので、今までと同じく親のエージェントに解消してもらって先へ進む
+  await agents.retrySubtaskMerge(p.id);
+  await waitFor(() => !p.conflict && p.subtasks.items[1].state === 'review' && p.status === 'review');
+  assert.strictEqual((p.logs || []).filter((l) => /コンフリクトしました/.test(l.text)).length, 2);
+  await assert.rejects(() => agents.retrySubtaskMerge(p.id), /コンフリクトはありません/);
+});
