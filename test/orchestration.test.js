@@ -201,7 +201,7 @@ test('Cursor のタスク: 指示を引数で渡して worktree で動き、追�
   assert.match(await agents.diff(c.id), /カーソルで作って/);
   const first = calls().filter((x) => x.kind === 'cursor')[0].args;
   assert.ok(first.includes('--force') && first.includes('--trust'));
-  assert.strictEqual(first[first.length - 1], 'カーソルで作って');
+  assert.ok(first[first.length - 1].startsWith('カーソルで作って\n'));
   const sid = c.sessionId;
   agents.send(c.id, 'もう1つ');
   await waitFor(() => c.status === 'review' && calls().filter((x) => x.kind === 'cursor').length === 2);

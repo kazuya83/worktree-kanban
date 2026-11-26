@@ -213,6 +213,23 @@ function elapsed(since) {
   if (s < 3600) return tr('{m}分{s}秒', { m: (Math.floor(s / 60)), s: (s % 60) });
   return tr('{h}時間{m}分', { h: (Math.floor(s / 3600)), m: (Math.floor((s % 3600) / 60)) });
 }
+// 「あとどれくらい」（renderer/progress-eta.js）: 残りの時間の見込みの言葉
+function remainingText(ms) {
+  if (ms == null) return tr('残りの時間を見積もり中');
+  if (ms <= 0) return tr('まもなくレビュー待ち');
+  const m = Math.round(ms / 60000);
+  if (m < 1) return tr('あと1分未満');
+  if (m < 60) return tr('あと約{m}分', { m });
+  return tr('あと約{h}時間{m}分', { h: Math.floor(m / 60), m: m % 60 });
+}
+function etaOf(c) {
+  return typeof ProgressEta === 'undefined' ? null : ProgressEta.estimate(c, card, Date.now());
+}
+// 「60%・あと約8分」。見積もれないときは null
+function etaText(c) {
+  const e = etaOf(c);
+  return e ? tr('{pct}%・{v}', { pct: e.overall.pct, v: remainingText(e.overall.remainingMs) }) : null;
+}
 function toast(msg, kind = 'error') {
   const t = $('toast');
   t.textContent = msg;
@@ -579,6 +596,7 @@ function cardHtml(c) {
       ${c.skill ? tr('<div class="card-skill-row"><span class="skill-chip small" title="最初の指示で使うスキル">{v}/{skill}</span></div>', { v: (icon('zap')), skill: (esc(c.skill)) }) : ''}
       ${c.error && c.status === 'failed' ? `<div class="card-err">${icon('alert')}<span>${esc(c.error)}</span></div>` : ''}
       ${showCardSprite(c) ? spriteCanvasHtml(c, 'mini') : ''}
+      ${cardEtaHtml(c)}
       ${cardBgHtml(c)}
       ${isChat(c) && c.lastMessage && !waiting ? `<div class="card-msg">${esc(plainText(c.lastMessage))}</div>` : ''}
       ${isSpecPending(c) ? tr('<div class="card-msg card-spec">{v}内容が詰まっていないので、開発を開始できません。開いて質問に答えてください</div>', { v: (icon('note')) }) : ''}
@@ -615,6 +633,9 @@ function spriteMood(c) {
 function spriteInfo(c) {
   const { mood, tool } = spriteMood(c);
   const progress = AgentSprite.progressOf(c.todos && c.todos.items);
+  // TODO がないときは、エージェントが報告した進み具合でバーを埋める
+  const est = !progress.total && typeof ProgressEta !== 'undefined' ? ProgressEta.cardPct(c) : null;
+  if (est) progress.reported = est.pct;
   let label;
   if (mood === 'work') label = SPRITE_LABEL[tool] || SPRITE_LABEL.tool;
   else if (mood === 'think') label = tr('考え中…');
@@ -638,6 +659,12 @@ const PROGRESS_SCENES = [
   ['garden', tr('ガーデニング（TODO ごとに花が咲く）')],
   ['space', tr('宇宙（ロケットで星をめぐる）')],
 ];
+// カードの「60%・あと約8分」（ロボットの下のバーの横）。毎秒の更新で書き直す（data-eta）
+function cardEtaHtml(c) {
+  if (isChat(c)) return '';
+  const t = etaText(c);
+  return t ? tr('<div class="card-eta" title="レビュー待ちまでの見込み（ここまでにかかった時間と進み具合から割り出しています）"><span class="eta" data-eta="{id}">{t}</span></div>', { id: esc(c.id), t: esc(t) }) : '';
+}
 function showCardSprite(c) {
   return !isChat(c) && c.status !== 'todo';
 }
@@ -2120,6 +2147,19 @@ function bindChartZoom(view) {
     };
   Zoom.bindWheel(chart, { get: () => { const svg = chart.querySelector('svg.fv'); return svg ? chartZoomNow(svg) : 1; }, set: (z, at) => setChartZoom(chart, z, at) });
 }
+// 進捗タブの「レビュー待ちまでの見込み」: 全体の % と残りの時間（親・Pipeline は今のエージェントの分も）
+const ETA_SOURCE = { todo: tr('TODO の完了数から'), report: tr('エージェントの報告から'), subtasks: tr('サブタスクの進み具合から'), relay: tr('Pipeline の工程の進み具合から') };
+function etaProgressHtml(c) {
+  const e = etaOf(c);
+  if (!e) {
+    return c.status === 'running' ? tr('<section class="pg-sec"><div class="pg-sec-head"><b>レビュー待ちまでの見込み</b></div><p class="muted small pg-note">エージェントが TODO を作るか、進み具合を報告すると、ここに進み具合と残りの時間の見込みが出ます。</p></section>') : '';
+  }
+  const o = e.overall;
+  const cur = e.current
+    ? `<div class="muted small">${tr('今のエージェント: {v}', { v: `<span class="eta" data-eta="${esc(c.id)}" data-eta-part="current">${esc(tr('{pct}%・{v}', { pct: e.current.pct, v: remainingText(e.current.remainingMs) }))}</span>` })}</div>`
+    : '';
+  return tr('<section class="pg-sec pg-eta"><div class="pg-sec-head"><b>レビュー待ちまでの見込み</b> <span class="muted small">{src}・ここまでにかかった時間から割り出しています</span></div>\n    <div class="pg-bar" title="{pct}%"><span style="width:{pct}%"></span></div>\n    <div class="pg-eta-now">{v}</div>\n    {cur}\n  </section>', { src: esc(ETA_SOURCE[o.source] || ''), pct: o.pct, v: `<span class="eta" data-eta="${esc(c.id)}">${esc(tr('{pct}%・{v}', { pct: o.pct, v: remainingText(o.remainingMs) }))}</span>`, cur });
+}
 function progressHtml(c) {
   const s = c.status;
   const live = s === 'running' || s === 'queued';
@@ -2132,6 +2172,7 @@ function progressHtml(c) {
   if (cost) rows.push(tr('<dt>コスト</dt><dd>${v}{v2}</dd>', { v: (cost.toFixed(3)), v2: (hasSubtasks(c) ? tr(' <span class="muted small">サブタスクを含む</span>') : '') }));
   const parts = [`<section class="pg-sec"><dl class="d-meta pg-summary">${rows.join('')}</dl></section>`];
   if (s !== 'todo') parts.push(`<section class="pg-sec pg-stage">${spriteCanvasHtml(c, 'stage')}</section>`);
+  if (!isChat(c)) parts.push(etaProgressHtml(c));
   parts.push(bgProgressHtml(c));
   // 競争の候補（採用・比べてもらう）
   const compete = competeBoxHtml(c);
@@ -6947,6 +6988,12 @@ AgentSprite.start((id) => {
 });
 setInterval(() => {
   document.querySelectorAll('.elapsed[data-since]').forEach((el) => (el.textContent = elapsed(Number(el.dataset.since))));
+  // 「あと約○分」も時間とともに書き直す
+  document.querySelectorAll('.eta[data-eta]').forEach((el) => {
+    const e = etaOf(card(el.dataset.eta));
+    const x = e && (el.dataset.etaPart === 'current' ? e.current : e.overall);
+    if (x) el.textContent = tr('{pct}%・{v}', { pct: x.pct, v: remainingText(x.remainingMs) });
+  });
 }, 1000);
 
 // git や、使う設定のエージェントのコマンドが見つからないときは画面上部に案内を出す

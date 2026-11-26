@@ -1405,6 +1405,9 @@ body.term-resizing { cursor: ns-resize; user-select: none; }
 .bg-tasks .bg-type { flex: none; font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--chip, rgba(127,127,127,.15)); color: var(--muted); }
 .bg-tasks .bg-elapsed { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .pg-bg .bg-tasks { margin: 0; padding-left: 18px; font-size: 12px; }
+/* カードの「60%・あと約8分」（レビュー待ちまでの見込み） */
+.card-eta { display: flex; justify-content: flex-end; margin-top: 2px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pg-eta-now { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .card-bg { display: flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 11px; color: var(--muted); }
 .card-bg .ic { width: 12px; height: 12px; flex: none; }
 .card-bg .elapsed { margin-left: auto; font-variant-numeric: tabular-nums; }

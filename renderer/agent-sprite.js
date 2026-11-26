@@ -423,6 +423,12 @@
     ctx.fillStyle = th.line;
     if (!p.total) {
       ctx.fillRect(x, y, w, h);
+      // TODO はないが、エージェントが進み具合（[[PROGRESS:数字]]）を報告しているときは、その割合まで埋める
+      if (typeof p.reported === 'number' && info.mood !== 'done') {
+        ctx.fillStyle = th.ok;
+        ctx.fillRect(x, y, Math.round((w * Math.max(0, Math.min(100, p.reported))) / 100), h);
+        return [];
+      }
       if (info.mood === 'work' || info.mood === 'think') {
         const bw = Math.max(12, w * 0.22);
         const pos = ((f * 3) % (w + bw)) - bw;
