@@ -207,7 +207,10 @@ test('Cursor のタスク: 指示を引数で渡して worktree で動き、追�
   await waitFor(() => c.status === 'review' && calls().filter((x) => x.kind === 'cursor').length === 2);
   const second = calls().filter((x) => x.kind === 'cursor')[1].args;
   assert.strictEqual(second[second.indexOf('--resume') + 1], sid);
-  assert.strictEqual(second[second.length - 1], 'もう1つ');
+  // 追加指示のあとに、その分の進み具合の報告のルールが付く（エージェントにだけ渡す）
+  assert.ok(second[second.length - 1].startsWith('もう1つ\n'));
+  assert.ok(second[second.length - 1].includes('進み具合の報告（この追加指示の分）'));
+  assert.strictEqual(c.lastPromptSent, 'もう1つ', 'ログ・チェックポイントにはルールを残さない');
 });
 
 test('Cursor のタスク: 失敗はエラー列に', async () => {

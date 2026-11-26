@@ -632,7 +632,9 @@ function spriteMood(c) {
 }
 function spriteInfo(c) {
   const { mood, tool } = spriteMood(c);
-  const progress = AgentSprite.progressOf(c.todos && c.todos.items);
+  // 追加指示で続けているときは、前の実行の終わった TODO でバーを埋めない（今回の進み具合を出す）
+  const staleTodos = (c.status === 'running' || c.status === 'queued') && typeof ProgressEta !== 'undefined' && ProgressEta.staleTodos(c);
+  const progress = AgentSprite.progressOf(c.todos && !staleTodos ? c.todos.items : null);
   // TODO がないときは、エージェントが報告した進み具合でバーを埋める
   const est = !progress.total && typeof ProgressEta !== 'undefined' ? ProgressEta.cardPct(c) : null;
   if (est) progress.reported = est.pct;

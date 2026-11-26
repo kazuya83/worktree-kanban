@@ -268,6 +268,16 @@ const PROGRESS_NOTE = [
 function withProgressNote(prompt) {
   return `${prompt}\n\n---\n\n${PROGRESS_NOTE}`;
 }
+// 追加指示（レビュー待ちなどのあとに続けるとき）に添える進み具合の報告のルール。
+// 進み具合は、タスク全体ではなく「この追加指示の作業を、もう一度レビューに出せるところまで」で数えてもらう
+const PROGRESS_FOLLOW_NOTE = [
+  '## 進み具合の報告（この追加指示の分）',
+  '',
+  'この追加指示の作業について、TODO リストを使わずに作業するときは、作業の区切りごとに、もう一度レビューに出せるところまでのうち今どのくらい進んだかを、返事の中に `[[PROGRESS:数字]]`（0〜100 の整数。前の作業の分は数えず、この追加指示を受けた時点を 0 にする。例: `[[PROGRESS:40]]`）と1行で書いてください（ユーザーには表示されません）。TODO リストを使うときは、この追加指示の分の TODO を新しく作ってください（前の TODO が終わったまま残っていても使いません）。',
+].join('\n');
+function withProgressFollowNote(prompt) {
+  return `${prompt}\n\n---\n\n${PROGRESS_FOLLOW_NOTE}`;
+}
 
 function withSpecCheck(prompt) {
   return `${SPEC_CHECK_PROMPT}\n\n---\n\n## タスク\n\n${prompt}`;
@@ -2691,7 +2701,8 @@ class AgentManager extends EventEmitter {
     // 仕様の確認中の答えには、続けて判断してもらうための一言を添える
     const notes = this.takeShellNotes(c);
     const body = this.withAttachments(c, notes + (inSpecCheck(c) ? `${message.trim()}\n\n${SPEC_FOLLOW_NOTE}` : message.trim()), atts);
-    this.enqueue(c, promptWithSkill(agentOf(c), skill, body), atts);
+    // 追加指示で続けるときも、もう一度レビュー待ちになるまでの進み具合を報告してもらう（カード・進捗タブの「あと約○分」）
+    this.enqueue(c, promptWithSkill(agentOf(c), skill, body), atts, { progressFollow: !isChat(c) });
   }
 
   // 開始前のタスクの添付ファイルを足す・外す（合わせて、最初に作るときと同じ上限まで）
@@ -2835,8 +2846,11 @@ class AgentManager extends EventEmitter {
   }
 
   // atts: この指示に添付したファイル（Claude Code には画像をそのまま渡す。パスは prompt に書いてある）
-  enqueue(c, prompt, atts) {
+  // opts.progressFollow: 追加指示。起動するときに、その分の進み具合の報告のルールを添える（記録・ログには残さない）
+  enqueue(c, prompt, atts, opts) {
     if (this.shuttingDown) throw new Error(tr('アプリを終了しています'));
+    if (opts && opts.progressFollow) c.progressFollow = true;
+    else delete c.progressFollow;
     c.pendingAttachments = atts && atts.length ? atts : null;
     c.interrupted = null;
     c.awaitingReply = false;
@@ -2846,6 +2860,7 @@ class AgentManager extends EventEmitter {
     c.lastSubtaskPlan = null;
     c.lastSubtasksMarked = false;
     c.pendingPrompt = prompt;
+    delete c.progressReport; // 前の実行の進み具合（100% など）を、順番待ちのあいだも出さない
     c.status = 'queued';
     c.queuedAt = Date.now();
     c.error = null;
@@ -3765,8 +3780,10 @@ class AgentManager extends EventEmitter {
       c.chrome = true;
       this.log(c, 'system', tr('Claude in Chrome を使えるようにして動かします（このタスクでは、このあとも使えます）'));
     }
-    // 言語の指示はエージェントにだけ渡し、ログ（lastPromptSent）には残さない
-    const spoken = withReplyLanguage(chromeCmd.prompt);
+    // 言語の指示・追加指示の分の進み具合の報告のルールはエージェントにだけ渡し、ログ（lastPromptSent）やチェックポイントには残さない
+    const progressFollow = !!c.progressFollow && !chat && !afterDone && !!chromeCmd.prompt;
+    delete c.progressFollow;
+    const spoken = withReplyLanguage(progressFollow ? withProgressFollowNote(chromeCmd.prompt) : chromeCmd.prompt);
     let args;
     let rpcKind = null;
     let rpcVariant = null; // ACP の起動のしかた（providers.js の ACP_LAUNCH の何番目か）
@@ -5826,4 +5843,4 @@ class AgentManager extends EventEmitter {
   }
 }
 
-module.exports = { READ_ONLY_DISALLOWED_TOOLS, withReadOnlyNote, withProgressNote, PROGRESS_NOTE, relayStepsOf, whoLabel, AgentManager, isNoGit, toolResultText, toolResultImages, agentOf, promptWithSkill, buildRelayStepPrompt, buildComparePrompt, PERMISSION_TOOL, endsWithQuestion, SPEC_MARKER, withSpecCheck, stripSpecMarker, extractSpecQuestions, parseMarkdownQuestions, isOtherOption, withReplyLanguage, takeChromeCommand, isQuitInterrupt, SKILL_SUGGEST_PROMPT, SKILL_SUGGEST_REPEAT_NOTE, buildSkillSuggestPrompt, buildAfterDonePrompt, isChat, isSessionId, quoteForCmd, cleanBranchName, buildBranchNamePrompt, cleanModel, modelOf };
+module.exports = { READ_ONLY_DISALLOWED_TOOLS, withReadOnlyNote, withProgressNote, PROGRESS_NOTE, withProgressFollowNote, PROGRESS_FOLLOW_NOTE, relayStepsOf, whoLabel, AgentManager, isNoGit, toolResultText, toolResultImages, agentOf, promptWithSkill, buildRelayStepPrompt, buildComparePrompt, PERMISSION_TOOL, endsWithQuestion, SPEC_MARKER, withSpecCheck, stripSpecMarker, extractSpecQuestions, parseMarkdownQuestions, isOtherOption, withReplyLanguage, takeChromeCommand, isQuitInterrupt, SKILL_SUGGEST_PROMPT, SKILL_SUGGEST_REPEAT_NOTE, buildSkillSuggestPrompt, buildAfterDonePrompt, isChat, isSessionId, quoteForCmd, cleanBranchName, buildBranchNamePrompt, cleanModel, modelOf };
