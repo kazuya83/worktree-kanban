@@ -1504,7 +1504,7 @@ app.whenReady().then(async () => {
     return { branches, current, hasOrigin };
   });
   handle('settings:update', (patch) => {
-    const allowed = ['portStart', 'portCount', 'baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'ciAutoFix', 'reviewAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView', 'progressScene'];
+    const allowed = ['portStart', 'portCount', 'baseBranch', 'permissionMode', 'allowedTools', 'model', 'claudePath', 'maxParallel', 'defaultSkill', 'integration', 'issueProvider', 'issueComments', 'issueStatusSync', 'statusFieldName', 'statusMapping', 'suggestSkillsOnDone', 'deleteSessionsOnMerge', 'specCheck', 'requireTodos', 'ciAutoFix', 'reviewAutoFix', 'subtaskMerge', 'sprintBranch', 'branchNamingRule', 'setupScript', 'teardownScript', 'runScript', 'defaultAgent', 'codexPath', 'codexModel', 'antigravityPath', 'antigravityModel', 'geminiPath', 'geminiModel', 'cursorPath', 'cursorModel', 'opencodePath', 'opencodeModel', 'copilotPath', 'copilotModel', 'ampPath', 'ampModel', 'piPath', 'piModel', 'droidPath', 'droidModel', 'relaySteps', 'relayFlow', 'relayFlows', 'relayFlowId', 'competeAgents', 'competeCustomAgents', 'competes', 'customAgents', 'orchestration', 'enabledAgents', 'weeklyResetDay', 'weeklyResetTime', 'cycleView', 'progressScene'];
     if (patch && 'branchNamingRule' in patch) patch = { ...patch, branchNamingRule: String(patch.branchNamingRule || '').trim() };
     for (const k of ['setupScript', 'teardownScript', 'runScript']) if (patch && k in patch) patch = { ...patch, [k]: cleanScript(patch[k]) };
     if (patch && 'portCount' in patch) patch = { ...patch, portCount: require('./src/store').cleanPortCount(patch.portCount) };
@@ -1513,6 +1513,7 @@ app.whenReady().then(async () => {
     if (patch && 'suggestSkillsOnDone' in patch) patch = { ...patch, suggestSkillsOnDone: !!patch.suggestSkillsOnDone };
     if (patch && 'deleteSessionsOnMerge' in patch) patch = { ...patch, deleteSessionsOnMerge: !!patch.deleteSessionsOnMerge };
     if (patch && 'specCheck' in patch) patch = { ...patch, specCheck: !!patch.specCheck };
+    if (patch && 'requireTodos' in patch) patch = { ...patch, requireTodos: !!patch.requireTodos };
     if (patch && 'ciAutoFix' in patch) patch = { ...patch, ciAutoFix: !!patch.ciAutoFix };
     if (patch && 'reviewAutoFix' in patch) patch = { ...patch, reviewAutoFix: !!patch.reviewAutoFix };
     if (patch && 'sprintBranch' in patch) patch = { ...patch, sprintBranch: !!patch.sprintBranch };

@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const E = require('../renderer/progress-eta');
-const { withProgressNote, PROGRESS_NOTE, withProgressFollowNote, PROGRESS_FOLLOW_NOTE } = require('../src/agent');
+const { withProgressNote, PROGRESS_NOTE, withProgressFollowNote, PROGRESS_FOLLOW_NOTE, PROGRESS_TODO_NOTE, PROGRESS_TODO_FOLLOW_NOTE } = require('../src/agent');
 
 const MIN = 60 * 1000;
 
@@ -127,6 +127,16 @@ test('エージェントへの指示に進み具合の報告のルールを足�
   assert.ok(withProgressFollowNote('続けて').endsWith(PROGRESS_FOLLOW_NOTE));
   assert.match(PROGRESS_FOLLOW_NOTE, /\[\[PROGRESS:数字\]\]/);
   assert.match(PROGRESS_FOLLOW_NOTE, /もう一度レビューに出せる/);
+  // 既定（設定がオフ）では、TODO を作るかはエージェントに任せる
+  assert.doesNotMatch(PROGRESS_NOTE, /必ず/);
+  assert.doesNotMatch(PROGRESS_FOLLOW_NOTE, /必ず/);
+  // プロジェクトの設定「必ず TODO リストを作ってもらう」がオンなら、必ず作ってもらう（TODO のツールがないときだけ [[PROGRESS:数字]]）
+  assert.ok(withProgressNote('作って', true).endsWith(PROGRESS_TODO_NOTE));
+  assert.ok(withProgressFollowNote('続けて', true).endsWith(PROGRESS_TODO_FOLLOW_NOTE));
+  assert.match(PROGRESS_TODO_NOTE, /必ず最初に TODO リスト/);
+  assert.match(PROGRESS_TODO_FOLLOW_NOTE, /必ず最初に、この追加指示の分の TODO リスト/);
+  assert.match(PROGRESS_TODO_NOTE, /TODO のツールがないときだけ/);
+  assert.match(PROGRESS_TODO_FOLLOW_NOTE, /\[\[PROGRESS:数字\]\]/);
   const html = fs.readFileSync(path.join(__dirname, '../renderer/index.html'), 'utf8');
   assert.ok(html.indexOf('progress-eta.js') > 0 && html.indexOf('progress-eta.js') < html.indexOf('renderer.js'));
   const pkg = require('../package.json');

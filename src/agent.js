@@ -259,14 +259,24 @@ function withReadOnlyNote(prompt) {
 // ソースを変えないタスクで止めるツール（Claude Code の --disallowedTools）
 const READ_ONLY_DISALLOWED_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 
-// 進み具合の報告: TODO リストを使わないときに、返事に [[PROGRESS:数字]] を書いてもらう（カードと進捗タブの「あと約○分」に使う）
+// 進み具合の報告（カードと進捗タブの「あと約○分」に使う）。
+// 既定: TODO リストを使わないときに、返事に [[PROGRESS:数字]] を書いてもらう
 const PROGRESS_NOTE = [
   '## 進み具合の報告',
   '',
   'TODO リスト（TodoWrite などの TODO のツール）を使わずに作業するときは、作業の区切りごとに、このタスクをレビューに出せるところまでのうち今どのくらい進んだかを、返事の中に `[[PROGRESS:数字]]`（0〜100 の整数。例: `[[PROGRESS:40]]`）と1行で書いてください（アプリがこの印で進み具合と残りの時間の見込みを出します。ユーザーには表示されません）。TODO リストを使うときは書かなくてかまいません。',
 ].join('\n');
-function withProgressNote(prompt) {
-  return `${prompt}\n\n---\n\n${PROGRESS_NOTE}`;
+// プロジェクトの設定「必ず TODO リストを作ってもらう」（requireTodos）が ON のとき: 作業を始めるときに必ず TODO リストを作ってもらう。
+// TODO のツールを持たないエージェントだけ、返事に [[PROGRESS:数字]] を書いてもらう
+const PROGRESS_TODO_NOTE = [
+  '## 進み具合の報告（TODO リスト）',
+  '',
+  '作業を始めるときは、必ず最初に TODO リスト（TodoWrite などの TODO のツール）を作り、このタスクをレビューに出せるところまでの作業を並べてください。進めるたびに TODO の状態（作業中・完了）を更新してください（アプリが TODO から進み具合と残りの時間の見込みを出します）。小さな作業でも作ってください。仕様の確認の質問やサブタスクの提案をして止まるときは、作らなくてかまいません。',
+  '',
+  'TODO のツールがないときだけ、代わりに作業の区切りごとに、レビューに出せるところまでのうち今どのくらい進んだかを、返事の中に `[[PROGRESS:数字]]`（0〜100 の整数。例: `[[PROGRESS:40]]`）と1行で書いてください（ユーザーには表示されません）。',
+].join('\n');
+function withProgressNote(prompt, requireTodos) {
+  return `${prompt}\n\n---\n\n${requireTodos ? PROGRESS_TODO_NOTE : PROGRESS_NOTE}`;
 }
 // 追加指示（レビュー待ちなどのあとに続けるとき）に添える進み具合の報告のルール。
 // 進み具合は、タスク全体ではなく「この追加指示の作業を、もう一度レビューに出せるところまで」で数えてもらう
@@ -275,8 +285,15 @@ const PROGRESS_FOLLOW_NOTE = [
   '',
   'この追加指示の作業について、TODO リストを使わずに作業するときは、作業の区切りごとに、もう一度レビューに出せるところまでのうち今どのくらい進んだかを、返事の中に `[[PROGRESS:数字]]`（0〜100 の整数。前の作業の分は数えず、この追加指示を受けた時点を 0 にする。例: `[[PROGRESS:40]]`）と1行で書いてください（ユーザーには表示されません）。TODO リストを使うときは、この追加指示の分の TODO を新しく作ってください（前の TODO が終わったまま残っていても使いません）。',
 ].join('\n');
-function withProgressFollowNote(prompt) {
-  return `${prompt}\n\n---\n\n${PROGRESS_FOLLOW_NOTE}`;
+const PROGRESS_TODO_FOLLOW_NOTE = [
+  '## 進み具合の報告（この追加指示の分の TODO リスト）',
+  '',
+  'この追加指示の作業を始めるときは、必ず最初に、この追加指示の分の TODO リスト（TodoWrite などの TODO のツール）を新しく作り、もう一度レビューに出せるところまでの作業を並べてください（前の TODO が終わったまま残っていても使わず、作り直してください）。進めるたびに TODO の状態（作業中・完了）を更新してください。小さな作業でも作ってください。',
+  '',
+  'TODO のツールがないときだけ、代わりに作業の区切りごとに、もう一度レビューに出せるところまでのうち今どのくらい進んだかを、返事の中に `[[PROGRESS:数字]]`（0〜100 の整数。前の作業の分は数えず、この追加指示を受けた時点を 0 にする。例: `[[PROGRESS:40]]`）と1行で書いてください（ユーザーには表示されません）。',
+].join('\n');
+function withProgressFollowNote(prompt, requireTodos) {
+  return `${prompt}\n\n---\n\n${requireTodos ? PROGRESS_TODO_FOLLOW_NOTE : PROGRESS_FOLLOW_NOTE}`;
 }
 
 function withSpecCheck(prompt) {
@@ -664,7 +681,8 @@ function buildRelayFirstPrompt(c, prompt) {
 }
 
 // 2つ目以降の工程の指示（元の指示・これまでの工程の報告・担当の説明）
-function buildRelayStepPrompt(c, i) {
+// opts.requireTodos: プロジェクトの設定「必ず TODO リストを作ってもらう」
+function buildRelayStepPrompt(c, i, opts) {
   const st = c.relay.steps[i];
   const persona = providers.personaNote(st.persona);
   const lines = [relayHeader(c, i), '', ...(persona ? [persona, ''] : []), '## タスクの指示', truncate(c.prompt, 6000), ''];
@@ -692,7 +710,7 @@ function buildRelayStepPrompt(c, i) {
   );
   const note = relayJudgeNote(c, i);
   if (note) lines.push(note);
-  return withProgressNote(lines.join('\n'));
+  return withProgressNote(lines.join('\n'), !!(opts && opts.requireTodos));
 }
 
 // 競争: 候補を比べてもらう会話の最初の指示
@@ -1528,6 +1546,11 @@ class AgentManager extends EventEmitter {
     return card;
   }
 
+  // プロジェクトの設定「エージェントに必ず TODO リストを作ってもらう」（既定は OFF）
+  requireTodos(c) {
+    return !!c && this.store.repoSettings(c.repoPath).requireTodos === true;
+  }
+
   // 最初の指示（スキル・Pipelineの担当の説明を付けたもの）
   firstPrompt(c) {
     // 仕様の確認中は、開発を始める前に内容が足りているかを判断してもらう指示を付ける
@@ -1537,7 +1560,7 @@ class AgentManager extends EventEmitter {
     // 提案は、開発を始める前の相談（仕様の確認）の一部として頼む
     else if (inSpecCheck(c) && this.canHaveSubtasks(c) && !c.subtasks) body = Subtasks.withProposeNote(body);
     if (c.readOnly) body = withReadOnlyNote(body);
-    if (!isChat(c)) body = withProgressNote(body);
+    if (!isChat(c)) body = withProgressNote(body, this.requireTodos(c));
     const p = promptWithSkill(agentOf(c), c.skill, providers.withPersona(c.persona, inSpecCheck(c) ? withSpecCheck(body) : body));
     return c.relay && !isChat(c) ? buildRelayFirstPrompt(c, p) : p;
   }
@@ -1619,7 +1642,8 @@ class AgentManager extends EventEmitter {
     delete c.progressReport;
     const n = relayRunNo(c, r.index);
     this.log(c, 'system', n > 1 ? tr('Pipeline: 工程 {i}/{total}「{label}」（{n}回目）を {who} に引き継ぎます', { i: r.index + 1, total: r.steps.length, label: st.label, n, who: whoLabel(st.agent, st.persona) }) : tr('Pipeline: 工程 {i}/{total}「{label}」を {who} に引き継ぎます', { i: r.index + 1, total: r.steps.length, label: st.label, who: whoLabel(st.agent, st.persona) }));
-    this.enqueue(c, c.readOnly ? withReadOnlyNote(buildRelayStepPrompt(c, r.index)) : buildRelayStepPrompt(c, r.index));
+    const stepPrompt = buildRelayStepPrompt(c, r.index, { requireTodos: this.requireTodos(c) });
+    this.enqueue(c, c.readOnly ? withReadOnlyNote(stepPrompt) : stepPrompt);
   }
 
   /**
@@ -1648,7 +1672,7 @@ class AgentManager extends EventEmitter {
     this.changed(c);
     for (const k of kids) {
       this.log(k, 'system',tr('Pipeline: 「{title}」の並列「{label}」の枝 {v} です。ブランチ {branch} から分けた worktree で動かします', { title: c.title, label: node.label, v: k.relay.branchOf.index + 1, branch: c.branch }));
-      this.enqueue(k, buildRelayStepPrompt(k, k.relay.index));
+      this.enqueue(k, buildRelayStepPrompt(k, k.relay.index, { requireTodos: this.requireTodos(k) }));
     }
   }
 
@@ -1664,7 +1688,7 @@ class AgentManager extends EventEmitter {
     const v = next.relay.branchOf.index + 1;
     this.log(next, 'system', tr('Pipeline: 「{title}」の並列「{label}」の枝 {v} です。git で管理していないので、このフォルダでそのまま動かします（前の枝の変更も残っています）', { title: p.title, label: FlowModel.labelOf(FlowModel.nodeOf(p.relay.flow, w.node)), v }));
     this.log(p, 'system', tr('Pipeline: 並列の枝「{label}」を始めます', { label: next.relay.branchOf.label }));
-    const prompt = buildRelayStepPrompt(next, next.relay.index);
+    const prompt = buildRelayStepPrompt(next, next.relay.index, { requireTodos: this.requireTodos(next) });
     this.enqueue(next, next.readOnly ? withReadOnlyNote(prompt) : prompt);
     return true;
   }
@@ -3783,7 +3807,7 @@ class AgentManager extends EventEmitter {
     // 言語の指示・追加指示の分の進み具合の報告のルールはエージェントにだけ渡し、ログ（lastPromptSent）やチェックポイントには残さない
     const progressFollow = !!c.progressFollow && !chat && !afterDone && !!chromeCmd.prompt;
     delete c.progressFollow;
-    const spoken = withReplyLanguage(progressFollow ? withProgressFollowNote(chromeCmd.prompt) : chromeCmd.prompt);
+    const spoken = withReplyLanguage(progressFollow ? withProgressFollowNote(chromeCmd.prompt, this.requireTodos(c)) : chromeCmd.prompt);
     let args;
     let rpcKind = null;
     let rpcVariant = null; // ACP の起動のしかた（providers.js の ACP_LAUNCH の何番目か）
@@ -5843,4 +5867,4 @@ class AgentManager extends EventEmitter {
   }
 }
 
-module.exports = { READ_ONLY_DISALLOWED_TOOLS, withReadOnlyNote, withProgressNote, PROGRESS_NOTE, withProgressFollowNote, PROGRESS_FOLLOW_NOTE, relayStepsOf, whoLabel, AgentManager, isNoGit, toolResultText, toolResultImages, agentOf, promptWithSkill, buildRelayStepPrompt, buildComparePrompt, PERMISSION_TOOL, endsWithQuestion, SPEC_MARKER, withSpecCheck, stripSpecMarker, extractSpecQuestions, parseMarkdownQuestions, isOtherOption, withReplyLanguage, takeChromeCommand, isQuitInterrupt, SKILL_SUGGEST_PROMPT, SKILL_SUGGEST_REPEAT_NOTE, buildSkillSuggestPrompt, buildAfterDonePrompt, isChat, isSessionId, quoteForCmd, cleanBranchName, buildBranchNamePrompt, cleanModel, modelOf };
+module.exports = { READ_ONLY_DISALLOWED_TOOLS, withReadOnlyNote, withProgressNote, PROGRESS_NOTE, withProgressFollowNote, PROGRESS_FOLLOW_NOTE, PROGRESS_TODO_NOTE, PROGRESS_TODO_FOLLOW_NOTE, relayStepsOf, whoLabel, AgentManager, isNoGit, toolResultText, toolResultImages, agentOf, promptWithSkill, buildRelayStepPrompt, buildComparePrompt, PERMISSION_TOOL, endsWithQuestion, SPEC_MARKER, withSpecCheck, stripSpecMarker, extractSpecQuestions, parseMarkdownQuestions, isOtherOption, withReplyLanguage, takeChromeCommand, isQuitInterrupt, SKILL_SUGGEST_PROMPT, SKILL_SUGGEST_REPEAT_NOTE, buildSkillSuggestPrompt, buildAfterDonePrompt, isChat, isSessionId, quoteForCmd, cleanBranchName, buildBranchNamePrompt, cleanModel, modelOf };

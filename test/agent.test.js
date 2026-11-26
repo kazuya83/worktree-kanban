@@ -915,6 +915,17 @@ test('進み具合の報告: 指示にルールを足し、返事の [[PROGRESS:
   assert.ok(!c.logs.some((l) => l.kind === 'user' && String(l.text).includes('進み具合の報告')));
 });
 
+test('プロジェクトの設定「必ず TODO リストを作ってもらう」: 既定はオフで、オンなら最初の指示に TODO を必ず作るルールを付ける', () => {
+  const { store, agents } = setup();
+  const c = agents.createCard({ title: 'todo-rule', prompt: '直して', skipSpecCheck: true });
+  assert.notStrictEqual(store.repoSettings(c.repoPath).requireTodos, true, '既定はオフ');
+  assert.ok(agents.firstPrompt(c).includes('## 進み具合の報告\n'));
+  assert.ok(!agents.firstPrompt(c).includes('必ず最初に TODO リスト'));
+  store.settings.requireTodos = true;
+  assert.strictEqual(agents.requireTodos(c), true);
+  assert.ok(agents.firstPrompt(c).includes('必ず最初に TODO リスト'));
+});
+
 test('仕様の確認: 内容が詰まっていなければ開発を始めずに質問し、答えると仕様が詰まって開発を始める', async () => {
   const { store, agents } = setup();
   const server = new PermissionServer((p, s) => agents.requestPermission(p, s));

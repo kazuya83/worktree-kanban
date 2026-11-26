@@ -983,6 +983,18 @@
     "fr": "Quand vous ouvrez « + Nouvelle tâche » (langage naturel ou Issue), ce skill est déjà choisi (vous pouvez l’enlever ou le changer sur place).",
     "zh": "打开「＋ 新建任务」（自然语言或 Issue）时，会预先选中这个技能（当场可以去掉或更换）。"
   },
+  "エージェントに、作業を始めるときに必ず TODO リストを作ってもらう": {
+    "en": "Have the agent always make a TODO list when it starts working",
+    "es": "Pedir al agente que siempre cree una lista de TODO al empezar a trabajar",
+    "fr": "Demander à l’agent de toujours créer une liste de TODO en commençant le travail",
+    "zh": "让智能体在开始工作时必须先创建 TODO 列表"
+  },
+  "オンにすると、小さな作業や追加指示でも TODO リストを作ってもらい、カードと進捗タブの「レビュー待ちまでの見込み」を TODO の完了数から出します。TODO を作る分だけ、少し時間とトークンが増えます。オフのときは、TODO を作るかはエージェントに任せます（作らないときは、エージェントが報告する進み具合から見込みを出します）。TODO のツールがないエージェントは、オンでも進み具合の報告になります。": {
+    "en": "When on, the agent makes a TODO list even for small work and follow-up instructions, and the “time until review” estimate on the card and in the Progress tab comes from how many TODOs are done. Making TODOs takes a little more time and tokens. When off, the agent decides whether to make TODOs (without them, the estimate comes from the progress the agent reports). Agents without a TODO tool report progress instead, even when this is on.",
+    "es": "Si está activado, el agente crea una lista de TODO incluso para trabajos pequeños e instrucciones adicionales, y la estimación «hasta la revisión» de la tarjeta y de la pestaña Progreso sale de los TODO terminados. Crear TODO cuesta un poco más de tiempo y tokens. Si está desactivado, el agente decide si crea TODO (sin ellos, la estimación sale del avance que informa el agente). Los agentes sin herramienta de TODO informan el avance aunque esté activado.",
+    "fr": "Activé, l’agent crée une liste de TODO même pour un petit travail ou une instruction supplémentaire, et l’estimation « avant la revue » de la carte et de l’onglet Progression vient des TODO terminés. Créer des TODO prend un peu plus de temps et de tokens. Désactivé, l’agent décide s’il crée des TODO (sans eux, l’estimation vient de l’avancement qu’il indique). Les agents sans outil de TODO indiquent leur avancement, même activé.",
+    "zh": "开启后，即使是小的工作或追加指令，也会让智能体创建 TODO 列表，卡片和“进度”标签页中的“距离等待审查的预估”会根据 TODO 的完成数计算。创建 TODO 会稍微多花一些时间和 token。关闭时，是否创建 TODO 由智能体决定（不创建时，根据智能体报告的进度来预估）。没有 TODO 工具的智能体即使开启也会改为报告进度。"
+  },
   "新しいタスクの内容が詰まっていなければ、開発を始める前にエージェントと対話して仕様を詰める": {
     "en": "If a new task is not specific enough, talk with the agent to pin down the spec before development starts",
     "es": "Si una tarea nueva no está bastante definida, dialogar con el agente para concretar la especificación antes de empezar a desarrollar",
