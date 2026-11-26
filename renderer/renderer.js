@@ -632,7 +632,9 @@ function spriteMood(c) {
 }
 function spriteInfo(c) {
   const { mood, tool } = spriteMood(c);
-  const progress = AgentSprite.progressOf(c.todos && c.todos.items);
+  // 追加指示で続けているときは、前の実行の終わった TODO でバーを埋めない（今回の進み具合を出す）
+  const staleTodos = (c.status === 'running' || c.status === 'queued') && typeof ProgressEta !== 'undefined' && ProgressEta.staleTodos(c);
+  const progress = AgentSprite.progressOf(c.todos && !staleTodos ? c.todos.items : null);
   // TODO がないときは、エージェントが報告した進み具合でバーを埋める
   const est = !progress.total && typeof ProgressEta !== 'undefined' ? ProgressEta.cardPct(c) : null;
   if (est) progress.reported = est.pct;
@@ -5337,6 +5339,8 @@ function renderSettingsView() {
       <small class="muted s-note">${I18n.forHost(tr('切っていても、カードの「直してもらう」から頼めます。取り込むのは、解決していない行コメント・レビューの本文・会話欄のコメント（bot のものも含む）です。'), s.codeHost)}</small>
       <label class="check"><input type="checkbox" id="sSpecCheck" ${s.specCheck !== false ? 'checked' : ''} /> ${tr('新しいタスクの内容が詰まっていなければ、開発を始める前にエージェントと対話して仕様を詰める')}</label>
       <small class="muted s-note">${tr('仕様を詰めるときに、分けたほうがよい大きなタスクなら、エージェントがサブタスクに分けることを提案します（「サブタスクでやる」と答えたら分けます）。開始前のタスクには、進捗タブから手動でサブタスクを足せます（足したあとは「サブタスク」タブで見られます）。')}</small>
+      <label class="check"><input type="checkbox" id="sRequireTodos" ${s.requireTodos === true ? 'checked' : ''} /> ${tr('エージェントに、作業を始めるときに必ず TODO リストを作ってもらう')}</label>
+      <small class="muted s-note">${tr('オンにすると、小さな作業や追加指示でも TODO リストを作ってもらい、カードと進捗タブの「レビュー待ちまでの見込み」を TODO の完了数から出します。TODO を作る分だけ、少し時間とトークンが増えます。オフのときは、TODO を作るかはエージェントに任せます（作らないときは、エージェントが報告する進み具合から見込みを出します）。TODO のツールがないエージェントは、オンでも進み具合の報告になります。')}</small>
       <label class="field">${tr('<span>サブタスクが終わったら（既定。タスクごとに開始前に変えられます）</span>')}<select id="sSubtaskMerge"><option value="auto"${s.subtaskMerge !== 'review' ? ' selected' : ''}>${tr('自動で親のブランチにマージする')}</option><option value="review"${s.subtaskMerge === 'review' ? ' selected' : ''}>${tr('確かめてからマージする')}</option></select></label>`,
     columns: `<div id="sColumnsBox" class="bc-box"></div>`,
     share: `<small class="muted s-note">${tr('このプロジェクトの設定（スクリプト・ポート・ブランチ・Pipeline・カスタムエージェントなど）を、リポジトリの <code>.worktree-kanban/settings.json</code> に書いてコミットすると、チームのほかの人の PC でも同じ設定になります。ファイルにある項目はファイルの値を使い、この PC で変えた項目だけは、この PC の値（上書き）を使います。')}</small>
@@ -5992,6 +5996,8 @@ ${tr('読めなかったファイル: {v1}', { v1: (parsed.skipped.join(tr('、'
         suggestSkillsOnDone: $('sSuggestSkills').checked,
         deleteSessionsOnMerge: $('sDeleteSessions').checked,
         specCheck: $('sSpecCheck').checked,
+        // 変えたときだけ送る（古い版のホストは知らない設定を受け取らない）
+        ...($('sRequireTodos').checked !== (s.requireTodos === true) ? { requireTodos: $('sRequireTodos').checked } : {}),
         ciAutoFix: $('sCiAutoFix').checked,
         reviewAutoFix: $('sReviewAutoFix').checked,
         subtaskMerge: $('sSubtaskMerge').value,
@@ -6027,6 +6033,7 @@ function sharedKeyLabel(k) {
     allowedTools: tr('許可しておくツール'),
     defaultSkill: tr('最初から選んでおくスキル'),
     specCheck: tr('仕様の確認'),
+    requireTodos: tr('TODO リストを必ず作る'),
     ciAutoFix: tr('CI の失敗の自動修正'),
     reviewAutoFix: tr('レビューコメントの自動修正'),
     subtaskMerge: tr('サブタスクのマージ'),
@@ -6073,6 +6080,7 @@ const SHARED_FIELD_IDS = {
   allowedTools: 'sAllowed',
   defaultSkill: 'sSkill',
   specCheck: 'sSpecCheck',
+  requireTodos: 'sRequireTodos',
   ciAutoFix: 'sCiAutoFix',
   reviewAutoFix: 'sReviewAutoFix',
   subtaskMerge: 'sSubtaskMerge',

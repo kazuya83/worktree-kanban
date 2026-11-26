@@ -905,6 +905,25 @@ test('進み具合の報告: 指示にルールを足し、返事の [[PROGRESS:
   assert.ok(!c.logs.some((l) => l.kind !== 'user' && /(?<!`)\[\[PROGRESS:\d+\]\](?!`)/.test(String(l.text))), '印はログに出さない');
   assert.ok(!c.logs.some((l) => l.kind === 'user' && String(l.text).includes('進み具合の報告')), 'ルールはユーザーの指示のログには出さない');
   assert.ok(!String(c.lastMessage).includes('[[PROGRESS:'));
+  // レビュー待ちのあとの追加指示にも、その分の進み具合を報告するルールを足す（ユーザーの指示のログには出さない）
+  const firstAt = c.progressReport.at;
+  agents.send(c.id, '[progress] もう少し直して');
+  assert.strictEqual(c.progressReport, undefined, '前の実行の進み具合は消す');
+  await waitFor(() => c.status === 'review' && c.logs.filter((l) => l.kind === 'user').length === 2);
+  assert.strictEqual(c.progressReport.pct, 40);
+  assert.ok(c.progressReport.at >= firstAt);
+  assert.ok(!c.logs.some((l) => l.kind === 'user' && String(l.text).includes('進み具合の報告')));
+});
+
+test('プロジェクトの設定「必ず TODO リストを作ってもらう」: 既定はオフで、オンなら最初の指示に TODO を必ず作るルールを付ける', () => {
+  const { store, agents } = setup();
+  const c = agents.createCard({ title: 'todo-rule', prompt: '直して', skipSpecCheck: true });
+  assert.notStrictEqual(store.repoSettings(c.repoPath).requireTodos, true, '既定はオフ');
+  assert.ok(agents.firstPrompt(c).includes('## 進み具合の報告\n'));
+  assert.ok(!agents.firstPrompt(c).includes('必ず最初に TODO リスト'));
+  store.settings.requireTodos = true;
+  assert.strictEqual(agents.requireTodos(c), true);
+  assert.ok(agents.firstPrompt(c).includes('必ず最初に TODO リスト'));
 });
 
 test('仕様の確認: 内容が詰まっていなければ開発を始めずに質問し、答えると仕様が詰まって開発を始める', async () => {

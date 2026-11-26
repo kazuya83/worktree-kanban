@@ -38,15 +38,24 @@
     return clampPct(((done + half) / live.length) * 100);
   }
 
+  // 前の実行の TODO が、すべて終わったまま残っているか（レビュー待ちのあとに追加指示で続けたなど）
+  // そのまま使うと、追加指示の作業を始めたばかりなのに 100%（まもなくレビュー待ち）になってしまう
+  // 今回の実行を始めた時刻（追加指示を送って順番を待っているあいだは、送った時刻）
+  const runStart = (c) => Math.max(Number(c.startedAt) || 0, Number(c.queuedAt) || 0) || null;
+  function staleTodos(c) {
+    const todos = c && c.todos && Array.isArray(c.todos.items) ? c.todos : null;
+    const start = todos ? runStart(c) : null;
+    return !!todos && todoPct(todos.items) === 100 && !!start && !!todos.at && todos.at < start;
+  }
+
   // カード1枚の進み具合 { pct, source: 'todo' | 'report' }。分からなければ null
-  // 前の実行の TODO がすべて終わったまま残っているとき（追加指示で続けたなど）は、報告があればそちらを使う
+  // 前の実行の終わった TODO は、今回の実行の進み具合として使わない（今回の報告か、新しい TODO を待つ）
   function cardPct(c) {
     if (!c) return null;
     const todos = c.todos && Array.isArray(c.todos.items) ? c.todos : null;
-    const t = todos ? todoPct(todos.items) : null;
+    const t = todos && !staleTodos(c) ? todoPct(todos.items) : null;
     const rep = c.progressReport && Number.isFinite(Number(c.progressReport.pct)) ? c.progressReport : null;
-    const stale = t === 100 && c.startedAt && todos.at && todos.at < c.startedAt;
-    if (t != null && !(stale && rep)) return { pct: t, source: 'todo' };
+    if (t != null) return { pct: t, source: 'todo' };
     if (rep) return { pct: clampPct(rep.pct), source: 'report' };
     return null;
   }
@@ -65,6 +74,8 @@
 
   // 1つのエージェントが作業しているタスク: { pct, source, since, remainingMs }
   function single(c, now) {
+    // 追加指示を送って順番を待っているあいだは、まだ始めていない（前の実行の時刻・報告で見積もらない）
+    if (c.status === 'queued' && c.queuedAt && !(c.startedAt > c.queuedAt)) return null;
     const p = cardPct(c);
     if (!p) return null;
     const since = c.startedAt || null;
@@ -142,5 +153,5 @@
     return s ? { overall: s, current: null } : null;
   }
 
-  return { PROGRESS_RE, MIN_ELAPSED_MS, MIN_PCT, extractProgress, todoPct, cardPct, remainingMs, estimate };
+  return { PROGRESS_RE, MIN_ELAPSED_MS, MIN_PCT, extractProgress, todoPct, staleTodos, cardPct, remainingMs, estimate };
 });

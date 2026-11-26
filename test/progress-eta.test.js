@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const E = require('../renderer/progress-eta');
-const { withProgressNote, PROGRESS_NOTE } = require('../src/agent');
+const { withProgressNote, PROGRESS_NOTE, withProgressFollowNote, PROGRESS_FOLLOW_NOTE, PROGRESS_TODO_NOTE, PROGRESS_TODO_FOLLOW_NOTE } = require('../src/agent');
 
 const MIN = 60 * 1000;
 
@@ -28,6 +28,29 @@ test('TODO があれば完了数（作業中は半分）、なければエージ
   const old = { items: [{ status: 'completed' }], at: 1 };
   assert.deepStrictEqual(E.cardPct({ todos: old, progressReport: { pct: 10 }, startedAt: 5 }), { pct: 10, source: 'report' });
   assert.strictEqual(E.cardPct({}), null);
+});
+
+test('レビュー待ちのあとの追加指示: 前の実行の終わった TODO は使わず、今回の報告・新しい TODO から見積もる', () => {
+  const now = 100 * MIN;
+  const old = { items: [{ status: 'completed' }, { status: 'completed' }], at: now - 30 * MIN };
+  // 追加指示で動き出したばかり（まだ報告がない）: 100%・まもなく ではなく、見積もれない
+  const c = { status: 'running', startedAt: now - 5 * MIN, queuedAt: now - 5 * MIN - 10, todos: old };
+  assert.strictEqual(E.staleTodos(c), true);
+  assert.strictEqual(E.cardPct(c), null);
+  assert.strictEqual(E.estimate(c, () => null, now), null);
+  // 今回の報告が来たら、追加指示を始めた時刻からの残りの時間を出す
+  const e = E.estimate({ ...c, progressReport: { pct: 50 } }, () => null, now);
+  assert.strictEqual(e.overall.pct, 50);
+  assert.strictEqual(e.overall.remainingMs, 5 * MIN);
+  // 追加指示の分の TODO を作り直したら、そちらを使う
+  const fresh = { items: [{ status: 'completed' }, { status: 'pending' }], at: now - MIN };
+  assert.deepStrictEqual(E.cardPct({ ...c, todos: fresh }), { pct: 50, source: 'todo' });
+  // 途中で止まった TODO（終わっていない）は、続きとして使う
+  assert.strictEqual(E.cardPct({ ...c, todos: { items: [{ status: 'completed' }, { status: 'pending' }], at: now - 30 * MIN } }).pct, 50);
+  // 追加指示を送って順番を待っているあいだは、前の実行の値で見積もらない
+  const q = { status: 'queued', startedAt: now - 30 * MIN, queuedAt: now - MIN, todos: old };
+  assert.strictEqual(E.staleTodos(q), true);
+  assert.strictEqual(E.estimate(q, () => null, now), null);
 });
 
 test('残りの時間は、かかった時間と進み具合から割り出す（始めたばかり・ほとんど進んでいないときは出さない）', () => {
@@ -100,6 +123,20 @@ test('エージェントへの指示に進み具合の報告のルールを足�
   assert.ok(withProgressNote('作って').startsWith('作って\n'));
   assert.ok(withProgressNote('作って').endsWith(PROGRESS_NOTE));
   assert.match(PROGRESS_NOTE, /\[\[PROGRESS:数字\]\]/);
+  // 追加指示には、その分（もう一度レビューに出せるところまで）の報告のルールを付ける
+  assert.ok(withProgressFollowNote('続けて').endsWith(PROGRESS_FOLLOW_NOTE));
+  assert.match(PROGRESS_FOLLOW_NOTE, /\[\[PROGRESS:数字\]\]/);
+  assert.match(PROGRESS_FOLLOW_NOTE, /もう一度レビューに出せる/);
+  // 既定（設定がオフ）では、TODO を作るかはエージェントに任せる
+  assert.doesNotMatch(PROGRESS_NOTE, /必ず/);
+  assert.doesNotMatch(PROGRESS_FOLLOW_NOTE, /必ず/);
+  // プロジェクトの設定「必ず TODO リストを作ってもらう」がオンなら、必ず作ってもらう（TODO のツールがないときだけ [[PROGRESS:数字]]）
+  assert.ok(withProgressNote('作って', true).endsWith(PROGRESS_TODO_NOTE));
+  assert.ok(withProgressFollowNote('続けて', true).endsWith(PROGRESS_TODO_FOLLOW_NOTE));
+  assert.match(PROGRESS_TODO_NOTE, /必ず最初に TODO リスト/);
+  assert.match(PROGRESS_TODO_FOLLOW_NOTE, /必ず最初に、この追加指示の分の TODO リスト/);
+  assert.match(PROGRESS_TODO_NOTE, /TODO のツールがないときだけ/);
+  assert.match(PROGRESS_TODO_FOLLOW_NOTE, /\[\[PROGRESS:数字\]\]/);
   const html = fs.readFileSync(path.join(__dirname, '../renderer/index.html'), 'utf8');
   assert.ok(html.indexOf('progress-eta.js') > 0 && html.indexOf('progress-eta.js') < html.indexOf('renderer.js'));
   const pkg = require('../package.json');

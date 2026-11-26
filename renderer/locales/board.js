@@ -332,6 +332,7 @@
   "中断": { en: "Interrupted", es: "Interrumpido", fr: "Interrompu", zh: "已中断" },
   "中身は変わらず、名前だけ変わりました": { en: "Only the name changed; the contents are the same", es: "Solo cambió el nombre; el contenido es el mismo", fr: "Seul le nom a changé ; le contenu est identique", zh: "内容没变，只改了名称" },
   "今の作業は続け、終わったあとに追加指示として送ります": { en: "The current work continues, then this is sent as a follow-up", es: "El trabajo actual sigue y esto se envía después como instrucción añadida", fr: "Le travail en cours continue, puis ceci part comme instruction ajoutée", zh: "当前工作会继续，结束后再作为追加指示发送" },
+  "TODO リストを必ず作る": { en: "Always make a TODO list", es: "Crear siempre una lista de TODO", fr: "Toujours créer une liste de TODO", zh: "必须创建 TODO 列表" },
   "仕様の確認": { en: "Spec check", es: "Revisión de la especificación", fr: "Vérification du cahier", zh: "确认规格" },
   "仕様の質問への答えです。": { en: "Answers to the spec questions.", es: "Respuestas a las preguntas de especificación.", fr: "Réponses aux questions de spécification.", zh: "对规格问题的回答。" },
   "会話「{title}」をボードから削除しますか？\n{v}": { en: "Delete the conversation “{title}” from the board?\n{v}", es: "¿Eliminar del tablero la conversación «{title}»?\n{v}", fr: "Supprimer du tableau la conversation « {title} » ?\n{v}", zh: "要从看板上删除对话「{title}」吗？\n{v}" },
