@@ -2016,7 +2016,9 @@ class AgentManager extends EventEmitter {
       } catch (err) {
         if (!err.conflictFiles) throw err;
         // ほかのサブタスクの変更とぶつかった: 親のエージェントに解消してもらう（解消したら markResolved から続ける）
-        p.conflict = { target: k.branch, files: err.conflictFiles, subtask: k.id, at: Date.now() };
+        // head: このときのサブタスクのブランチの先頭（サブタスクの側で直したかを、あとで見分ける）
+        const head = await git.revParse(p.repoPath, k.branch).catch(() => null);
+        p.conflict = { target: k.branch, files: err.conflictFiles, subtask: k.id, head, at: Date.now() };
         p.conflictResolved = null;
         this.log(p, 'error',tr('サブタスク「{title}」のマージが、ほかのサブタスクの変更とコンフリクトしました（{v}）。{agentShort} に解消してもらいます', { title: item.title, v: err.conflictFiles.join(', '), agentShort: agentShort(agentOf(p)) }));
         this.changed(p);
@@ -2662,6 +2664,9 @@ class AgentManager extends EventEmitter {
       return;
     }
     if (!['review', 'failed', 'done'].includes(c.status)) throw new Error(tr('実行中・待機中は追加指示を送れません'));
+    // サブタスク・合流のマージでコンフリクトしているときの追加指示は、コンフリクトの解消の指示として渡す
+    // （解消できたかを確かめて、できていればサブタスク・Pipelineの続きへ進む）
+    if (c.conflict && (c.conflict.subtask || c.conflict.join) && c.status !== 'done') return this.sendConflictFollow(c, message.trim(), skill, files);
     if (c.relay && c.relay.waiting) throw new Error(c.conflict ? tr('合流でのコンフリクトを、上の「コンフリクト」の欄から解消してください') : tr('Pipelineの並列の枝が終わるのを待っています。直したいときは、枝のタスクに追加指示を送ってください'));
     if (c.subtasks && c.subtasks.phase === 'run') throw new Error(c.conflict ? tr('サブタスクのマージでのコンフリクトを、上の「コンフリクト」の欄から解消してください') : tr('サブタスクが終わるのを待っています。直したいときは、サブタスクに追加指示を送ってください'));
     if (c.subtaskProposal) c.subtaskProposal = null; // 提案に文章で答えた: 提案は閉じて、エージェントに任せる
@@ -4024,7 +4029,16 @@ class AgentManager extends EventEmitter {
       if (c.subtaskOf) {
         const sp = this.subtaskParentOf(c);
         if (sp && (c.status === 'failed' || c.awaitingReply)) this.log(sp, 'system', c.status === 'failed' ? tr('サブタスク「{title}」が止まっています（失敗）。サブタスクを開いて、直すか答えると続きから進みます', { title: c.title }) : tr('サブタスク「{title}」が止まっています（回答待ち）。サブタスクを開いて、直すか答えると続きから進みます', { title: c.title }));
-        this.advanceSubtasks(c.subtaskOf.parent);
+        if (sp && sp.conflict && sp.conflict.subtask === c.id) {
+          // 親へのマージでコンフリクトしていたサブタスク: 直したならマージをやり直す
+          const parentId = sp.id;
+          this.retryAfterSubtaskFix(sp, c)
+            .then((retried) => (retried ? null : this.advanceSubtasks(parentId)))
+            .catch((err) => {
+              const pp = this.store.card(parentId);
+              if (pp) this.log(pp, 'error', tr('サブタスクのマージをやり直せませんでした: {message}', { message: err.message }));
+            });
+        } else this.advanceSubtasks(c.subtaskOf.parent);
       }
       if (c.subtasks && c.subtasks.phase === 'run') this.advanceSubtasks(c.id);
       this.pump();
@@ -5419,6 +5433,36 @@ class AgentManager extends EventEmitter {
     if (!['review', 'failed'].includes(c.status)) throw new Error(tr('実行中は解消を始められません'));
     const wt = c.worktreePath;
     const target = c.conflict.target;
+    const files = await this.beginConflictMerge(c);
+    if (!files) return { resolved: true };
+    c.conflict = { ...c.conflict, files, manual: mode === 'manual', resolving: mode === 'agent', inChild: undefined, unresolved: undefined };
+    if (mode === 'manual') {
+      this.log(c, 'system',tr('自分で解消するモード: {wt} の {v} を直してから「解消した」を押してください', { wt, v: files.join(', ') }));
+      this.changed(c);
+      return { manual: true, path: wt };
+    }
+    const prompt = [
+      `ブランチ \`${c.conflict.pr ? `origin/${target}` : target}\` をこのブランチに取り込もうとしたところ、コンフリクトが起きました（git merge は途中の状態です）。`,
+      '',
+      'コンフリクトしているファイル:',
+      ...files.map((f) => `- ${f}`),
+      '',
+      'それぞれのファイルの <<<<<<< / ======= / >>>>>>> を、両方の変更の意図を保つように解消してください。',
+      `解消したら \`git add\` してから \`git commit --no-edit\` でマージを完了してください。テストがあれば実行して確かめてください。`,
+      '最後に、どう解消したかを短くまとめてください。',
+    ].join('\n');
+    this.log(c, 'user', prompt);
+    this.enqueue(c, prompt);
+    return { agent: true };
+  }
+
+  /**
+   * マージ先のブランチを worktree に取り込み始める（もう取り込みの途中なら、そのまま）。
+   * コンフリクトしているファイルを返す。コンフリクトなしで取り込めたときは、解消済みにして null を返す
+   */
+  async beginConflictMerge(c) {
+    const wt = c.worktreePath;
+    const target = c.conflict.target;
     let files;
     if (await git.mergeInProgress(wt)) {
       files = await git.conflictFiles(wt);
@@ -5441,28 +5485,113 @@ class AgentManager extends EventEmitter {
       if (!files.length) {
         await git.finishMerge(wt);
         this.markResolved(c, tr('コンフリクトなしで取り込めました'));
-        return { resolved: true };
+        return null;
       }
     }
-    c.conflict = { ...c.conflict, files, manual: mode === 'manual', resolving: mode === 'agent', unresolved: undefined };
-    if (mode === 'manual') {
-      this.log(c, 'system',tr('自分で解消するモード: {wt} の {v} を直してから「解消した」を押してください', { wt, v: files.join(', ') }));
-      this.changed(c);
-      return { manual: true, path: wt };
+    return files;
+  }
+
+  /**
+   * サブタスク・合流のマージでコンフリクトしているときに、下の欄から文章で送った指示。
+   * 取り込みの途中の状態にしてから、指示に「コンフリクトの解消」の説明を添えてエージェントに渡す。
+   * 終わったら afterConflictRun で解消できたかを確かめ、できていればサブタスク・Pipelineの続きへ進む
+   */
+  async sendConflictFollow(c, message, skill, files) {
+    if (c.conflict.inChild) throw new Error(tr('サブタスクの側でコンフリクトを解消しています。親のタスクで解消するときは、先に「マージをやり直す」を押してください'));
+    const merging = await this.beginConflictMerge(c);
+    const parsed = attachments.parseAttachments(files);
+    const atts = attachments.saveAttachments(this.attachRoot, c.id, parsed);
+    this.log(c, 'user', message, userLogExtra(cleanSkill(skill), atts, parsed));
+    if (!merging) {
+      this.log(c, 'system', tr('コンフリクトなしで取り込めたので、この指示はエージェントに送りませんでした'));
+      return { resolved: true };
     }
-    const prompt = [
-      `ブランチ \`${c.conflict.pr ? `origin/${target}` : target}\` をこのブランチに取り込もうとしたところ、コンフリクトが起きました（git merge は途中の状態です）。`,
+    c.conflict = { ...c.conflict, files: merging, manual: false, resolving: true, inChild: undefined, unresolved: undefined };
+    const note = [
+      '',
+      '---',
+      `補足: ブランチ \`${c.conflict.target}\` をこのブランチに取り込もうとしたところコンフリクトが起き、git merge は途中の状態です。`,
       '',
       'コンフリクトしているファイル:',
-      ...files.map((f) => `- ${f}`),
+      ...merging.map((f) => `- ${f}`),
       '',
-      'それぞれのファイルの <<<<<<< / ======= / >>>>>>> を、両方の変更の意図を保つように解消してください。',
-      `解消したら \`git add\` してから \`git commit --no-edit\` でマージを完了してください。テストがあれば実行して確かめてください。`,
-      '最後に、どう解消したかを短くまとめてください。',
+      '上の指示に沿って <<<<<<< / ======= / >>>>>>> を解消し、`git add` してから `git commit --no-edit` でマージを完了してください。終わったら、どう解消したかを短くまとめてください。',
     ].join('\n');
-    this.log(c, 'user', prompt);
-    this.enqueue(c, prompt);
+    const body = this.withAttachments(c, `${message}${note}`, atts);
+    this.enqueue(c, promptWithSkill(agentOf(c), cleanSkill(skill), body), atts);
     return { agent: true };
+  }
+
+  // サブタスクのマージでのコンフリクト: そのサブタスクのカード
+  conflictSubtaskOf(p) {
+    if (!p || !p.conflict || !p.conflict.subtask || !p.subtasks) return null;
+    const k = this.store.card(p.conflict.subtask);
+    const item = p.subtasks.items.find((x) => x.cardId === p.conflict.subtask);
+    return k && item ? { k, item } : null;
+  }
+
+  /**
+   * サブタスクのマージでのコンフリクト: 親の取り込みを中止して、そのサブタスクのマージをやり直す
+   * （サブタスクの側で直したあと。またコンフリクトしたら、今までと同じく親のエージェントに解消してもらう）
+   */
+  async retrySubtaskMerge(id) {
+    const p = this.must(id);
+    if (!p.conflict || !p.conflict.subtask) throw new Error(tr('サブタスクのマージでのコンフリクトはありません'));
+    if (p.status === 'running' || p.status === 'queued') throw new Error(tr('実行中はやり直せません'));
+    const sub = this.conflictSubtaskOf(p);
+    if (p.worktreePath && (await git.mergeInProgress(p.worktreePath))) await git.abortMerge(p.worktreePath);
+    p.conflict = null;
+    p.conflictResolved = null;
+    p.error = null;
+    this.log(p, 'system', sub ? tr('サブタスク「{title}」のマージをやり直します', { title: sub.item.title }) : tr('サブタスクのマージをやり直します'));
+    this.changed(p);
+    await this.advanceSubtasks(p.id);
+    return { retried: true };
+  }
+
+  /**
+   * サブタスクのマージでのコンフリクトを、サブタスクの側で解消してもらう:
+   * 親のブランチをサブタスクのブランチに取り込んで直してもらい、終わったら親へのマージをやり直す
+   */
+  async resolveSubtaskConflictInChild(id) {
+    const p = this.must(id);
+    const sub = this.conflictSubtaskOf(p);
+    if (!sub) throw new Error(tr('サブタスクのマージでのコンフリクトはありません'));
+    const { k, item } = sub;
+    if (p.status === 'running' || p.status === 'queued') throw new Error(tr('親のタスクがコンフリクトを解消しているあいだは頼めません'));
+    if (!['review', 'failed'].includes(k.status)) throw new Error(tr('サブタスクが動いているあいだは頼めません'));
+    // 親の取り込みの途中の状態は、サブタスクの側で直したあとにやり直すので、いったん中止しておく
+    if (p.worktreePath && (await git.mergeInProgress(p.worktreePath))) await git.abortMerge(p.worktreePath);
+    const files = p.conflict.files || [];
+    p.conflict = { ...p.conflict, inChild: true, manual: false, resolving: false, unresolved: undefined };
+    this.log(p, 'system', tr('サブタスク「{title}」の側で、コンフリクトを解消してもらいます。終わったら、このブランチへのマージをやり直します', { title: item.title }));
+    this.changed(p);
+    const prompt = [
+      `このサブタスクのブランチを、親のタスクのブランチ \`${p.branch}\` にマージしようとしたところ、ほかのサブタスクの変更とぶつかってコンフリクトしました。`,
+      ...(files.length ? ['', 'ぶつかったファイル:', ...files.map((f) => `- ${f}`)] : []),
+      '',
+      `\`git merge ${p.branch}\` で親のブランチをこのブランチに取り込み、<<<<<<< / ======= / >>>>>>> を両方の変更の意図を保つように解消してから、\`git add\` して \`git commit --no-edit\` でマージを完了してください。テストがあれば実行して確かめてください。`,
+      '最後に、どう解消したかを短くまとめてください。終わると、親のブランチへのマージを自動でやり直します。',
+    ].join('\n');
+    this.send(k.id, prompt);
+    return { child: k.id };
+  }
+
+  // サブタスクの作業が終わったとき: 親へのマージでコンフリクトしていたサブタスクを（文章の指示などで）直したなら、マージをやり直す
+  async retryAfterSubtaskFix(p, k) {
+    if (!p || !p.conflict || p.conflict.subtask !== k.id) return false;
+    if (p.status === 'running' || p.status === 'queued' || p.conflict.resolving) return false;
+    if (!this.subtaskReady(k, { manual: !!(k.subtaskOf && k.subtaskOf.approved) })) return false;
+    const head = await git.revParse(p.repoPath, k.branch).catch(() => null);
+    if (!p.conflict.inChild && head && head === p.conflict.head) return false; // サブタスクのブランチは変わっていない
+    // 親で自分で解消している途中なら、その作業を消さないように、やり直しはボタンに任せる
+    if (!p.conflict.inChild && p.conflict.manual && (await git.mergeInProgress(p.worktreePath))) {
+      this.log(p, 'system', tr('サブタスク「{title}」が更新されました。サブタスクの側で解消したなら、「マージをやり直す」を押してください', { title: k.title }));
+      this.changed(p);
+      return false;
+    }
+    await this.retrySubtaskMerge(p.id);
+    return true;
   }
 
   // 自分で直したあと「解消した」

@@ -447,6 +447,7 @@ function conflictBoxHtml(c) {
   if (c.conflict) {
     const k = c.conflict;
     const files = (k.unresolved && k.unresolved.length ? k.unresolved : k.files) || [];
+    if (k.subtask) return subConflictBoxHtml(c, files, busy, who);
     let actions;
     if (k.resolving && busy) actions = tr('<p class="muted small">{who} がコンフリクトを解消しています…（ログで進み具合を見られます）</p>', { who });
     else if (k.manual)
@@ -471,7 +472,44 @@ function conflictBoxHtml(c) {
   return '';
 }
 
+// サブタスクを親のブランチにマージしたときのコンフリクト（親のカードに出す。サブタスクのカードにも、親を操作するボタンとして出す）
+function subConflictBoxHtml(c, files, busy, who) {
+  const k = c.conflict;
+  const item = (c.subtasks?.items || []).find((x) => x.cardId === k.subtask);
+  const kid = card(k.subtask);
+  const name = esc(item ? item.title : kid ? kid.title : k.target);
+  const kidWho = esc(kid ? whoShort(agentOf(kid), kid.persona) : who);
+  const kidBusy = !!kid && (kid.status === 'running' || kid.status === 'queued');
+  const openSub = kid ? tr('<button class="btn ghost" data-cact="openSub">サブタスクを開く</button>') : '';
+  let actions;
+  if (k.resolving && busy) actions = tr('<p class="muted small">{who} がコンフリクトを解消しています…（ログで進み具合を見られます）。解消できたら、残りのサブタスクへ自動で進みます。</p>', { who });
+  else if (k.inChild)
+    actions = tr('<p class="small">{v}</p>\n      <div class="cf-actions"><button class="btn" data-cact="retry" title="親のブランチへのマージを、今のサブタスクのブランチでもう一度試します">マージをやり直す</button>{openSub}<button class="btn" data-cact="agent">親のタスクの {who} に解消してもらう</button></div>', { v: kidBusy ? tr('サブタスクの {kidWho} が、親のブランチを取り込んでコンフリクトを解消しています…。終わると、親のブランチへのマージを自動でやり直します。', { kidWho }) : tr('サブタスクの側で解消してもらうところです。サブタスクの作業が終わると、親のブランチへのマージを自動でやり直します。止まっているときは、サブタスクを開いて追加の指示を送るか、「マージをやり直す」を押してください。'), openSub, who });
+  else if (k.manual)
+    actions = tr('<p class="small">親のタスクの worktree で、上のファイルの <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> 〜 <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code> を直してください。解消したら、残りのサブタスクへ進みます。</p>\n      <div class="cf-actions"><button class="btn" data-cact="open">フォルダを開く</button><button class="btn primary" data-cact="complete">解消した（取り込みを完了）</button><button class="btn" data-cact="agent">{who} に任せる</button><button class="btn" data-cact="retry" title="取り込みを中止して、マージをもう一度試します">マージをやり直す</button></div>', { who });
+  else
+    actions = tr('<div class="cf-actions"><button class="btn primary" data-cact="agent">親のタスクの {who} に解消してもらう</button><button class="btn" data-cact="child"{dis}>サブタスクの {kidWho} に解消してもらう</button><button class="btn" data-cact="manual">自分で解消する</button><button class="btn" data-cact="retry" title="サブタスクの側で直したあとに、マージをもう一度試します">マージをやり直す</button>{openSub}</div>', { who, kidWho, dis: kid && !kidBusy ? '' : ' disabled', openSub });
+  const hint = k.resolving && busy ? '' : tr('<p class="muted small">親のタスクの下の欄から、文章で解消のしかたを指示することもできます（取り込みの途中の状態にしてから {who} に渡し、解消できたら残りのサブタスクへ自動で進みます）。サブタスクを開いて指示し、サブタスクの側で直したときは、終わると自動でマージをやり直します。</p>', { who });
+  return `<div class="cf-box">
+      <b>${icon('alert')}${tr('サブタスク「{name}」を親のブランチにマージしたところ、コンフリクトしました', { name })}${k.unresolved && k.unresolved.length ? tr('（まだ残っています）') : ''}</b>
+      ${files.length ? `<ul class="cf-files">${files.map((f) => `<li class="mono">${esc(f)}</li>`).join('')}</ul>` : ''}
+      ${actions}
+      ${hint}
+    </div>`;
+}
+// サブタスクのカード: 親へのマージでコンフリクトしているときは、親の「コンフリクト」の欄をここにも出す（ボタンは親のカードを操作する）
+function subtaskConflictHtml(k) {
+  const p = subtaskParent(k);
+  if (!p || !p.conflict || p.conflict.subtask !== k.id) return '';
+  const box = conflictBoxHtml(p);
+  return box ? box.replace(/data-cact="openSub"[^>]*>[^<]*<\/button>/, `data-cact="openParent">${tr('親のタスクを開く')}</button>`).replace(/data-cact="/g, `data-cid="${esc(p.id)}" data-cact="`) : '';
+}
+
 async function conflictAction(c, act) {
+  if (act === 'openSub') return c.conflict && card(c.conflict.subtask) ? select(c.conflict.subtask, { subFrom: c.id }) : undefined;
+  if (act === 'openParent') return select(c.id);
+  if (act === 'retry') return runBusy(tr('マージをやり直しています…'), () => api.retrySubtaskMerge(c.id), tr('マージをやり直しました'));
+  if (act === 'child') return runBusy(tr('サブタスクに解消を頼んでいます…'), () => api.resolveSubtaskConflictInChild(c.id), tr('サブタスクに解消を頼みました。終わると、マージを自動でやり直します'));
   if (act === 'agent') {
     const who = agentShort(agentOf(c));
     return runBusy(tr('{who} に解消を頼んでいます…', { who }), () => api.resolveConflict(c.id, 'agent'), tr('{who} に解消を頼みました', { who }));
@@ -1615,7 +1653,7 @@ function subPhaseText(c) {
   const n = subCounts(c);
   if (st.phase === 'plan') return c.status === 'todo' ? tr('開始すると、順番（直列・並列）を決めてから動かします。サブタスクだけ開始することもできます') : tr('順番（直列・並列）を決めています');
   if (st.phase === 'done') return c.status === 'running' || c.status === 'queued' ? tr('すべて完了しました。全体の仕上げをしています') : tr('すべて完了しました');
-  if (c.conflict && c.conflict.subtask) return tr('サブタスクのマージのコンフリクトを解消しています');
+  if (c.conflict && c.conflict.subtask) return c.conflict.inChild ? tr('サブタスクの側で、マージのコンフリクトを解消しています') : c.conflict.resolving ? tr('サブタスクのマージのコンフリクトを解消しています') : tr('サブタスクのマージでコンフリクトしています。チャットの「コンフリクト」の欄から解消してください');
   return st.auto === false
     ? tr('手で進めています ・ 作業中 {running}・あと {pending}', { running: n.running, pending: n.pending })
     : tr('作業中 {running}・あと {pending}', { running: n.running, pending: n.pending });
@@ -1824,6 +1862,7 @@ function subBoardHtml(c) {
       const name = esc(x.title);
       const acts = [];
       if (x.state === 'pending' && startable) acts.push(tr('<button class="btn small" data-sact="startOne" data-key="{key}" type="button" title="ほかのサブタスクは動かさずに、このサブタスクだけを開始します">{v}開始</button>', { key: (esc(x.key)), v: (icon('play')) }));
+      if (s === 'conflict') acts.push(tr('<button class="btn small primary" data-sact="openSub" data-key="{key}" type="button" title="親のブランチへのマージでコンフリクトしています。開いて解消のしかたを選びます">{v}コンフリクトを解消</button>', { key: (esc(x.key)), v: (icon('alert')) }));
       if (k && subtaskNeedsCheck(k)) acts.push(tr('<button class="btn small primary" data-sact="approve" data-sid="{id}" type="button" title="差分を確かめたら、親のタスクのブランチに取り込みます">{v}取り込む</button>', { id: (esc(k.id)), v: (icon('merge')) }));
       const msg = k && k.lastMessage ? `<div class="rf-info">${esc(plainText(k.lastMessage))}</div>` : '';
       const rkey = `${c.id}:sub:${x.key}`;
@@ -1938,7 +1977,7 @@ function subKidsSig(c) {
   if (c.subtaskOf) {
     const p = subtaskParent(c);
     const item = subItemOf(c);
-    return p ? [p.id, p.subtasks.merge, p.branch, c.subtaskOf.approved, !!(item && item.manual)] : null;
+    return p ? [p.id, p.subtasks.merge, p.branch, c.subtaskOf.approved, !!(item && item.manual), p.conflict && p.conflict.subtask === c.id ? [p.conflict, p.status] : null] : null;
   }
   return subKids(c).map((k) => [k.id, k.status, k.awaitingReply, k.specState, !!k.conflict, (k.permissions || []).length, (k.questions || []).length, k.lastMessage, k.costUsd]);
 }
@@ -1946,6 +1985,10 @@ function subKidsSig(c) {
 async function subtaskAction(c, el) {
   const act = el.dataset.sact;
   if (act === 'openTab') return openSubtasksTab();
+  if (act === 'openSub') {
+    const x = (c.subtasks?.items || []).find((y) => y.key === el.dataset.key);
+    return x ? openSubtaskDetail(c, x) : undefined;
+  }
   if (act === 'add') {
     const rows = el.closest('.sub-editor').querySelector('.sub-rows');
     rows.insertAdjacentHTML('beforeend', subRowHtml({ key: '', title: '', prompt: '', after: [] }));
@@ -2527,7 +2570,7 @@ async function detailAction(e) {
   }
   const ca = e.target.closest('[data-cact]');
   if (ca) {
-    const c = card(state.selected);
+    const c = card(ca.dataset.cid || state.selected); // サブタスクのカードに出した親のコンフリクトは、親のカードを操作する
     if (c) conflictAction(c, ca.dataset.cact);
     return;
   }
@@ -2711,6 +2754,7 @@ function chatActionsHtml(c) {
   const parts = [
     isInterrupted(c) ? interruptedBoxHtml(c) : c.error ? `<div class="d-error">${esc(c.error)}</div>` : '',
     conflictBoxHtml(c),
+    subtaskConflictHtml(c),
     subtaskApproveHtml(c),
     subtaskChatBoxHtml(c),
     questionFormHtml(c),
@@ -2822,7 +2866,7 @@ function chatPending(c) {
   return !!(c && ((c.questions || []).length || isSpecPending(c) || hasSubtaskProposal(c) || (c.awaitingReply && (c.status === 'review' || c.status === 'failed'))));
 }
 function hasChatActions(c) {
-  return !!(c && (chatPending(c) || isInterrupted(c) || conflictBoxHtml(c) || subtaskNeedsCheck(c)));
+  return !!(c && (chatPending(c) || isInterrupted(c) || conflictBoxHtml(c) || subtaskConflictHtml(c) || subtaskNeedsCheck(c)));
 }
 // 中身が変わったときだけ描き直す（選びかけのラジオや入力中の文字を消さない）
 function drawLogActions(c, force) {

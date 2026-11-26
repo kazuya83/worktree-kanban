@@ -131,6 +131,8 @@ contextBridge.exposeInMainWorld('api', {
   abortConflict: (id) => call('conflict:abort', id),
   dismissConflict: (id) => call('conflict:dismiss', id),
   reopenPrConflict: (id) => call('conflict:fromPr', id),
+  retrySubtaskMerge: (id) => call('conflict:retrySubtask', id),
+  resolveSubtaskConflictInChild: (id) => call('conflict:inSubtask', id),
   fixCi: (id) => call('ci:fix', id),
   fixReviewComments: (id) => call('review:fix', id),
   answerPermission: (id, reqId, decision, message) => call('card:permission', { id, reqId, decision, message }),

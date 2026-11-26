@@ -32,6 +32,7 @@ Each release that changes the app raises the last number of the version. There i
 
 ### Fixed
 
+- Subtask merge conflicts: when the parent agent could not resolve a conflict from merging a subtask, there was no way forward. The subtask now shows "Resolve conflict" in the Subtasks tab, and the "Conflict" area appears in both the parent task's and the subtask's Chat tab, with "Have the subtask resolve it" and "Retry the merge" in addition to the usual choices. Instructions written in the parent task's message box are now passed to the agent as conflict resolution (they used to be refused), and when a subtask is fixed by instructions sent to it, the merge into the parent branch is retried automatically. Once resolved, the subtask's merge is finished and the remaining subtasks continue.
 - Claude Code: an instruction starting with `/chrome` no longer ends with "/chrome isn't available in this environment.". The app removes `/chrome` and starts Claude Code with `--chrome` (Claude in Chrome), and keeps it on for later runs of the same task. Skills (`/skill-name`) now also work when the app language is not Japanese.
 
 ## 0.1.96
