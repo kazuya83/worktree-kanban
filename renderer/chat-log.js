@@ -11,6 +11,31 @@
   const RESULT_KINDS = new Set(['tool_result', 'tool_error']);
   const ARR = (x) => (Array.isArray(x) ? x : []);
 
+  // チャットの「!」で動かしたコマンド: 始まり（shell）・出力（shell_out）・終わり（shell_end）を1つの項目（type: 'shell'）にまとめる。
+  // コマンドのログでなければ null
+  function pushShell(items, entry) {
+    const k = entry.kind;
+    if (k === 'shell') {
+      const item = { type: 'shell', entry, output: '', end: null };
+      items.push(item);
+      return { op: 'append', item };
+    }
+    if (k !== 'shell_out' && k !== 'shell_end') return null;
+    const last = items[items.length - 1];
+    const add = (it) => {
+      if (k === 'shell_out') it.output += String(entry.text || '');
+      else it.end = entry;
+    };
+    if (last && last.type === 'shell' && !last.end) {
+      add(last);
+      return { op: 'replace', item: last };
+    }
+    const item = { type: 'shell', entry: null, output: '', end: null };
+    add(item);
+    items.push(item);
+    return { op: 'append', item };
+  }
+
   // エージェント側（左側）の発言として続けて並べるもの
   const isAgentSide = (it) => !!it && (it.type === 'assistant' || it.type === 'tool');
 
@@ -19,6 +44,8 @@
    * @returns {{ op: 'append' | 'replace', item: object }} append: 末尾に足す / replace: 末尾の項目を描き直す
    */
   function push(items, entry, defaultAgent) {
+    const sh = pushShell(items, entry);
+    if (sh) return sh;
     const last = items[items.length - 1];
     // 末尾から続いているエージェント側のまとまりで、最後に分かっているエージェント
     const runAgent = isAgentSide(last) ? lastAgentOf(items) : null;
@@ -70,6 +97,7 @@
   // 最後に撮ったもの（＝最終的にこうなった、という画像）を、そのまとまりの最後に type: 'shots' として出す。
   // それより前の画像は earlier に入れる（画面では折りたたんで見せる）。
   const CHAT_STOPS = new Set(['user', 'question', 'error']);
+  const SHELL_KINDS = new Set(['shell', 'shell_out', 'shell_end']);
   const hasData = (im) => !!im && typeof im.data === 'string' && !!im.data;
   function final(logs, defaultAgent) {
     const items = [];
@@ -93,6 +121,12 @@
       } else if (RESULT_KINDS.has(e.kind)) {
         const ims = Array.isArray(e.images) ? e.images.filter(hasData) : [];
         if (ims.length) shots.push(ims);
+      } else if (SHELL_KINDS.has(e.kind)) {
+        if (e.kind === 'shell') {
+          flush();
+          shotAgent = '';
+        }
+        pushShell(items, e);
       } else if (CHAT_STOPS.has(e.kind)) {
         flush();
         shotAgent = '';

@@ -764,6 +764,37 @@ function cleanBranchName(text) {
 }
 
 // 「あなたの指示」のログに付けるもの（スキル・添付ファイル）
+// チャットの「!」で動かすコマンド（Claude Code のターミナルの「!」と同じ。エージェントには送らず、その場で動かす）
+const SHELL_TIMEOUT_MS = 10 * 60 * 1000; // ブラウザでのログイン（aws login など）を待てるくらい
+const SHELL_FLUSH_MS = 500; // 出力をまとめてログに足す間隔
+const SHELL_MAX_CHUNKS = 200; // 1つのコマンドでログに足す出力の数（これより多いときは、最後にまとめて足す）
+const SHELL_MAX_OUTPUT = 100000; // 1つのコマンドでログに残す出力の長さ（文字数）
+const SHELL_NOTE_OUTPUT = 4000; // 次の指示でエージェントに伝える出力の長さ（最後の分）
+const SHELL_MAX_NOTES = 5;
+
+// 「! aws login」のような指示なら、動かすコマンド（「!」だけなら ''）。コマンドでなければ null
+function shellCommandOf(message) {
+  const m = /^[!！]([\s\S]*)$/.exec(String(message || '').trim());
+  return m ? m[1].trim() : null;
+}
+
+// 「!」で動かしたコマンドの結果を、次の指示の頭に付けてエージェントに伝える（Claude Code の「!」と同じに、会話の流れが分かるように）
+function shellNotesText(notes) {
+  const parts = notes.map((n) => {
+    const out = n.output ? `\n\`\`\`\n${n.output}\n\`\`\`` : '\n（出力はありません）';
+    return `$ ${n.command}\n（${n.status}）${out}`;
+  });
+  return `（参考: ユーザーがチャットの「!」で、次のコマンドを自分で実行しました）\n\n${parts.join('\n\n')}\n\n---\n\n`;
+}
+
+function shellStatusText(r) {
+  if (r.error) return `実行できませんでした: ${r.error}`;
+  if (r.timedOut) return '時間がかかりすぎたので止めました';
+  if (r.stopped) return '止めました';
+  if (r.code === null || r.code === undefined) return `シグナル ${r.signal || '?'} で終わりました`;
+  return `終了コード ${r.code}`;
+}
+
 function userLogExtra(skill, atts, parsed) {
   const extra = { ...(skill ? { skill } : {}), ...(attachments.logExtra(atts, parsed) || {}) };
   return Object.keys(extra).length ? extra : undefined;
@@ -821,12 +852,19 @@ class AgentManager extends EventEmitter {
     this.trackers = (opts && opts.trackers) || new trackers.Trackers({ store });
     this.procs = new Map(); // cardId -> child process
     this.scriptRuns = new Map(); // cardId -> 最後に動かしたスクリプト（セットアップ・片付け・実行）
+    this.shellRuns = new Map(); // cardId -> チャットの「!」で動かしているコマンド
     this.pending = new Map(); // permission request id -> { cardId, toolName, input, resolve }
     this.rewinding = new Set(); // 戻しているカード。そのあいだ send / merge / PR / 移動 / 破棄は受け付けない
     this.permission = null; // { port, token }
     // 指示に添付したファイルの置き場所（作業フォルダの外）
     this.attachRoot = (opts && opts.attachDir) || path.join(os.tmpdir(), 'worktree-kanban-attachments');
     for (const c of this.store.cards) migrateRelayCard(c);
+    // 「!」のコマンドの途中でアプリを終えた: 終わったことにする（画面で「実行中」のまま残さない）
+    for (const c of this.store.cards) {
+      if (!c.shellRunning) continue;
+      delete c.shellRunning;
+      this.log(c, 'shell_end', '', { interrupted: true });
+    }
     this.recoverInterrupted();
     // 前回の終了で止まっていたサブタスクの続き（終わっていたサブタスクのマージなど）
     setImmediate(() => {
@@ -2283,6 +2321,8 @@ class AgentManager extends EventEmitter {
     if (!s.repoPath) throw new Error(tr('先にリポジトリを選んでください'));
     const text = String(message || '').trim();
     if (!text) throw new Error(tr('メッセージを入力してください'));
+    const command = shellCommandOf(text);
+    if (command === '') throw new Error(tr('「!」のあとに、実行するコマンドを書いてください'));
     const parsed = attachments.parseAttachments(files);
     const ref = agent || providers.defaultAgentRefOf(s);
     const custom = providers.isCustomRef(ref) ? this.customAgent(ref) : null;
@@ -2310,8 +2350,14 @@ class AgentManager extends EventEmitter {
     card.skill = cleanSkill(skill);
     this.saveCardAttachments(card, parsed);
     // キャラクターは作ったときに決めて残す（開き直しても同じ。前からのタスクには付けない）
+    // 「! コマンド」で始めた会話は、エージェントを動かさずにコマンドだけ動かす（続きの指示から話せる）
+    if (command) card.status = 'review';
     card.character = AgentSprite.randomCharacter();
     this.store.cards.push(card);
+    if (command) {
+      this.runShell(card, command);
+      return card;
+    }
     this.changed(card);
     this.start(card.id);
     return card;
@@ -2588,12 +2634,16 @@ class AgentManager extends EventEmitter {
     const c = this.must(id);
     this.assertNotRewinding(c);
     if (!message || !message.trim()) throw new Error(tr('追加指示を入力してください'));
+    // 「! コマンド」は、エージェントには送らずにその場で動かす（エージェントの実行中でも動かせる）
+    const command = shellCommandOf(message);
+    if (command !== null) return this.runShell(c, command);
+    if (this.shellRuns.has(c.id)) throw new Error(tr('「!」で動かしたコマンドがまだ動いています。終わるのを待つか、止めてから送ってください'));
     // 質問の返事を待って止まっているときは、追加指示を質問への返事として渡す（実行中でも送れる）
     if (this.waitingAnswer(c)) {
       const parsed = attachments.parseAttachments(files);
       const atts = attachments.saveAttachments(this.attachRoot, c.id, parsed);
       this.log(c, 'user', message.trim(), userLogExtra(null, atts, parsed));
-      this.replyToQuestions(c, this.withAttachments(c, message.trim(), atts));
+      this.replyToQuestions(c, this.withAttachments(c, this.takeShellNotes(c) + message.trim(), atts));
       return;
     }
     // ターンを終えて、バックグラウンドの作業（run_in_background のコマンドなど）を待っているあいだは、
@@ -2604,7 +2654,7 @@ class AgentManager extends EventEmitter {
       const parsed = attachments.parseAttachments(files);
       const atts = attachments.saveAttachments(this.attachRoot, c.id, parsed);
       this.log(c, 'user', message.trim(), userLogExtra(skill, atts, parsed));
-      const body = this.withAttachments(c, message.trim(), atts);
+      const body = this.withAttachments(c, this.takeShellNotes(c) + message.trim(), atts);
       clearTimeout(bgRun.idleTimer);
       this.writeMessage(bgRun, promptWithSkill(agentOf(c), skill, body), null, attachments.imageBlocks(atts));
       c.bgWaiting = false;
@@ -2621,7 +2671,8 @@ class AgentManager extends EventEmitter {
     if (c.status === 'done' && !isChat(c)) return this.sendAfterDone(c, message.trim(), skill, atts, parsed);
     this.log(c, 'user', message.trim(), userLogExtra(skill, atts, parsed));
     // 仕様の確認中の答えには、続けて判断してもらうための一言を添える
-    const body = this.withAttachments(c, inSpecCheck(c) ? `${message.trim()}\n\n${SPEC_FOLLOW_NOTE}` : message.trim(), atts);
+    const notes = this.takeShellNotes(c);
+    const body = this.withAttachments(c, notes + (inSpecCheck(c) ? `${message.trim()}\n\n${SPEC_FOLLOW_NOTE}` : message.trim()), atts);
     this.enqueue(c, promptWithSkill(agentOf(c), skill, body), atts);
   }
 
@@ -2705,7 +2756,64 @@ class AgentManager extends EventEmitter {
     c.forkNext = false;
     c.afterDone = true;
     c.afterDoneAt = Date.now();
-    this.enqueue(c, promptWithSkill(agentOf(c), skill, this.withAttachments(c, first ? buildAfterDonePrompt(c, message) : message, atts)), atts);
+    const notes = this.takeShellNotes(c);
+    this.enqueue(c, promptWithSkill(agentOf(c), skill, this.withAttachments(c, notes + (first ? buildAfterDonePrompt(c, message) : message), atts)), atts);
+  }
+
+  /**
+   * チャットの「! コマンド」を、タスクのフォルダ（worktree。まだ無ければリポジトリ）でユーザーのログインシェルを使って動かす。
+   * 出力は少しずつログ（shell_out）に足し、終わったら shell_end を足す。結果は次の指示でエージェントに伝える
+   */
+  runShell(c, command) {
+    if (!command) throw new Error(tr('「!」のあとに、実行するコマンドを書いてください'));
+    if (this.shellRuns.has(c.id)) throw new Error(tr('前のコマンドがまだ動いています。終わるのを待つか、止めてから送ってください'));
+    const cwd = c.worktreePath && fs.existsSync(c.worktreePath) ? c.worktreePath : c.repoPath;
+    if (!cwd || !fs.existsSync(cwd)) throw new Error(tr('コマンドを動かすフォルダが見つかりません: {path}', { path: cwd || '' }));
+    this.log(c, 'user', `! ${command}`);
+    this.log(c, 'shell', command);
+    let buf = '';
+    let all = '';
+    let chunks = 0;
+    let timer = null;
+    const flush = () => {
+      clearTimeout(timer);
+      timer = null;
+      if (!buf || !this.store.card(c.id)) return;
+      this.log(c, 'shell_out', buf);
+      buf = '';
+      chunks++;
+    };
+    const onOutput = (text) => {
+      const t = appendOutput('', text);
+      if (!t) return;
+      const room = SHELL_MAX_OUTPUT - all.length;
+      all = (all + t).slice(-SHELL_MAX_OUTPUT);
+      if (room <= 0) return; // ログに残すのはここまで（エージェントには最後の分を伝える）
+      buf += t.slice(0, room);
+      if (chunks < SHELL_MAX_CHUNKS && !timer) timer = setTimeout(flush, SHELL_FLUSH_MS);
+    };
+    const handle = startScript({ cwd, script: command, env: this.scriptEnv(c), timeoutMs: this.opts?.shellTimeoutMs || SHELL_TIMEOUT_MS, onOutput, login: true });
+    this.shellRuns.set(c.id, handle);
+    c.shellRunning = true;
+    this.changed(c);
+    handle.done.then((r) => {
+      this.shellRuns.delete(c.id);
+      if (!this.store.card(c.id)) return;
+      flush();
+      delete c.shellRunning;
+      const status = shellStatusText(r);
+      this.log(c, 'shell_end', '', { code: r.code ?? null, signal: r.signal || null, stopped: !!r.stopped, timedOut: !!r.timedOut, error: r.error || null, truncated: all.length >= SHELL_MAX_OUTPUT || undefined });
+      c.shellNotes = [...(c.shellNotes || []), { command, status, output: all.slice(-SHELL_NOTE_OUTPUT).trim() }].slice(-SHELL_MAX_NOTES);
+      this.changed(c);
+    });
+  }
+
+  // 「!」で動かしたコマンドの結果（まだエージェントに伝えていない分）を、次の指示に付ける文にして取り出す
+  takeShellNotes(c) {
+    const notes = c.shellNotes;
+    if (!notes || !notes.length) return '';
+    delete c.shellNotes;
+    return shellNotesText(notes);
   }
 
   // atts: この指示に添付したファイル（Claude Code には画像をそのまま渡す。パスは prompt に書いてある）
@@ -2774,6 +2882,12 @@ class AgentManager extends EventEmitter {
       return;
     }
     const child = this.procs.get(id);
+    // チャットの「!」で動かしているコマンド（エージェントが動いていないとき）
+    const shell = this.shellRuns.get(id);
+    if (shell && !child) {
+      shell.stop();
+      return;
+    }
     if (!child) {
       // エージェントの開始前にセットアップスクリプトが動いているところ
       const run = this.scriptRuns.get(id);
@@ -2789,6 +2903,7 @@ class AgentManager extends EventEmitter {
   }
 
   stopAll() {
+    for (const shell of this.shellRuns.values()) shell.stop();
     for (const [id, child] of this.procs) {
       const c = this.store.card(id);
       if (c) c.stopRequested = true;
