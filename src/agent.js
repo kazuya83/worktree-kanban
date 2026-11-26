@@ -33,6 +33,7 @@ const { SHARED_REL } = require('./shared-settings');
 const I18n = require('../renderer/i18n');
 const BoardColumns = require('../renderer/board-columns');
 const AgentSprite = require('../renderer/agent-sprite');
+const ProgressEta = require('../renderer/progress-eta');
 const APP_VERSION = require('../package.json').version;
 const RPC_PROBE_TIMEOUT_MS = 20000; // 承認のやりとりができるかを確かめるときに、CLI の返事を待つ長さ
 const RPC_RECHECK_MS = 10 * 60 * 1000; // 使えなかった CLI を、もう一度確かめるまでの長さ
@@ -257,6 +258,16 @@ function withReadOnlyNote(prompt) {
 }
 // ソースを変えないタスクで止めるツール（Claude Code の --disallowedTools）
 const READ_ONLY_DISALLOWED_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
+
+// 進み具合の報告: TODO リストを使わないときに、返事に [[PROGRESS:数字]] を書いてもらう（カードと進捗タブの「あと約○分」に使う）
+const PROGRESS_NOTE = [
+  '## 進み具合の報告',
+  '',
+  'TODO リスト（TodoWrite などの TODO のツール）を使わずに作業するときは、作業の区切りごとに、このタスクをレビューに出せるところまでのうち今どのくらい進んだかを、返事の中に `[[PROGRESS:数字]]`（0〜100 の整数。例: `[[PROGRESS:40]]`）と1行で書いてください（アプリがこの印で進み具合と残りの時間の見込みを出します。ユーザーには表示されません）。TODO リストを使うときは書かなくてかまいません。',
+].join('\n');
+function withProgressNote(prompt) {
+  return `${prompt}\n\n---\n\n${PROGRESS_NOTE}`;
+}
 
 function withSpecCheck(prompt) {
   return `${SPEC_CHECK_PROMPT}\n\n---\n\n## タスク\n\n${prompt}`;
@@ -671,7 +682,7 @@ function buildRelayStepPrompt(c, i) {
   );
   const note = relayJudgeNote(c, i);
   if (note) lines.push(note);
-  return lines.join('\n');
+  return withProgressNote(lines.join('\n'));
 }
 
 // 競争: 候補を比べてもらう会話の最初の指示
@@ -1516,6 +1527,7 @@ class AgentManager extends EventEmitter {
     // 提案は、開発を始める前の相談（仕様の確認）の一部として頼む
     else if (inSpecCheck(c) && this.canHaveSubtasks(c) && !c.subtasks) body = Subtasks.withProposeNote(body);
     if (c.readOnly) body = withReadOnlyNote(body);
+    if (!isChat(c)) body = withProgressNote(body);
     const p = promptWithSkill(agentOf(c), c.skill, providers.withPersona(c.persona, inSpecCheck(c) ? withSpecCheck(body) : body));
     return c.relay && !isChat(c) ? buildRelayFirstPrompt(c, p) : p;
   }
@@ -1594,6 +1606,7 @@ class AgentManager extends EventEmitter {
     c.sessionId = null;
     c.forkNext = false;
     delete c.todos; // TODO リストは工程（エージェント）ごと
+    delete c.progressReport;
     const n = relayRunNo(c, r.index);
     this.log(c, 'system', n > 1 ? tr('Pipeline: 工程 {i}/{total}「{label}」（{n}回目）を {who} に引き継ぎます', { i: r.index + 1, total: r.steps.length, label: st.label, n, who: whoLabel(st.agent, st.persona) }) : tr('Pipeline: 工程 {i}/{total}「{label}」を {who} に引き継ぎます', { i: r.index + 1, total: r.steps.length, label: st.label, who: whoLabel(st.agent, st.persona) }));
     this.enqueue(c, c.readOnly ? withReadOnlyNote(buildRelayStepPrompt(c, r.index)) : buildRelayStepPrompt(c, r.index));
@@ -2854,6 +2867,7 @@ class AgentManager extends EventEmitter {
       }
       c.status = 'running';
       c.startedAt = Date.now();
+      delete c.progressReport; // 進み具合の報告は実行ごと（前の実行の 100% を残さない）
       // Pipeline: 今の工程を最初に始めた時刻（追加指示で続けたときは変えない）
       if (c.relay && !isChat(c) && !c.relay.stepStartedAt) c.relay.stepStartedAt = c.startedAt;
       this.changed(c);
@@ -3698,6 +3712,7 @@ class AgentManager extends EventEmitter {
     if (cp.specState) c.specState = cp.specState;
     else delete c.specState;
     delete c.todos;
+    delete c.progressReport;
     delete c.subtaskProposal;
     delete c.btw;
     delete c.lastMessage;
@@ -4156,7 +4171,7 @@ class AgentManager extends EventEmitter {
           this.log(c, 'error', tr('エラーで終了しました: {resultError}', { resultError: run.resultError }));
         } else {
           // 仕様の確認の印・質問フォーム用のブロックは、カードの一言には出さない
-          const said = typeof ev.result === 'string' ? FixTask.extractFixTask(Subtasks.stripSubtasks(extractSpecQuestions(stripSpecMarker(ev.result)).text)).text.trim() : '';
+          const said = typeof ev.result === 'string' ? FixTask.extractFixTask(Subtasks.stripSubtasks(extractSpecQuestions(stripSpecMarker(ProgressEta.extractProgress(ev.result).text)).text)).text.trim() : '';
           if (said) c.lastMessage = truncate(said, 200);
           this.log(c, 'result', tr('完了しました（{secs}秒 / ${amount}）', { secs, amount: cost.toFixed(3) }));
         }
@@ -4462,6 +4477,10 @@ class AgentManager extends EventEmitter {
 
   // 返事の文章から仕様の確認の印と、質問フォーム用の JSON ブロックを取り出してカードに覚えておく（どちらも画面に出さない）
   takeSpecQuestions(c, raw) {
+    // 進み具合の印（[[PROGRESS:数字]]）を取り出して覚えておく（画面には出さない）
+    const prog = ProgressEta.extractProgress(raw);
+    if (prog.pct != null) c.progressReport = { pct: prog.pct, at: Date.now() };
+    raw = prog.text;
     // 完了したタスクについての会話では、修正タスクの案（```fix-task のブロック）を取り出して覚えておく（画面には出さない）
     const fix = FixTask.extractFixTask(raw);
     if (fix.proposal && c.afterDone) c.fixTaskProposal = { ...fix.proposal, at: Date.now() };
@@ -5807,4 +5826,4 @@ class AgentManager extends EventEmitter {
   }
 }
 
-module.exports = { READ_ONLY_DISALLOWED_TOOLS, withReadOnlyNote, relayStepsOf, whoLabel, AgentManager, isNoGit, toolResultText, toolResultImages, agentOf, promptWithSkill, buildRelayStepPrompt, buildComparePrompt, PERMISSION_TOOL, endsWithQuestion, SPEC_MARKER, withSpecCheck, stripSpecMarker, extractSpecQuestions, parseMarkdownQuestions, isOtherOption, withReplyLanguage, takeChromeCommand, isQuitInterrupt, SKILL_SUGGEST_PROMPT, SKILL_SUGGEST_REPEAT_NOTE, buildSkillSuggestPrompt, buildAfterDonePrompt, isChat, isSessionId, quoteForCmd, cleanBranchName, buildBranchNamePrompt, cleanModel, modelOf };
+module.exports = { READ_ONLY_DISALLOWED_TOOLS, withReadOnlyNote, withProgressNote, PROGRESS_NOTE, relayStepsOf, whoLabel, AgentManager, isNoGit, toolResultText, toolResultImages, agentOf, promptWithSkill, buildRelayStepPrompt, buildComparePrompt, PERMISSION_TOOL, endsWithQuestion, SPEC_MARKER, withSpecCheck, stripSpecMarker, extractSpecQuestions, parseMarkdownQuestions, isOtherOption, withReplyLanguage, takeChromeCommand, isQuitInterrupt, SKILL_SUGGEST_PROMPT, SKILL_SUGGEST_REPEAT_NOTE, buildSkillSuggestPrompt, buildAfterDonePrompt, isChat, isSessionId, quoteForCmd, cleanBranchName, buildBranchNamePrompt, cleanModel, modelOf };

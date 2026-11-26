@@ -182,6 +182,12 @@ async function turn(prompt, sessionId) {
     return;
   }
   // [q] があれば、最後に文章で質問して止まる
+  // [progress] があれば（進み具合の報告を頼まれていれば）、進み具合の印を付けて返事をする
+  if (prompt.includes('[progress]') && prompt.includes('[[PROGRESS:')) {
+    out({ type: 'assistant', message: { content: [{ type: 'text', text: '調べ終えました\n[[PROGRESS:40]]\n次は直します' }] } });
+    out({ type: 'result', subtype: 'success', is_error: false, result: '[[PROGRESS:40]]\n直しました', session_id: sessionId, total_cost_usd: 0, duration_ms: 10 });
+    return;
+  }
   if (prompt.includes('[q]')) {
     out({ type: 'assistant', message: { content: [{ type: 'text', text: 'どちらの方法で進めますか？\n- A: 速い\n- B: 安全' }] } });
     out({ type: 'result', subtype: 'success', is_error: false, result: 'どちらの方法で進めますか？', session_id: sessionId, total_cost_usd: 0, duration_ms: 10 });

@@ -894,6 +894,19 @@ test('スキルを付けて実行する（最初の指示と追加指示）', as
   assert.strictEqual(c.logs.filter((l) => l.kind === 'user')[2].skill, undefined);
 });
 
+test('進み具合の報告: 指示にルールを足し、返事の [[PROGRESS:数字]] をカードに覚えて画面には出さない', async () => {
+  const { store, agents } = setup();
+  store.settings.permissionMode = 'bypassPermissions';
+  const c = agents.createCard({ title: 'progress', prompt: '[progress] 直して', skipSpecCheck: true });
+  agents.start(c.id);
+  await waitFor(() => c.status === 'review');
+  assert.strictEqual(c.progressReport.pct, 40);
+  assert.ok(c.logs.some((l) => l.kind === 'text' && l.text === '調べ終えました\n次は直します'));
+  assert.ok(!c.logs.some((l) => l.kind !== 'user' && /(?<!`)\[\[PROGRESS:\d+\]\](?!`)/.test(String(l.text))), '印はログに出さない');
+  assert.ok(!c.logs.some((l) => l.kind === 'user' && String(l.text).includes('進み具合の報告')), 'ルールはユーザーの指示のログには出さない');
+  assert.ok(!String(c.lastMessage).includes('[[PROGRESS:'));
+});
+
 test('仕様の確認: 内容が詰まっていなければ開発を始めずに質問し、答えると仕様が詰まって開発を始める', async () => {
   const { store, agents } = setup();
   const server = new PermissionServer((p, s) => agents.requestPermission(p, s));
