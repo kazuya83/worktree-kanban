@@ -133,3 +133,17 @@ test('commitExists / resetHardClean: 40桁の16進数以外は拒否する', asy
   assert.strictEqual(fs.readFileSync(path.join(repo, 'a.txt'), 'utf8'), 'a\n', '拒否したときはファイルを変えない');
   fs.rmSync(repo, { recursive: true, force: true });
 });
+
+test('finishMerge: 取り込むものがない（もう取り込み済み）ときは、コミットせずに終わる', async () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-kanban-finish-'));
+  const g = (...a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' });
+  g('init', '-q', '-b', 'main');
+  g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init');
+  g('checkout', '-q', '-b', 'task');
+  g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'work');
+  const head = g('rev-parse', 'HEAD');
+  assert.deepStrictEqual(await git.startMerge(repo, 'main'), []);
+  assert.strictEqual(await git.mergeInProgress(repo), false);
+  await git.finishMerge(repo); // 以前は「git commit -q --no-edit」が失敗していた
+  assert.strictEqual(g('rev-parse', 'HEAD'), head);
+});

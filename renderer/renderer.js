@@ -2488,6 +2488,8 @@ $('detailBody').addEventListener('input', (e) => {
 });
 $('detailBody').addEventListener('click', (e) => {
   if (e.target.closest('.log-actions')) logActionClick(e);
+  // チャットの「!」で動かしているコマンドを止める
+  if (e.target.closest('[data-shell-stop]') && state.selected) run(() => api.stop(state.selected));
 });
 // 質問のすぐ下の回答欄でも、Ctrl/⌘ + Enter で送る
 $('detailBody').addEventListener('keydown', (e) => {
@@ -2688,10 +2690,33 @@ function chatItemHtml(it, agent, open, persona) {
     return `<div class="c-row c-agent c-toolrow">${it.head ? chatHeadHtml(it.agent || agent, e || r, pp) : ''}<details class="c-tool${err ? ' err' : ''}"${open ? ' open' : ''}><summary title="${esc(logTime(e || r))}">${icon('wrench')}<span class="c-tool-name">${esc(name)}</span><span class="c-tool-arg">${esc(arg)}</span>${st}</summary>${out}</details>${r ? logImagesHtml(r.images) : ''}</div>`;
   }
   if (it.type === 'shots') return chatShotsHtml(it);
+  if (it.type === 'shell') return chatShellHtml(it);
   // システムのお知らせ・完了・エラー・承認・質問などは、会話の間に小さく挟む
   const k = e.kind;
   const body = k === 'question' ? mdHtml(e.text) : k === 'result' ? mdHtml(e.text) : `<span class="c-note-x">${esc(e.text)}</span>`;
   return `<div class="c-note k-${esc(k)}" title="${esc(LOG_LABEL[k] || k)} ${esc(logTime(e))}">${NOTE_ICON[k] ? icon(NOTE_ICON[k]) : ''}${body}${logImagesHtml(e.images)}</div>`;
+}
+// チャットの「!」で動かしたコマンドの終わり方（終わっていなければ ''）
+function shellEndText(end) {
+  if (!end) return '';
+  if (end.interrupted) return tr('アプリの終了で止まりました');
+  if (end.error) return tr('実行できませんでした: {error}', { error: end.error });
+  if (end.timedOut) return tr('時間がかかりすぎたので止めました');
+  if (end.stopped) return tr('止めました');
+  if (end.code === null || end.code === undefined) return tr('シグナル {signal} で終わりました', { signal: end.signal || '?' });
+  return tr('終了コード {code}', { code: end.code });
+}
+// チャットの「!」で動かしたコマンドと、その出力（動いているあいだは少しずつ増える）
+function chatShellHtml(it) {
+  const e = it.entry || it.end || {};
+  const end = it.end;
+  const bad = !!end && end.code !== 0;
+  const st = end
+    ? `<span class="c-shell-st${bad ? ' bad' : ''}">${esc(shellEndText(end))}</span>`
+    : `<span class="c-shell-st run">${esc(tr('実行中…'))}</span><button class="btn ghost small" data-shell-stop title="${esc(tr('このコマンドを止めます'))}">${esc(tr('止める'))}</button>`;
+  const out = it.output ? `<pre class="c-shell-out">${esc(it.output)}</pre>` : `<div class="c-shell-out muted small">${esc(end ? tr('（出力はありません）') : tr('（出力を待っています）'))}</div>`;
+  const cmd = it.entry ? `<code class="c-shell-cmd">$ ${esc(it.entry.text)}</code>` : `<span class="c-shell-cmd muted">${esc(tr('コマンドの出力'))}</span>`;
+  return `<div class="c-row c-shell${bad ? ' err' : ''}" title="${esc(logTime(e))}"><div class="c-shell-head">${icon('terminal')}${cmd}${st}</div>${out}${end && end.truncated ? `<div class="muted small">${esc(tr('出力が長いので、途中から先は省きました'))}</div>` : ''}</div>`;
 }
 // チャットタブ: やり取りのまとまりで、エージェントが最後に撮った画像（スクリーンショットなど）。
 // それより前に撮った画像は「途中の画像」として折りたたむ

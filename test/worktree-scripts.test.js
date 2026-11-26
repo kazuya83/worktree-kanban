@@ -294,3 +294,69 @@ test('worktree を消すとポートを返す', async () => {
   await ctx.agents.removeWorktreeOf(c, ctx.repo);
   assert.strictEqual(c.devPort, undefined);
 });
+
+// ---------- チャットの「!」で動かすコマンド ----------
+
+test('チャットの「! コマンド」は、エージェントに送らずにタスクのフォルダで動かし、出力をログに出す', posixOnly, async () => {
+  const ctx = setup();
+  const c = start(ctx);
+  await waitFor(() => ctx.store.card(c.id).status === 'review');
+  const prompts = c.logs.filter((l) => l.kind === 'user').length;
+  ctx.agents.send(c.id, '! pwd && echo hi-from-shell');
+  assert.strictEqual(c.status, 'review', 'エージェントは動かさない');
+  assert.ok(c.shellRunning);
+  await waitFor(() => c.logs.some((l) => l.kind === 'shell_end'));
+  assert.ok(!c.shellRunning);
+  const user = c.logs.filter((l) => l.kind === 'user');
+  assert.strictEqual(user.length, prompts + 1);
+  assert.strictEqual(user[user.length - 1].text, '! pwd && echo hi-from-shell');
+  assert.strictEqual(c.logs.find((l) => l.kind === 'shell').text, 'pwd && echo hi-from-shell');
+  const out = c.logs.filter((l) => l.kind === 'shell_out').map((l) => l.text).join('');
+  assert.match(out, /hi-from-shell/);
+  assert.ok(out.includes(fs.realpathSync(c.worktreePath)) || out.includes(c.worktreePath), 'worktree で動かす');
+  assert.strictEqual(c.logs.find((l) => l.kind === 'shell_end').code, 0);
+  // 次の指示で、コマンドの結果をエージェントに伝える
+  ctx.agents.send(c.id, 'つづけて');
+  assert.match(c.pendingPrompt, /hi-from-shell/);
+  assert.match(c.pendingPrompt, /終了コード 0/);
+  assert.match(c.pendingPrompt, /つづけて$/);
+  assert.ok(!c.shellNotes);
+  await waitFor(() => ctx.store.card(c.id).status === 'review');
+});
+
+test('「!」のコマンドは止められ、動いているあいだはふつうの指示を送れない', posixOnly, async () => {
+  const ctx = setup();
+  const c = start(ctx);
+  await waitFor(() => ctx.store.card(c.id).status === 'review');
+  ctx.agents.send(c.id, '!sleep 30');
+  assert.throws(() => ctx.agents.send(c.id, 'つづけて'), /まだ動いています/);
+  assert.throws(() => ctx.agents.send(c.id, '! echo again'), /まだ動いています/);
+  ctx.agents.stop(c.id);
+  await waitFor(() => c.logs.some((l) => l.kind === 'shell_end'));
+  assert.strictEqual(c.logs.find((l) => l.kind === 'shell_end').stopped, true);
+  assert.throws(() => ctx.agents.send(c.id, '!'), /コマンドを書いて/);
+});
+
+test('「! コマンド」で始めた会話は、エージェントを動かさずにコマンドだけ動かす', posixOnly, async () => {
+  const ctx = setup();
+  const chat = ctx.agents.createChat({ message: '! echo chat-shell' });
+  assert.strictEqual(chat.status, 'review');
+  await waitFor(() => chat.logs.some((l) => l.kind === 'shell_end'));
+  assert.match(chat.logs.filter((l) => l.kind === 'shell_out').map((l) => l.text).join(''), /chat-shell/);
+  assert.ok(!chat.logs.some((l) => l.kind === 'text'));
+});
+
+test('チャットの表示: 「!」のコマンドの始まり・出力・終わりを1つにまとめる', () => {
+  const logs = [{ kind: 'user', text: '! ls' }, { kind: 'shell', text: 'ls' }, { kind: 'shell_out', text: 'a\n' }, { kind: 'shell_out', text: 'b\n' }, { kind: 'shell_end', text: '', code: 0 }, { kind: 'text', text: 'ok' }];
+  for (const M of [require('../renderer/chat-log.js'), require('../mobile/assets/chat-model.js')]) {
+    for (const items of [M.build(logs, 'claude'), M.final(logs, 'claude')]) {
+      assert.deepStrictEqual(items.map((i) => i.type), ['user', 'shell', 'assistant']);
+      assert.strictEqual(items[1].output, 'a\nb\n');
+      assert.strictEqual(items[1].end.code, 0);
+    }
+    const items = [];
+    assert.strictEqual(M.push(items, logs[1], 'claude').op, 'append');
+    assert.strictEqual(M.push(items, logs[2], 'claude').op, 'replace');
+    assert.strictEqual(M.push(items, logs[4], 'claude').op, 'replace');
+  }
+});

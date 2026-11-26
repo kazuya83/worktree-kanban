@@ -882,6 +882,18 @@
       const more = it.earlier && it.earlier.length ? h('details.c-shots-more', null, h('summary', { text: tr('途中の画像（{n} 枚）', { n: it.earlier.length }) }), imagesEl(it.earlier)) : null;
       return h('div.c-row.c-agent.c-shots', null, h('div.c-shots-head', null, icon('image'), h('span', { text: tr('最後に撮った画像') })), imagesEl(it.images), more);
     }
+    if (it.type === 'shell') {
+      // チャットの「!」で動かしたコマンドと、その出力
+      const end = it.end;
+      const bad = !!end && end.code !== 0;
+      const st = !end ? tr('実行中…') : end.interrupted ? tr('アプリの終了で止まりました') : end.error ? tr('実行できませんでした: {error}', { error: end.error }) : end.timedOut ? tr('時間がかかりすぎたので止めました') : end.stopped ? tr('止めました') : end.code === null || end.code === undefined ? tr('シグナル {signal} で終わりました', { signal: end.signal || '?' }) : tr('終了コード {code}', { code: end.code });
+      return h(
+        'div.c-row.c-shell',
+        { class: bad ? 'err' : '' },
+        h('div.c-shell-head', null, h('span.c-shell-cmd', { text: e ? `$ ${e.text || ''}` : tr('コマンドの出力') }), h('span.c-shell-st', { class: bad ? 'bad' : '', text: st })),
+        it.output ? h('pre.c-tool-out', { text: it.output }) : h('div.c-tool-out.muted.small', { text: end ? tr('（出力はありません）') : tr('（出力を待っています）') }),
+      );
+    }
     const k = e.kind;
     const NOTE = { result: 'check', error: 'alert', question: 'question', permission: 'lock' };
     const body = k === 'question' || k === 'result' ? mdEl(e.text) : h('span.c-note-x', { text: e.text || '' });
@@ -896,7 +908,7 @@
     const running = c.status === 'running';
     const items = logs ? MobileChat.final(logs, BM.agentOf(c), running) : [];
     const last = items[items.length - 1];
-    const sig = JSON.stringify([I18n.getLanguage(), !!logs, running, items.length, last && last.entry && last.entry.t, last && last.entry && String(last.entry.text || '').length, items.reduce((n, it) => n + (it.type === 'shots' ? it.images.length + it.earlier.length : 0), 0)]);
+    const sig = JSON.stringify([I18n.getLanguage(), !!logs, running, items.length, last && last.entry && last.entry.t, last && last.entry && String(last.entry.text || '').length, last && last.type === 'shell' ? [last.output.length, !!last.end] : 0, items.reduce((n, it) => n + (it.type === 'shots' ? it.images.length + it.earlier.length : 0), 0)]);
     if (!force && sig === S.chatSig) return;
     S.chatSig = sig;
     const stick = nearBottom(body) || !box.childNodes.length;

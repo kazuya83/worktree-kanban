@@ -43,12 +43,13 @@ async function portsFree(port, count = PORT_COUNT) {
 }
 
 // 途中の行が失敗したらそこで止める（セットアップの失敗を見逃さないように）
-async function commandFor(cwd, script, env) {
+// login: チャットの「!」で動かすコマンド。ターミナルと同じに使えるよう、ユーザーのログインシェルでそのまま動かす（set -e は付けない）
+async function commandFor(cwd, script, env, { login = false } = {}) {
   const base = { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true };
-  const posix = `set -e\n${script}`;
+  const posix = login ? script : `set -e\n${script}`;
   const w = wsl.parseWslPath(cwd);
   if (w) {
-    const cm = wsl.command(w.distro, w.linux, 'bash', ['-c', posix], { path: await wsl.shellPath(w.distro), env });
+    const cm = wsl.command(w.distro, w.linux, 'bash', [login ? '-lc' : '-c', posix], { path: await wsl.shellPath(w.distro), env });
     return { file: cm.file, args: cm.args, options: { ...base, env: process.env, detached: !isWin } };
   }
   const options = { ...base, cwd, env: { ...process.env, ...env } };
@@ -58,6 +59,7 @@ async function commandFor(cwd, script, env) {
     return { file: line, args: [], options: { ...options, shell: true } };
   }
   // 別のプロセスグループにして、シェルの子（npm → node など）もまとめて止められるようにする
+  if (login) return { file: String(process.env.SHELL || '').trim() || '/bin/sh', args: ['-lc', posix], options: { ...options, detached: true } };
   return { file: '/bin/sh', args: ['-c', posix], options: { ...options, detached: true } };
 }
 
@@ -75,10 +77,10 @@ function killScript(child, signal) {
 
 /**
  * スクリプトを動かす。done は決して reject しない
- * @param {{ cwd: string, script: string, env?: object, timeoutMs?: number, onOutput?: (text: string) => void }} opts
+ * @param {{ cwd: string, script: string, env?: object, timeoutMs?: number, onOutput?: (text: string) => void, login?: boolean }} opts
  * @returns {{ done: Promise<{ code: number|null, signal?: string|null, stopped: boolean, timedOut: boolean, error?: string }>, stop: () => Promise<any> }}
  */
-function startScript({ cwd, script, env = {}, timeoutMs = 0, onOutput = () => {} }) {
+function startScript({ cwd, script, env = {}, timeoutMs = 0, onOutput = () => {}, login = false }) {
   let child = null;
   let ended = false;
   let stopped = false;
@@ -95,7 +97,7 @@ function startScript({ cwd, script, env = {}, timeoutMs = 0, onOutput = () => {}
     }, KILL_WAIT_MS).unref();
   };
   const done = (async () => {
-    const cm = await commandFor(cwd, script, env);
+    const cm = await commandFor(cwd, script, env, { login });
     if (stopped) return { code: null, stopped, timedOut };
     return new Promise((resolve) => {
       let timer = null;

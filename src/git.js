@@ -181,7 +181,9 @@ async function filesWithMarkers(dir, files) {
   return out.split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
+// 取り込みを終える。取り込むものがなかった（Already up to date: もう取り込み済み）ときは、取り込みの途中の状態にならないので何もしない
 async function finishMerge(dir) {
+  if (!(await mergeInProgress(dir))) return;
   await git(dir, ['add', '-A']);
   await git(dir, [...(await identityArgs(dir)), 'commit', '-q', '--no-edit']);
 }
